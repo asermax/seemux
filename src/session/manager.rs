@@ -217,10 +217,11 @@ impl SessionManager {
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         sv.spawn_pane(&new_pane_id, None, &env_refs);
 
-        // Rebuild the widget in the stack
+        // Rebuild the widget in the stack — unparent terminals first
         if let Some(old) = self.stack.child_by_name(&active_id) {
             self.stack.remove(&old);
         }
+        sv.root.borrow().unparent_all();
 
         let new_widget = sv.build_widget();
         self.stack.add_named(&new_widget, Some(&active_id));
@@ -244,10 +245,11 @@ impl SessionManager {
             return true;
         }
 
-        // Rebuild the widget in the stack
+        // Rebuild the widget in the stack — unparent terminals first
         if let Some(old) = self.stack.child_by_name(&active_id) {
             self.stack.remove(&old);
         }
+        sv.root.borrow().unparent_all();
 
         let new_widget = sv.build_widget();
         self.stack.add_named(&new_widget, Some(&active_id));

@@ -21,7 +21,23 @@ pub enum SplitNode {
 }
 
 impl SplitNode {
+    /// Unparent all terminal widgets so they can be re-added to a new tree.
+    pub fn unparent_all(&self) {
+        match self {
+            SplitNode::Leaf { terminal, .. } => {
+                if terminal.widget().parent().is_some() {
+                    terminal.widget().unparent();
+                }
+            }
+            SplitNode::Split { first, second, .. } => {
+                first.unparent_all();
+                second.unparent_all();
+            }
+        }
+    }
+
     /// Recursively build the GTK widget tree for this node.
+    /// Call `unparent_all()` first if rebuilding after a structural change.
     pub fn build_widget(&self) -> Widget {
         match self {
             SplitNode::Leaf { terminal, .. } => terminal.widget().clone(),
