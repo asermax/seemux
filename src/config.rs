@@ -11,6 +11,9 @@ pub struct Config {
     pub scrollback_lines: u32,
     pub sidebar_width: i32,
     pub color_scheme: String,
+    pub dropdown_width_percent: u32,
+    pub dropdown_height_percent: u32,
+    pub dropdown_animation_ms: u32,
 }
 
 impl Default for Config {
@@ -21,6 +24,9 @@ impl Default for Config {
             scrollback_lines: 10000,
             sidebar_width: 200,
             color_scheme: "catppuccin-mocha".to_string(),
+            dropdown_width_percent: 90,
+            dropdown_height_percent: 50,
+            dropdown_animation_ms: 200,
         }
     }
 }
@@ -148,6 +154,9 @@ mod tests {
             scrollback_lines: 5000,
             sidebar_width: 250,
             color_scheme: "dracula".to_string(),
+            dropdown_width_percent: 90,
+            dropdown_height_percent: 50,
+            dropdown_animation_ms: 200,
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();

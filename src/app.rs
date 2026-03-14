@@ -111,11 +111,23 @@ pub fn build_window(app: &Application) {
         }
     }
 
+    // Create dropdown window (shown via `seemux toggle` CLI command)
+    let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, &config.borrow()));
+
     // Poll hook events from the background thread
     let mgr_for_hooks = manager.clone();
     let notif_store = notification_store.clone();
+    let dropdown_ref = Some(dropdown.clone());
     glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
         while let Ok(event) = hook_rx.try_recv() {
+            // Handle dropdown toggle command
+            if event.event == "toggle-dropdown" {
+                if let Some(dd) = dropdown_ref.as_ref() {
+                    dd.toggle();
+                }
+                continue;
+            }
+
             let result = hook_handler::handle_hook_event(event);
 
             // Update session status
