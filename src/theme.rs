@@ -262,6 +262,62 @@ list row {{
 list row:selected {{
     background: none;
 }}
+
+/* Tab groups */
+
+.tab-group {{
+    margin-top: 4px;
+}}
+
+.tab-group-header {{
+    padding: 4px 12px;
+}}
+
+.group-toggle {{
+    min-width: 16px;
+    min-height: 16px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: {text_muted};
+    font-size: 10px;
+}}
+
+.group-name {{
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: {text_muted};
+}}
+
+.group-add-btn {{
+    min-width: 20px;
+    min-height: 20px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: {text_muted};
+    font-size: 14px;
+}}
+
+.group-add-btn:hover {{
+    color: {text_primary};
+}}
+
+.new-group-btn {{
+    margin: 4px 8px;
+    padding: 4px;
+    border-radius: 4px;
+    border: none;
+    color: {text_muted};
+    background: none;
+    font-size: 11px;
+}}
+
+.new-group-btn:hover {{
+    color: {text_secondary};
+    background-color: {surface_hover};
+}}
 "#,
         name = s.name,
         window_bg = s.window_bg,

@@ -2,6 +2,8 @@ pub mod manager;
 
 use serde::{Deserialize, Serialize};
 
+pub const DEFAULT_GROUP: &str = "default";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
@@ -10,6 +12,7 @@ pub struct Session {
     pub claude_pid: Option<u32>,
     pub created_at: i64,
     pub cwd: Option<String>,
+    pub group_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -57,6 +60,7 @@ impl Session {
                 .map(|dt| dt.to_unix())
                 .unwrap_or(0),
             cwd: None,
+            group_id: DEFAULT_GROUP.to_string(),
         }
     }
 }

@@ -100,14 +100,14 @@ pub fn build_window(app: &Application) {
     // Restore saved sessions or create a fresh one
     if saved_state.sessions.is_empty() {
         let first_id = manager.borrow_mut().create_session(None, None);
-        wire_tab_lifecycle(&sidebar, &manager, &first_id);
+        wire_tab_lifecycle(&sidebar, &manager, &notification_store, &first_id);
     } else {
         for saved in &saved_state.sessions {
             let cwd = saved.cwd.as_deref()
                 .filter(|p| std::path::Path::new(p).exists());
 
             let id = manager.borrow_mut().create_session(Some(&saved.title), cwd);
-            wire_tab_lifecycle(&sidebar, &manager, &id);
+            wire_tab_lifecycle(&sidebar, &manager, &notification_store, &id);
         }
     }
 
@@ -220,7 +220,7 @@ pub fn build_window(app: &Application) {
         // Ctrl+T or Ctrl+Shift+T: new tab
         if ctrl && (key == Key::t || key == Key::T) {
             let id = mgr.borrow_mut().create_session(None, None);
-            wire_tab_lifecycle(&sidebar_for_keys, &mgr, &id);
+            wire_tab_lifecycle(&sidebar_for_keys, &mgr, &notif_for_keys, &id);
             return glib::Propagation::Stop;
         }
 
@@ -283,14 +283,7 @@ pub fn build_window(app: &Application) {
 
     window.add_controller(key_controller);
 
-    // Auto-mark notifications as read on sidebar tab click
-    let mgr_for_sidebar = manager.clone();
-    let notif_for_sidebar = notification_store.clone();
-    sidebar.connect_tab_selected(move |_id| {
-        if let Some(active) = mgr_for_sidebar.borrow().active_id() {
-            notif_for_sidebar.borrow_mut().mark_read(active);
-        }
-    });
+    // Note: auto-read on tab click is handled in wire_tab_lifecycle via wire_tab_click
 
     // Save session state and sidebar width on window close
     let mgr_for_close = manager.clone();
@@ -322,8 +315,19 @@ pub fn build_window(app: &Application) {
 fn wire_tab_lifecycle(
     sidebar: &Rc<Sidebar>,
     manager: &Rc<RefCell<SessionManager>>,
+    notification_store: &Rc<RefCell<NotificationStore>>,
     session_id: &str,
 ) {
+    // Click to select + auto-read notifications
+    let mgr = manager.clone();
+    let notif = notification_store.clone();
+    sidebar.wire_tab_click(session_id, move |id| {
+        if let Ok(mut m) = mgr.try_borrow_mut() {
+            m.switch_to(&id);
+        }
+        notif.borrow_mut().mark_read(&id);
+    });
+
     let mgr = manager.clone();
     sidebar.wire_close_button(session_id, move |id| {
         mgr.borrow_mut().destroy_session(&id);

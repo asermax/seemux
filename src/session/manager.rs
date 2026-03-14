@@ -48,15 +48,7 @@ impl SessionManager {
             hook_script_path,
         }));
 
-        // Wire sidebar tab selection
-        let mgr = manager.clone();
-        manager.borrow().sidebar.connect_tab_selected(move |id| {
-            if let Ok(mut m) = mgr.try_borrow_mut() {
-                m.switch_to(id);
-            }
-        });
-
-        // Wire new tab button
+        // Wire new tab button (default group)
         let mgr = manager.clone();
         manager.borrow().sidebar.connect_new_tab(move || {
             mgr.borrow_mut().create_session(None, None);
