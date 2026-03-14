@@ -58,6 +58,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     paned.set_start_child(Some(&sidebar.container));
     paned.set_end_child(Some(&stack));
     paned.set_position(config.borrow().sidebar_width);
+    paned.set_wide_handle(true);
     paned.set_shrink_start_child(false);
     paned.set_shrink_end_child(false);
     paned.set_resize_start_child(false);
@@ -115,41 +116,28 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         wire_tab_lifecycle(&sidebar_new_tab, &mgr_new_tab, &notif_new_tab, &id);
     });
 
-    // Wire "New Group" button — show a dialog for naming
+    // Wire "New Group" button — show a dialog with name input
     let mgr_for_group = manager.clone();
     let sidebar_for_group = sidebar.clone();
     let notif_for_group = notification_store.clone();
     let window_for_group = window.clone();
     sidebar.connect_new_group(move || {
-        let dialog = gtk4::AlertDialog::builder()
-            .message("New Group")
-            .detail("Enter a name for the group:")
-            .buttons(["Cancel", "Create"])
-            .default_button(1)
-            .cancel_button(0)
-            .build();
-
         let mgr = mgr_for_group.clone();
         let sid = sidebar_for_group.clone();
         let notif = notif_for_group.clone();
-        let win = window_for_group.clone();
 
-        dialog.choose(Some(&win), gio::Cancellable::NONE, move |result| {
-            // Button 1 = "Create"
-            if result == Ok(1) {
-                let group_id = uuid::Uuid::new_v4().to_string();
-                let group_name = "New Group"; // TODO: use input from dialog
-                sid.add_group(&group_id, group_name);
+        show_new_group_dialog(&window_for_group, move |name| {
+            let group_id = uuid::Uuid::new_v4().to_string();
+            sid.add_group(&group_id, &name);
 
-                let mgr2 = mgr.clone();
-                let sid2 = sid.clone();
-                let notif2 = notif.clone();
-                let gid = group_id.clone();
-                sid.connect_group_new_tab(&group_id, move |_| {
-                    let id = mgr2.borrow_mut().create_session_in_group(None, None, &gid);
-                    wire_tab_lifecycle(&sid2, &mgr2, &notif2, &id);
-                });
-            }
+            let mgr2 = mgr.clone();
+            let sid2 = sid.clone();
+            let notif2 = notif.clone();
+            let gid = group_id.clone();
+            sid.connect_group_new_tab(&group_id, move |_| {
+                let id = mgr2.borrow_mut().create_session_in_group(None, None, &gid);
+                wire_tab_lifecycle(&sid2, &mgr2, &notif2, &id);
+            });
         });
     });
 
@@ -484,6 +472,82 @@ fn setup_terminal_context_menu(stack: &Stack) {
     });
 
     stack.add_controller(gesture);
+}
+
+fn show_new_group_dialog<F: Fn(String) + 'static>(window: &ApplicationWindow, on_create: F) {
+    use gtk4::{Box as GtkBox, Button, Entry, Label, Orientation, Window};
+
+    let dialog = Window::builder()
+        .transient_for(window)
+        .modal(true)
+        .title("New Group")
+        .default_width(300)
+        .default_height(120)
+        .resizable(false)
+        .build();
+
+    let vbox = GtkBox::new(Orientation::Vertical, 12);
+    vbox.set_margin_top(16);
+    vbox.set_margin_bottom(16);
+    vbox.set_margin_start(16);
+    vbox.set_margin_end(16);
+
+    let label = Label::new(Some("Group name:"));
+    label.set_xalign(0.0);
+
+    let entry = Entry::new();
+    entry.set_placeholder_text(Some("Enter group name"));
+
+    let btn_box = GtkBox::new(Orientation::Horizontal, 8);
+    btn_box.set_halign(gtk4::Align::End);
+
+    let cancel_btn = Button::with_label("Cancel");
+    let create_btn = Button::with_label("Create");
+    create_btn.add_css_class("suggested-action");
+
+    btn_box.append(&cancel_btn);
+    btn_box.append(&create_btn);
+
+    vbox.append(&label);
+    vbox.append(&entry);
+    vbox.append(&btn_box);
+
+    dialog.set_child(Some(&vbox));
+
+    let dialog_cancel = dialog.clone();
+    cancel_btn.connect_clicked(move |_| {
+        dialog_cancel.close();
+    });
+
+    let on_create = Rc::new(on_create);
+
+    let dialog_create = dialog.clone();
+    let entry_create = entry.clone();
+    let on_create_btn = on_create.clone();
+    create_btn.connect_clicked(move |_| {
+        let name = entry_create.text().to_string();
+
+        if !name.is_empty() {
+            on_create_btn(name);
+        }
+
+        dialog_create.close();
+    });
+
+    let dialog_enter = dialog.clone();
+    let entry_enter = entry.clone();
+    entry.connect_activate(move |_| {
+        let name = entry_enter.text().to_string();
+
+        if !name.is_empty() {
+            on_create(name);
+        }
+
+        dialog_enter.close();
+    });
+
+    dialog.present();
+    entry.grab_focus();
 }
 
 fn send_desktop_notification(title: &str, subtitle: &str, body: &str) {
