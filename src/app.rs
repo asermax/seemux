@@ -106,21 +106,50 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         }
     }
 
-    // Wire "New Group" button
+    // Wire default group's "+ Add tab" button
+    let mgr_new_tab = manager.clone();
+    let sidebar_new_tab = sidebar.clone();
+    let notif_new_tab = notification_store.clone();
+    sidebar.connect_new_tab(move || {
+        let id = mgr_new_tab.borrow_mut().create_session(None, None);
+        wire_tab_lifecycle(&sidebar_new_tab, &mgr_new_tab, &notif_new_tab, &id);
+    });
+
+    // Wire "New Group" button — show a dialog for naming
     let mgr_for_group = manager.clone();
     let sidebar_for_group = sidebar.clone();
     let notif_for_group = notification_store.clone();
+    let window_for_group = window.clone();
     sidebar.connect_new_group(move || {
-        let group_id = uuid::Uuid::new_v4().to_string();
-        sidebar_for_group.add_group(&group_id, "New Group");
+        let dialog = gtk4::AlertDialog::builder()
+            .message("New Group")
+            .detail("Enter a name for the group:")
+            .buttons(["Cancel", "Create"])
+            .default_button(1)
+            .cancel_button(0)
+            .build();
 
-        // Wire the group's "+" button to create a tab in that group
         let mgr = mgr_for_group.clone();
         let sid = sidebar_for_group.clone();
         let notif = notif_for_group.clone();
-        sidebar_for_group.connect_group_new_tab(&group_id, move |_gid| {
-            let id = mgr.borrow_mut().create_session(None, None);
-            wire_tab_lifecycle(&sid, &mgr, &notif, &id);
+        let win = window_for_group.clone();
+
+        dialog.choose(Some(&win), gio::Cancellable::NONE, move |result| {
+            // Button 1 = "Create"
+            if result == Ok(1) {
+                let group_id = uuid::Uuid::new_v4().to_string();
+                let group_name = "New Group"; // TODO: use input from dialog
+                sid.add_group(&group_id, group_name);
+
+                let mgr2 = mgr.clone();
+                let sid2 = sid.clone();
+                let notif2 = notif.clone();
+                let gid = group_id.clone();
+                sid.connect_group_new_tab(&group_id, move |_| {
+                    let id = mgr2.borrow_mut().create_session_in_group(None, None, &gid);
+                    wire_tab_lifecycle(&sid2, &mgr2, &notif2, &id);
+                });
+            }
         });
     });
 

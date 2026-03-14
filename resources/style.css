@@ -19,7 +19,6 @@ separator {
 
 /* Paned drag handle */
 paned > separator {
-    min-width: 2px;
     background-color: #313244;
 }
 

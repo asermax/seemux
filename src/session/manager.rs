@@ -49,12 +49,6 @@ impl SessionManager {
             hook_script_path,
         }));
 
-        // Wire new tab button (default group)
-        let mgr = manager.clone();
-        manager.borrow().sidebar.connect_new_tab(move || {
-            mgr.borrow_mut().create_session(None, None);
-        });
-
         manager
     }
 
@@ -63,8 +57,13 @@ impl SessionManager {
     }
 
     pub fn create_session(&mut self, title: Option<&str>, cwd: Option<&str>) -> String {
+        self.create_session_in_group(title, cwd, crate::session::DEFAULT_GROUP)
+    }
+
+    pub fn create_session_in_group(&mut self, title: Option<&str>, cwd: Option<&str>, group_id: &str) -> String {
         let index = self.sessions.len() + 1;
-        let session = Session::new(title.unwrap_or(&format!("Tab {index}")).to_string());
+        let mut session = Session::new(title.unwrap_or(&format!("Tab {index}")).to_string());
+        session.group_id = group_id.to_string();
         let id = session.id.clone();
 
         let env_vars = self.build_env_vars(&id);

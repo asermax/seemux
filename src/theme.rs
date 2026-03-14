@@ -104,12 +104,6 @@ window {{
     padding: 6px 0;
 }}
 
-separator {{
-    background-color: {separator};
-    min-width: 1px;
-    min-height: 1px;
-}}
-
 paned > separator {{
     background-color: {separator};
 }}
