@@ -203,16 +203,16 @@ pub fn build_window(app: &Application) {
 
         // Ctrl+Shift+C: copy from terminal
         if ctrl && shift && key == Key::C {
-            if let Some(term) = mgr.borrow().active_terminal() {
-                term.terminal().copy_clipboard_format(vte4::Format::Text);
+            if let Some(term) = mgr.borrow().active_terminal_vte() {
+                term.copy_clipboard_format(vte4::Format::Text);
             }
             return glib::Propagation::Stop;
         }
 
         // Ctrl+Shift+V: paste to terminal
         if ctrl && shift && key == Key::V {
-            if let Some(term) = mgr.borrow().active_terminal() {
-                term.terminal().paste_clipboard();
+            if let Some(term) = mgr.borrow().active_terminal_vte() {
+                term.paste_clipboard();
             }
             return glib::Propagation::Stop;
         }
@@ -386,8 +386,8 @@ fn register_terminal_actions(
     let mgr = manager.clone();
     let action = gio::SimpleAction::new("term-copy", None);
     action.connect_activate(move |_, _| {
-        if let Some(term) = mgr.borrow().active_terminal() {
-            term.terminal().copy_clipboard_format(vte4::Format::Text);
+        if let Some(term) = mgr.borrow().active_terminal_vte() {
+            term.copy_clipboard_format(vte4::Format::Text);
         }
     });
     window.add_action(&action);
@@ -396,8 +396,8 @@ fn register_terminal_actions(
     let mgr = manager.clone();
     let action = gio::SimpleAction::new("term-paste", None);
     action.connect_activate(move |_, _| {
-        if let Some(term) = mgr.borrow().active_terminal() {
-            term.terminal().paste_clipboard();
+        if let Some(term) = mgr.borrow().active_terminal_vte() {
+            term.paste_clipboard();
         }
     });
     window.add_action(&action);

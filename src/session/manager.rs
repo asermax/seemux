@@ -6,15 +6,16 @@ use std::rc::Rc;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::Stack;
+use vte4::prelude::*;
 
 use crate::config::{Config, SavedSession, SessionState};
 use crate::session::{Session, SessionStatus};
 use crate::sidebar::Sidebar;
-use crate::terminal::VteTerminal;
+use crate::terminal::{VteTerminal, SplitView};
 
 pub struct SessionManager {
     sessions: Vec<Session>,
-    terminals: HashMap<String, VteTerminal>,
+    split_views: HashMap<String, SplitView>,
     active_id: Option<String>,
     stack: Stack,
     sidebar: Rc<Sidebar>,
@@ -37,7 +38,7 @@ impl SessionManager {
 
         let manager = Rc::new(RefCell::new(Self {
             sessions: Vec::new(),
-            terminals: HashMap::new(),
+            split_views: HashMap::new(),
             active_id: None,
             stack,
             sidebar,
@@ -69,60 +70,67 @@ impl SessionManager {
         let env_vars = self.build_env_vars(&id);
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
+        let pane_id = uuid::Uuid::new_v4().to_string();
         let terminal = VteTerminal::new_with_config(&self.config.borrow());
 
         if self.stack.is_realized() {
             terminal.spawn_shell(cwd, &env_refs);
         }
 
-        self.stack.add_named(terminal.widget(), Some(&id));
+        // Wire title and CWD signals
+        self.wire_terminal_signals(&terminal, &id);
+
+        let split_view = SplitView::new(terminal, pane_id);
+        let widget = split_view.build_widget();
+        self.stack.add_named(&widget, Some(&id));
         self.sidebar.add_tab(&session);
 
-        let sidebar = self.sidebar.clone();
-        let session_id = id.clone();
-        terminal.connect_title_changed(move |new_title| {
-            sidebar.update_title(&session_id, new_title);
-        });
-
-        // Wire CWD changes to git branch detection
-        let sidebar = self.sidebar.clone();
-        let session_id = id.clone();
-        let last_cwd: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
-        terminal.connect_cwd_changed(move |path| {
-            let Some(cwd) = path else {
-                sidebar.update_branch(&session_id, None);
-                return;
-            };
-
-            // Debounce: skip if same CWD
-            if last_cwd.borrow().as_deref() == Some(&cwd) {
-                return;
-            }
-            *last_cwd.borrow_mut() = Some(cwd.clone());
-
-            let sidebar = sidebar.clone();
-            let session_id = session_id.clone();
-            crate::git::detect_branch_async(&cwd, move |branch| {
-                sidebar.update_branch(&session_id, branch.as_deref());
-            });
-        });
-
-        self.terminals.insert(id.clone(), terminal);
+        self.split_views.insert(id.clone(), split_view);
         self.sessions.push(session);
         self.switch_to(&id);
 
         id
     }
 
+    fn wire_terminal_signals(&self, terminal: &VteTerminal, session_id: &str) {
+        let sidebar = self.sidebar.clone();
+        let sid = session_id.to_string();
+        terminal.connect_title_changed(move |new_title| {
+            sidebar.update_title(&sid, new_title);
+        });
+
+        let sidebar = self.sidebar.clone();
+        let sid = session_id.to_string();
+        let last_cwd: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        terminal.connect_cwd_changed(move |path| {
+            let Some(cwd) = path else {
+                sidebar.update_branch(&sid, None);
+                return;
+            };
+
+            if last_cwd.borrow().as_deref() == Some(&cwd) {
+                return;
+            }
+            *last_cwd.borrow_mut() = Some(cwd.clone());
+
+            let sidebar = sidebar.clone();
+            let sid = sid.clone();
+            crate::git::detect_branch_async(&cwd, move |branch| {
+                sidebar.update_branch(&sid, branch.as_deref());
+            });
+        });
+    }
+
     pub fn destroy_session(&mut self, session_id: &str) {
-        if let Some(terminal) = self.terminals.get(session_id) {
-            if terminal.widget().parent().as_ref() == Some(self.stack.upcast_ref()) {
-                self.stack.remove(terminal.widget());
+        if let Some(sv) = self.split_views.get(session_id) {
+            let widget = sv.build_widget();
+            if widget.parent().as_ref() == Some(self.stack.upcast_ref()) {
+                self.stack.remove(&widget);
             }
         }
 
         self.sidebar.remove_tab(session_id);
-        self.terminals.remove(session_id);
+        self.split_views.remove(session_id);
         self.sessions.retain(|s| s.id != session_id);
 
         if self.sessions.is_empty() {
@@ -164,12 +172,10 @@ impl SessionManager {
 
     pub fn spawn_deferred(&self) {
         for session in &self.sessions {
-            if let Some(terminal) = self.terminals.get(&session.id) {
-                if terminal.needs_spawn() {
-                    let env_vars = self.build_env_vars(&session.id);
-                    let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-                    terminal.spawn_shell(session.cwd.as_deref(), &env_refs);
-                }
+            if let Some(sv) = self.split_views.get(&session.id) {
+                let env_vars = self.build_env_vars(&session.id);
+                let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+                sv.spawn_deferred(session.cwd.as_deref(), &env_refs);
             }
         }
     }
@@ -179,8 +185,10 @@ impl SessionManager {
         self.stack.set_visible_child_name(session_id);
         self.sidebar.set_active(session_id);
 
-        if let Some(terminal) = self.terminals.get(session_id) {
-            terminal.widget().grab_focus();
+        if let Some(sv) = self.split_views.get(session_id) {
+            if let Some(term) = sv.focused_terminal() {
+                term.grab_focus();
+            }
         }
     }
 
@@ -188,8 +196,10 @@ impl SessionManager {
         self.active_id.as_deref()
     }
 
-    pub fn active_terminal(&self) -> Option<&VteTerminal> {
-        self.active_id.as_deref().and_then(|id| self.terminals.get(id))
+    pub fn active_terminal_vte(&self) -> Option<vte4::Terminal> {
+        self.active_id.as_deref()
+            .and_then(|id| self.split_views.get(id))
+            .and_then(|sv| sv.focused_terminal())
     }
 
     pub fn switch_to_index(&mut self, index: usize) {
@@ -228,15 +238,17 @@ impl SessionManager {
         let id = session_id.to_string();
         let borrow = self_ref.borrow();
 
-        if let Some(terminal) = borrow.terminals.get(session_id) {
-            terminal.connect_child_exited(move |_status| {
-                let id = id.clone();
-                let mgr = mgr.clone();
+        if let Some(sv) = borrow.split_views.get(session_id) {
+            if let Some(term) = sv.focused_terminal() {
+                term.connect_child_exited(move |_term, _status| {
+                    let id = id.clone();
+                    let mgr = mgr.clone();
 
-                glib::idle_add_local_once(move || {
-                    mgr.borrow_mut().destroy_session(&id);
+                    glib::idle_add_local_once(move || {
+                        mgr.borrow_mut().destroy_session(&id);
+                    });
                 });
-            });
+            }
         }
     }
 
