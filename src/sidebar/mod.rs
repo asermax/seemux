@@ -53,12 +53,12 @@ impl Sidebar {
 
         let default_add_btn = Button::new();
         default_add_btn.set_label("+ Add tab");
-        default_add_btn.add_css_class("new-group-btn");
+        default_add_btn.add_css_class("sidebar-action-btn");
 
         // New Group button
         let new_group_btn = Button::new();
         new_group_btn.set_label("+ New Group");
-        new_group_btn.add_css_class("new-group-btn");
+        new_group_btn.add_css_class("sidebar-action-btn");
 
         content.append(&default_list);
         content.append(&default_add_btn);

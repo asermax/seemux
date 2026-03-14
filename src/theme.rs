@@ -231,22 +231,6 @@ paned > separator:hover {{
     border-radius: 4px;
 }}
 
-.new-tab-btn {{
-    margin: 4px 8px 8px 8px;
-    padding: 6px;
-    border-radius: 6px;
-    border: 1px dashed {text_muted};
-    color: {text_muted};
-    background: none;
-    transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
-}}
-
-.new-tab-btn:hover {{
-    background-color: {surface_hover};
-    color: {text_primary};
-    border-color: {text_secondary};
-}}
-
 list row {{
     background: none;
     padding: 0;
@@ -297,7 +281,7 @@ list row:selected {{
     color: {text_primary};
 }}
 
-.new-group-btn {{
+.sidebar-action-btn {{
     margin: 4px 8px;
     padding: 4px;
     border-radius: 4px;
@@ -307,7 +291,7 @@ list row:selected {{
     font-size: 11px;
 }}
 
-.new-group-btn:hover {{
+.sidebar-action-btn:hover {{
     color: {text_secondary};
     background-color: {surface_hover};
 }}

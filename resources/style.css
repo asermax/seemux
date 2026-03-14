@@ -154,23 +154,7 @@ paned > separator:hover {
     border-radius: 4px;
 }
 
-/* New tab button */
 
-.new-tab-btn {
-    margin: 4px 8px 8px 8px;
-    padding: 6px;
-    border-radius: 6px;
-    border: 1px dashed #45475a;
-    color: #6c7086;
-    background: none;
-    transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
-}
-
-.new-tab-btn:hover {
-    background-color: rgba(255, 255, 255, 0.04);
-    color: #cdd6f4;
-    border-color: #585b70;
-}
 
 /* ListBox — remove default GTK selection styling */
 
