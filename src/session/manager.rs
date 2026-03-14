@@ -217,15 +217,22 @@ impl SessionManager {
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         sv.spawn_pane(&new_pane_id, None, &env_refs);
 
-        // Rebuild the widget in the stack — unparent terminals first
+        // Rebuild: unparent terminals, remove old widget, build new tree
+        sv.root.borrow().unparent_all();
         if let Some(old) = self.stack.child_by_name(&active_id) {
             self.stack.remove(&old);
         }
-        sv.root.borrow().unparent_all();
 
         let new_widget = sv.build_widget();
         self.stack.add_named(&new_widget, Some(&active_id));
         self.stack.set_visible_child_name(&active_id);
+
+        // Focus the new pane
+        sv.set_focused_pane_id(&new_pane_id);
+        if let Some(term) = sv.focused_terminal() {
+            let term = term.clone();
+            glib::idle_add_local_once(move || { term.grab_focus(); });
+        }
 
         true
     }
@@ -245,18 +252,20 @@ impl SessionManager {
             return true;
         }
 
-        // Rebuild the widget in the stack — unparent terminals first
+        // Rebuild: unparent terminals, remove old widget, build new tree
+        sv.root.borrow().unparent_all();
         if let Some(old) = self.stack.child_by_name(&active_id) {
             self.stack.remove(&old);
         }
-        sv.root.borrow().unparent_all();
 
         let new_widget = sv.build_widget();
         self.stack.add_named(&new_widget, Some(&active_id));
         self.stack.set_visible_child_name(&active_id);
 
+        // Focus the remaining terminal
         if let Some(term) = sv.focused_terminal() {
-            term.grab_focus();
+            let term = term.clone();
+            glib::idle_add_local_once(move || { term.grab_focus(); });
         }
 
         false
