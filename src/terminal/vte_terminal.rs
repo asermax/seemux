@@ -7,8 +7,11 @@ use gtk4::prelude::*;
 use vte4::prelude::*;
 use vte4::{Terminal, PtyFlags};
 
+use std::cell::Cell;
+
 pub struct VteTerminal {
     terminal: Terminal,
+    spawned: Cell<bool>,
 }
 
 impl VteTerminal {
@@ -28,7 +31,11 @@ impl VteTerminal {
         terminal.set_color_foreground(&fg);
         terminal.set_color_background(&bg);
 
-        Self { terminal }
+        Self { terminal, spawned: Cell::new(false) }
+    }
+
+    pub fn needs_spawn(&self) -> bool {
+        !self.spawned.get()
     }
 
     pub fn widget(&self) -> &gtk4::Widget {
@@ -40,6 +47,7 @@ impl VteTerminal {
     }
 
     pub fn spawn_shell(&self, working_directory: Option<&str>, extra_env: &[(&str, &str)]) {
+        self.spawned.set(true);
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
 
         // Build environment: inherit current env + add extras

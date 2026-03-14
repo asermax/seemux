@@ -23,7 +23,7 @@ impl Sidebar {
     pub fn new() -> Self {
         let container = GtkBox::new(Orientation::Vertical, 0);
         container.add_css_class("sidebar");
-        container.set_width_request(200);
+        container.set_width_request(120);
 
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::Single);

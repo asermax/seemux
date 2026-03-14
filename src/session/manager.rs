@@ -87,9 +87,12 @@ impl SessionManager {
             ("PATH", &new_path),
         ];
 
-        // Create terminal
+        // Create terminal (shell spawn is deferred if this is the first session
+        // and the window hasn't been mapped yet — caller handles that via spawn_session)
         let terminal = VteTerminal::new();
-        terminal.spawn_shell(None, &env_vars);
+        if self.stack.is_realized() {
+            terminal.spawn_shell(None, &env_vars);
+        }
 
         // Add terminal to stack
         self.stack.add_named(terminal.widget(), Some(&id));
@@ -150,6 +153,31 @@ impl SessionManager {
     pub fn set_claude_pid(&mut self, session_id: &str, pid: Option<u32>) {
         if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
             session.claude_pid = pid;
+        }
+    }
+
+    /// Spawn the shell for sessions that were created before the window was mapped.
+    pub fn spawn_deferred(&self) {
+        for session in &self.sessions {
+            if let Some(terminal) = self.terminals.get(&session.id) {
+                if terminal.needs_spawn() {
+                    let socket_str = self.socket_path.to_string_lossy().to_string();
+                    let bin_dir_str = self.bin_dir.to_string_lossy().to_string();
+                    let hook_script_str = self.hook_script_path.to_string_lossy().to_string();
+                    let current_path = std::env::var("PATH").unwrap_or_default();
+                    let new_path = format!("{bin_dir_str}:{current_path}");
+
+                    let env_vars: Vec<(&str, &str)> = vec![
+                        ("SEEMUX_SOCKET", &socket_str),
+                        ("SEEMUX_SESSION_ID", &session.id),
+                        ("SEEMUX_HOOK_SCRIPT", &hook_script_str),
+                        ("SEEMUX_BIN_DIR", &bin_dir_str),
+                        ("PATH", &new_path),
+                    ];
+
+                    terminal.spawn_shell(None, &env_vars);
+                }
+            }
         }
     }
 

@@ -9,13 +9,22 @@ window {
 .sidebar {
     background-color: #181825;
     padding: 6px 0;
-    min-width: 200px;
 }
 
 separator {
     background-color: #313244;
     min-width: 1px;
     min-height: 1px;
+}
+
+/* Paned drag handle */
+paned > separator {
+    min-width: 2px;
+    background-color: #313244;
+}
+
+paned > separator:hover {
+    background-color: #45475a;
 }
 
 /* Tab rows */

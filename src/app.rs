@@ -4,7 +4,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use vte4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, Box as GtkBox, EventControllerKey, Orientation, Separator,
+    Application, ApplicationWindow, EventControllerKey, Orientation, Paned,
     Stack, StackTransitionType,
     gdk::Key,
     glib,
@@ -33,21 +33,22 @@ pub fn build_window(app: &Application) {
     // Set up Claude wrapper scripts
     let bin_dir = claude::setup_scripts(&socket_path);
 
-    // Layout: sidebar | separator | terminal stack
-    let root = GtkBox::new(Orientation::Horizontal, 0);
-
+    // Layout: sidebar | drag handle | terminal stack (via GtkPaned)
     let sidebar = Rc::new(Sidebar::new());
-
-    let separator = Separator::new(Orientation::Vertical);
 
     let stack = Stack::new();
     stack.set_hexpand(true);
     stack.set_vexpand(true);
     stack.set_transition_type(StackTransitionType::None);
 
-    root.append(&sidebar.container);
-    root.append(&separator);
-    root.append(&stack);
+    let paned = Paned::new(Orientation::Horizontal);
+    paned.set_start_child(Some(&sidebar.container));
+    paned.set_end_child(Some(&stack));
+    paned.set_position(200);
+    paned.set_shrink_start_child(false);
+    paned.set_shrink_end_child(false);
+    paned.set_resize_start_child(false);
+    paned.set_resize_end_child(true);
 
     let manager = SessionManager::new(stack, sidebar.clone(), socket_path, bin_dir);
 
@@ -262,8 +263,14 @@ pub fn build_window(app: &Application) {
     // Leak into a static ref — cleaned up on process exit via Drop.
     let _hook_server: &'static _ = Box::leak(Box::new(hook_server));
 
-    window.set_child(Some(&root));
+    window.set_child(Some(&paned));
     window.present();
+
+    // Spawn deferred shells once the window is mapped and terminals have their real size
+    let mgr_for_map = manager.clone();
+    glib::idle_add_local_once(move || {
+        mgr_for_map.borrow().spawn_deferred();
+    });
 }
 
 fn wire_tab_lifecycle(
