@@ -103,4 +103,17 @@ impl VteTerminal {
             }
         });
     }
+
+    pub fn connect_cwd_changed<F: Fn(Option<String>) + 'static>(&self, f: F) {
+        self.terminal.connect_current_directory_uri_changed(move |term| {
+            let path = term.current_directory_uri()
+                .and_then(|uri| {
+                    uri.strip_prefix("file://")
+                        .map(|p| p.to_string())
+                        .or_else(|| Some(uri.to_string()))
+                });
+
+            f(path);
+        });
+    }
 }

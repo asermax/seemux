@@ -95,6 +95,12 @@ impl Sidebar {
         }
     }
 
+    pub fn update_branch(&self, session_id: &str, branch: Option<&str>) {
+        if let Some(row) = self.rows.borrow().get(session_id) {
+            row.set_branch(branch);
+        }
+    }
+
     pub fn update_notification_preview(&self, session_id: &str, text: Option<&str>) {
         if let Some(row) = self.rows.borrow().get(session_id) {
             row.set_notification_preview(text);

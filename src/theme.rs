@@ -155,6 +155,11 @@ paned > separator:hover {{
     color: {text_secondary};
 }}
 
+.tab-branch {{
+    font-size: 10px;
+    color: {text_muted};
+}}
+
 .tab-close-btn {{
     opacity: 0;
     padding: 2px;

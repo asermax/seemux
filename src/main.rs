@@ -1,6 +1,7 @@
 mod app;
 mod claude;
 mod config;
+mod git;
 mod notifications;
 mod session;
 mod sidebar;

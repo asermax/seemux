@@ -9,6 +9,7 @@ pub struct TabRow {
     active_indicator: GtkBox,
     content: GtkBox,
     title_label: Label,
+    branch_label: Label,
     status_label: Label,
     preview_label: Label,
     badge_label: Label,
@@ -47,7 +48,15 @@ impl TabRow {
         preview_label.set_max_width_chars(25);
         preview_label.set_visible(false);
 
+        let branch_label = Label::new(None);
+        branch_label.add_css_class("tab-branch");
+        branch_label.set_xalign(0.0);
+        branch_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        branch_label.set_max_width_chars(20);
+        branch_label.set_visible(false);
+
         content.append(&title_label);
+        content.append(&branch_label);
         content.append(&status_label);
         content.append(&preview_label);
 
@@ -72,6 +81,7 @@ impl TabRow {
             active_indicator,
             content,
             title_label,
+            branch_label,
             status_label,
             preview_label,
             badge_label,
@@ -93,6 +103,18 @@ impl TabRow {
 
     pub fn set_title(&self, title: &str) {
         self.title_label.set_text(title);
+    }
+
+    pub fn set_branch(&self, branch: Option<&str>) {
+        match branch {
+            Some(b) if !b.is_empty() => {
+                self.branch_label.set_text(&format!("\u{e0a0} {b}")); // git branch icon
+                self.branch_label.set_visible(true);
+            }
+            _ => {
+                self.branch_label.set_visible(false);
+            }
+        }
     }
 
     pub fn set_badge_count(&self, count: u32) {

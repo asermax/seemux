@@ -92,6 +92,29 @@ impl SessionManager {
             sidebar.update_title(&session_id, new_title);
         });
 
+        // Wire CWD changes to git branch detection
+        let sidebar = self.sidebar.clone();
+        let session_id = id.clone();
+        let last_cwd: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        terminal.connect_cwd_changed(move |path| {
+            let Some(cwd) = path else {
+                sidebar.update_branch(&session_id, None);
+                return;
+            };
+
+            // Debounce: skip if same CWD
+            if last_cwd.borrow().as_deref() == Some(&cwd) {
+                return;
+            }
+            *last_cwd.borrow_mut() = Some(cwd.clone());
+
+            let sidebar = sidebar.clone();
+            let session_id = session_id.clone();
+            crate::git::detect_branch_async(&cwd, move |branch| {
+                sidebar.update_branch(&session_id, branch.as_deref());
+            });
+        });
+
         self.terminals.insert(id.clone(), terminal);
         self.sessions.push(session);
         self.switch_to(&id);
