@@ -199,6 +199,7 @@ impl Sidebar {
 
     pub fn add_group(&self, id: &str, name: &str) {
         let group_widget = TabGroupWidget::new(name);
+        group_widget.setup_context_menu(id);
 
         // Insert before the new_group_btn
         self.content.remove(&self.new_group_btn);
@@ -210,6 +211,41 @@ impl Sidebar {
             name: name.to_string(),
         });
         self.group_widgets.borrow_mut().insert(id.to_string(), group_widget);
+    }
+
+    pub fn remove_group(&self, group_id: &str) {
+        // Move tabs from this group back to default
+        let mut rows = self.rows.borrow_mut();
+        let session_ids: Vec<String> = rows.iter()
+            .filter(|(_, (_, gid))| gid == group_id)
+            .map(|(sid, _)| sid.clone())
+            .collect();
+
+        for sid in &session_ids {
+            if let Some((row, gid)) = rows.get_mut(sid) {
+                if let Some(parent) = row.widget().parent() {
+                    if let Some(list) = self.list_for_group(gid) {
+                        list.remove(&parent);
+                    }
+                }
+                self.default_list.append(row.widget());
+                *gid = crate::session::DEFAULT_GROUP.to_string();
+            }
+        }
+        drop(rows);
+
+        // Remove the group widget
+        if let Some(gw) = self.group_widgets.borrow_mut().remove(group_id) {
+            self.content.remove(gw.widget());
+        }
+        self.groups.borrow_mut().retain(|g| g.id != group_id);
+    }
+
+    /// Count tabs belonging to a specific group.
+    pub fn tab_count_in_group(&self, group_id: &str) -> usize {
+        self.rows.borrow().values()
+            .filter(|(_, gid)| gid == group_id)
+            .count()
     }
 
     pub fn connect_group_new_tab<F: Fn(String) + Clone + 'static>(&self, group_id: &str, f: F) {

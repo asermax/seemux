@@ -503,6 +503,36 @@ fn register_tab_actions(
         mgr.borrow_mut().close_others(&id);
     });
     window.add_action(&action);
+
+    // group-delete
+    let sidebar_del = sidebar.clone();
+    let window_del = window.clone();
+    let action = gio::SimpleAction::new("group-delete", Some(&String::static_variant_type()));
+    action.connect_activate(move |_, param| {
+        let Some(group_id) = param.and_then(|v| v.get::<String>()) else { return };
+        let tab_count = sidebar_del.tab_count_in_group(&group_id);
+
+        if tab_count == 0 {
+            sidebar_del.remove_group(&group_id);
+        } else {
+            let sidebar = sidebar_del.clone();
+            let gid = group_id.clone();
+            let dialog = gtk4::AlertDialog::builder()
+                .message("Delete Group")
+                .detail(&format!("This group has {tab_count} tab(s). Tabs will move to the default group."))
+                .buttons(["Cancel", "Delete"])
+                .default_button(1)
+                .cancel_button(0)
+                .build();
+
+            dialog.choose(Some(&window_del), gio::Cancellable::NONE, move |result| {
+                if result == Ok(1) {
+                    sidebar.remove_group(&gid);
+                }
+            });
+        }
+    });
+    window.add_action(&action);
 }
 
 fn register_terminal_actions(

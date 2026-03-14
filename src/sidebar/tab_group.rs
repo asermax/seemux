@@ -1,11 +1,13 @@
 use std::cell::Cell;
 
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, GestureClick, Label, ListBox, Orientation, SelectionMode, Widget};
+use gtk4::gio;
+use gtk4::{Box as GtkBox, Button, GestureClick, Label, ListBox, Orientation, PopoverMenu, SelectionMode, Widget};
 
 /// A named, collapsible group of tabs in the sidebar.
 pub struct TabGroupWidget {
     pub container: GtkBox,
+    header: GtkBox,
     pub add_btn: Button,
     pub list_box: ListBox,
 }
@@ -43,7 +45,7 @@ impl TabGroupWidget {
 
         let collapsed = Cell::new(false);
 
-        // Click anywhere on the header toggles collapse (GestureClick on header)
+        // Left-click on header toggles collapse
         let list_box_toggle = list_box.clone();
         let toggle_label_ref = toggle_label.clone();
 
@@ -62,6 +64,7 @@ impl TabGroupWidget {
 
         Self {
             container,
+            header,
             add_btn,
             list_box,
         }
@@ -71,4 +74,23 @@ impl TabGroupWidget {
         self.container.upcast_ref()
     }
 
+    /// Add right-click context menu with "Delete Group" action.
+    pub fn setup_context_menu(&self, group_id: &str) {
+        let menu = gio::Menu::new();
+        menu.append(Some("Delete Group"), Some(&format!("win.group-delete('{group_id}')")));
+
+        let popover = PopoverMenu::from_model(Some(&menu));
+        popover.set_parent(&self.header);
+        popover.set_has_arrow(false);
+
+        let gesture = GestureClick::new();
+        gesture.set_button(3);
+        gesture.connect_released(move |gesture, _n_press, x, y| {
+            gesture.set_state(gtk4::EventSequenceState::Claimed);
+            popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            popover.popup();
+        });
+
+        self.header.add_controller(gesture);
+    }
 }
