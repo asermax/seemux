@@ -1,0 +1,126 @@
+/* seemux base styles */
+
+window {
+    background-color: #1e1e2e;
+}
+
+.sidebar {
+    background-color: #181825;
+    padding: 4px 0;
+    min-width: 200px;
+}
+
+.sidebar separator {
+    background-color: #313244;
+    min-width: 1px;
+}
+
+.tab-row {
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin: 2px 4px;
+    transition: background-color 150ms ease;
+}
+
+.tab-row:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.tab-row.active {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.tab-row .active-indicator {
+    background-color: transparent;
+    min-width: 3px;
+    border-radius: 2px;
+    transition: background-color 150ms ease;
+}
+
+.tab-row.active .active-indicator {
+    background-color: #89b4fa;
+}
+
+.tab-title {
+    color: #cdd6f4;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.tab-row:not(.active) .tab-title {
+    color: #a6adc8;
+}
+
+.tab-close-btn {
+    opacity: 0;
+    padding: 2px;
+    min-width: 20px;
+    min-height: 20px;
+    border-radius: 4px;
+    transition: opacity 150ms ease;
+}
+
+.tab-row:hover .tab-close-btn {
+    opacity: 0.6;
+}
+
+.tab-close-btn:hover {
+    opacity: 1;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.notification-badge {
+    background-color: #89b4fa;
+    color: #1e1e2e;
+    font-size: 9px;
+    font-weight: 700;
+    min-width: 16px;
+    min-height: 16px;
+    border-radius: 8px;
+    padding: 0 4px;
+}
+
+.status-pill {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: #a6adc8;
+}
+
+.status-pill--running {
+    color: #89b4fa;
+}
+
+.status-pill--needs-input {
+    color: #fab387;
+}
+
+.status-pill--error {
+    color: #f38ba8;
+}
+
+.status-pill--completed {
+    color: #a6e3a1;
+}
+
+.status-pill--idle {
+    color: #6c7086;
+}
+
+.tab-notification-preview {
+    color: #6c7086;
+    font-size: 11px;
+}
+
+.new-tab-btn {
+    margin: 4px 8px;
+    padding: 6px;
+    border-radius: 4px;
+    color: #6c7086;
+}
+
+.new-tab-btn:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: #cdd6f4;
+}
