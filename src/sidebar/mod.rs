@@ -248,6 +248,12 @@ impl Sidebar {
             .count()
     }
 
+    pub fn expand_group(&self, group_id: &str) {
+        if let Some(gw) = self.group_widgets.borrow().get(group_id) {
+            gw.expand();
+        }
+    }
+
     pub fn connect_group_new_tab<F: Fn(String) + Clone + 'static>(&self, group_id: &str, f: F) {
         if let Some(gw) = self.group_widgets.borrow().get(group_id) {
             let gid = group_id.to_string();

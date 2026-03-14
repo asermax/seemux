@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::gio;
@@ -10,6 +11,8 @@ pub struct TabGroupWidget {
     header: GtkBox,
     pub add_btn: Button,
     pub list_box: ListBox,
+    collapsed: Rc<Cell<bool>>,
+    toggle_label: Label,
 }
 
 impl TabGroupWidget {
@@ -17,7 +20,6 @@ impl TabGroupWidget {
         let container = GtkBox::new(Orientation::Vertical, 0);
         container.add_css_class("tab-group");
 
-        // Header: [toggle_icon] [name] ... [+]
         let header = GtkBox::new(Orientation::Horizontal, 4);
         header.add_css_class("tab-group-header");
 
@@ -43,19 +45,20 @@ impl TabGroupWidget {
         container.append(&header);
         container.append(&list_box);
 
-        let collapsed = Cell::new(false);
+        let collapsed = Rc::new(Cell::new(false));
 
         // Left-click on header toggles collapse
         let list_box_toggle = list_box.clone();
         let toggle_label_ref = toggle_label.clone();
+        let collapsed_ref = collapsed.clone();
 
         let gesture = GestureClick::new();
         gesture.set_button(1);
         gesture.connect_released(move |gesture, _n_press, _x, _y| {
             gesture.set_state(gtk4::EventSequenceState::Claimed);
 
-            let new_state = !collapsed.get();
-            collapsed.set(new_state);
+            let new_state = !collapsed_ref.get();
+            collapsed_ref.set(new_state);
             list_box_toggle.set_visible(!new_state);
             toggle_label_ref.set_text(if new_state { "\u{25b6}" } else { "\u{25bc}" });
         });
@@ -67,11 +70,22 @@ impl TabGroupWidget {
             header,
             add_btn,
             list_box,
+            collapsed,
+            toggle_label,
         }
     }
 
     pub fn widget(&self) -> &Widget {
         self.container.upcast_ref()
+    }
+
+    /// Expand the group if it's collapsed.
+    pub fn expand(&self) {
+        if self.collapsed.get() {
+            self.collapsed.set(false);
+            self.list_box.set_visible(true);
+            self.toggle_label.set_text("\u{25bc}"); // ▼
+        }
     }
 
     /// Add right-click context menu with "Delete Group" action.

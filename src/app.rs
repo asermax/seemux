@@ -101,7 +101,10 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         let sid = sidebar.clone();
         let notif = notification_store.clone();
         let gid = group.id.clone();
+        let sid_expand = sidebar.clone();
+        let gid_expand = group.id.clone();
         sidebar.connect_group_new_tab(&group.id, move |_| {
+            sid_expand.expand_group(&gid_expand);
             let id = mgr.borrow_mut().create_session_in_group(None, None, &gid);
             wire_tab_lifecycle(&sid, &mgr, &notif, &id);
         });
@@ -154,7 +157,10 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
             let sid2 = sid.clone();
             let notif2 = notif.clone();
             let gid = group_id.clone();
+            let sid_expand = sid.clone();
+            let gid_expand = group_id.clone();
             sid.connect_group_new_tab(&group_id, move |_| {
+                sid_expand.expand_group(&gid_expand);
                 let id = mgr2.borrow_mut().create_session_in_group(None, None, &gid);
                 wire_tab_lifecycle(&sid2, &mgr2, &notif2, &id);
             });
