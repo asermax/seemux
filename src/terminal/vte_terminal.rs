@@ -35,6 +35,10 @@ impl VteTerminal {
         self.terminal.upcast_ref()
     }
 
+    pub fn terminal(&self) -> &Terminal {
+        &self.terminal
+    }
+
     pub fn spawn_shell(&self, working_directory: Option<&str>, extra_env: &[(&str, &str)]) {
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
 
@@ -44,7 +48,6 @@ impl VteTerminal {
             .collect();
 
         for (key, value) in extra_env {
-            // Remove existing entries for this key
             envv.retain(|e| !e.starts_with(&format!("{key}=")));
             envv.push(format!("{key}={value}"));
         }
@@ -78,12 +81,6 @@ impl VteTerminal {
             if let Some(title) = term.window_title() {
                 f(&title);
             }
-        });
-    }
-
-    pub fn connect_bell<F: Fn() + 'static>(&self, f: F) {
-        self.terminal.connect_bell(move |_term| {
-            f();
         });
     }
 }

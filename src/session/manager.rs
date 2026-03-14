@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::Stack;
 
@@ -43,10 +44,12 @@ impl SessionManager {
             hook_script_path,
         }));
 
-        // Wire sidebar tab selection
+        // Wire sidebar tab selection (use try_borrow_mut to avoid re-entrant panics)
         let mgr = manager.clone();
         manager.borrow().sidebar.connect_tab_selected(move |id| {
-            mgr.borrow_mut().switch_to(id);
+            if let Ok(mut m) = mgr.try_borrow_mut() {
+                m.switch_to(id);
+            }
         });
 
         // Wire new tab button
@@ -94,12 +97,7 @@ impl SessionManager {
         // Add tab to sidebar
         self.sidebar.add_tab(&session);
 
-        // Wire child-exited to mark session as Exited
-        let sidebar = self.sidebar.clone();
-        let session_id = id.clone();
-        terminal.connect_child_exited(move |_status| {
-            sidebar.update_status(&session_id, &SessionStatus::Exited);
-        });
+        // Wire child-exited: will be connected by the caller via wire_child_exited
 
         // Wire title changed
         let sidebar = self.sidebar.clone();
@@ -119,7 +117,10 @@ impl SessionManager {
 
     pub fn destroy_session(&mut self, session_id: &str) {
         if let Some(terminal) = self.terminals.get(session_id) {
-            self.stack.remove(terminal.widget());
+            // Only remove if still a child of the stack
+            if terminal.widget().parent().as_ref() == Some(self.stack.upcast_ref()) {
+                self.stack.remove(terminal.widget());
+            }
         }
 
         self.sidebar.remove_tab(session_id);
@@ -166,6 +167,10 @@ impl SessionManager {
         self.active_id.as_deref()
     }
 
+    pub fn active_terminal(&self) -> Option<&crate::terminal::VteTerminal> {
+        self.active_id.as_deref().and_then(|id| self.terminals.get(id))
+    }
+
     pub fn switch_to_index(&mut self, index: usize) {
         if let Some(session) = self.sessions.get(index) {
             let id = session.id.clone();
@@ -195,5 +200,26 @@ impl SessionManager {
         self.sessions.iter()
             .filter_map(|s| s.claude_pid.map(|pid| (s.id.clone(), pid)))
             .collect()
+    }
+
+    /// Wire child-exited on a session's terminal to auto-close the tab.
+    /// Must be called after create_session with an Rc to self.
+    pub fn wire_child_exited(self_ref: &Rc<RefCell<Self>>, session_id: &str) {
+        let mgr = self_ref.clone();
+        let id = session_id.to_string();
+
+        let borrow = self_ref.borrow();
+
+        if let Some(terminal) = borrow.terminals.get(session_id) {
+            terminal.connect_child_exited(move |_status| {
+                let id = id.clone();
+                let mgr = mgr.clone();
+
+                // Defer destruction to avoid re-entrant borrow
+                glib::idle_add_local_once(move || {
+                    mgr.borrow_mut().destroy_session(&id);
+                });
+            });
+        }
     }
 }

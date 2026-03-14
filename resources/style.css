@@ -1,24 +1,29 @@
-/* seemux base styles */
+/* seemux — Catppuccin Mocha theme */
 
 window {
     background-color: #1e1e2e;
 }
 
+/* Sidebar */
+
 .sidebar {
     background-color: #181825;
-    padding: 4px 0;
+    padding: 6px 0;
     min-width: 200px;
 }
 
-.sidebar separator {
+separator {
     background-color: #313244;
     min-width: 1px;
+    min-height: 1px;
 }
+
+/* Tab rows */
 
 .tab-row {
     padding: 8px 12px;
-    border-radius: 4px;
-    margin: 2px 4px;
+    border-radius: 6px;
+    margin: 2px 6px;
     transition: background-color 150ms ease;
 }
 
@@ -34,12 +39,14 @@ window {
     background-color: transparent;
     min-width: 3px;
     border-radius: 2px;
-    transition: background-color 150ms ease;
+    transition: background-color 200ms ease;
 }
 
 .tab-row.active .active-indicator {
     background-color: #89b4fa;
 }
+
+/* Tab title */
 
 .tab-title {
     color: #cdd6f4;
@@ -51,23 +58,29 @@ window {
     color: #a6adc8;
 }
 
+/* Close button — hidden until hover */
+
 .tab-close-btn {
     opacity: 0;
     padding: 2px;
     min-width: 20px;
     min-height: 20px;
     border-radius: 4px;
-    transition: opacity 150ms ease;
+    border: none;
+    background: none;
+    transition: opacity 150ms ease, background-color 150ms ease;
 }
 
 .tab-row:hover .tab-close-btn {
-    opacity: 0.6;
+    opacity: 0.5;
 }
 
 .tab-close-btn:hover {
     opacity: 1;
     background-color: rgba(255, 255, 255, 0.1);
 }
+
+/* Notification badge */
 
 .notification-badge {
     background-color: #89b4fa;
@@ -80,12 +93,17 @@ window {
     padding: 0 4px;
 }
 
+.tab-row.active .notification-badge {
+    background-color: rgba(255, 255, 255, 0.25);
+    color: #cdd6f4;
+}
+
+/* Status pill */
+
 .status-pill {
     font-size: 10px;
     font-weight: 500;
-    padding: 1px 6px;
-    border-radius: 3px;
-    color: #a6adc8;
+    padding: 0;
 }
 
 .status-pill--running {
@@ -108,19 +126,51 @@ window {
     color: #6c7086;
 }
 
+/* Notification preview */
+
 .tab-notification-preview {
-    color: #6c7086;
+    color: #585b70;
     font-size: 11px;
+    font-style: italic;
 }
 
-.new-tab-btn {
-    margin: 4px 8px;
-    padding: 6px;
+/* Rename entry */
+
+.tab-rename-entry {
+    padding: 0 4px;
+    min-height: 20px;
+    font-size: 13px;
+    background-color: #313244;
+    color: #cdd6f4;
+    border: 1px solid #89b4fa;
     border-radius: 4px;
+}
+
+/* New tab button */
+
+.new-tab-btn {
+    margin: 4px 8px 8px 8px;
+    padding: 6px;
+    border-radius: 6px;
+    border: 1px dashed #45475a;
     color: #6c7086;
+    background: none;
+    transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
 }
 
 .new-tab-btn:hover {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: rgba(255, 255, 255, 0.04);
     color: #cdd6f4;
+    border-color: #585b70;
+}
+
+/* ListBox — remove default GTK selection styling */
+
+list row {
+    background: none;
+    padding: 0;
+}
+
+list row:selected {
+    background: none;
 }

@@ -1,13 +1,16 @@
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, Label, Orientation, Widget};
+use gtk4::{Box as GtkBox, Button, Entry, GestureClick, Label, Orientation, Widget};
 
 use crate::session::SessionStatus;
 
 pub struct TabRow {
     container: GtkBox,
+    #[allow(dead_code)]
     active_indicator: GtkBox,
+    content: GtkBox,
     title_label: Label,
     status_label: Label,
+    preview_label: Label,
     badge_label: Label,
     close_btn: Button,
 }
@@ -23,8 +26,8 @@ impl TabRow {
         active_indicator.add_css_class("active-indicator");
         active_indicator.set_valign(gtk4::Align::Fill);
 
-        // Content area (title + status stacked vertically)
-        let content = GtkBox::new(Orientation::Vertical, 2);
+        // Content area (title + status + preview stacked vertically)
+        let content = GtkBox::new(Orientation::Vertical, 1);
         content.set_hexpand(true);
 
         let title_label = Label::new(Some(title));
@@ -37,8 +40,16 @@ impl TabRow {
         status_label.set_xalign(0.0);
         status_label.set_visible(false);
 
+        let preview_label = Label::new(None);
+        preview_label.add_css_class("tab-notification-preview");
+        preview_label.set_xalign(0.0);
+        preview_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        preview_label.set_max_width_chars(25);
+        preview_label.set_visible(false);
+
         content.append(&title_label);
         content.append(&status_label);
+        content.append(&preview_label);
 
         // Badge (notification count)
         let badge_label = Label::new(None);
@@ -47,7 +58,7 @@ impl TabRow {
         badge_label.set_valign(gtk4::Align::Center);
 
         // Close button
-        let close_btn = Button::with_label("\u{00d7}"); // × character
+        let close_btn = Button::with_label("\u{00d7}");
         close_btn.add_css_class("tab-close-btn");
         close_btn.set_valign(gtk4::Align::Center);
 
@@ -59,8 +70,10 @@ impl TabRow {
         Self {
             container,
             active_indicator,
+            content,
             title_label,
             status_label,
+            preview_label,
             badge_label,
             close_btn,
         }
@@ -91,8 +104,19 @@ impl TabRow {
         }
     }
 
+    pub fn set_notification_preview(&self, text: Option<&str>) {
+        match text {
+            Some(t) if !t.is_empty() => {
+                self.preview_label.set_text(t);
+                self.preview_label.set_visible(true);
+            }
+            _ => {
+                self.preview_label.set_visible(false);
+            }
+        }
+    }
+
     pub fn set_status(&self, status: &SessionStatus) {
-        // Remove all status CSS classes
         for class in &[
             "status-pill--idle",
             "status-pill--running",
@@ -117,5 +141,71 @@ impl TabRow {
 
     pub fn connect_close<F: Fn() + 'static>(&self, f: F) {
         self.close_btn.connect_clicked(move |_| f());
+    }
+
+    /// Set up double-click to rename. Calls `on_rename` with the new title.
+    pub fn connect_rename<F: Fn(String) + Clone + 'static>(&self, on_rename: F) {
+        let content = self.content.clone();
+        let title_label = self.title_label.clone();
+
+        let gesture = GestureClick::new();
+        gesture.set_button(1);
+
+        gesture.connect_released(move |gesture, n_press, _, _| {
+            if n_press != 2 {
+                return;
+            }
+
+            gesture.set_state(gtk4::EventSequenceState::Claimed);
+
+            let current_title = title_label.text().to_string();
+            let original = current_title.clone();
+
+            let entry = Entry::new();
+            entry.set_text(&current_title);
+            entry.set_hexpand(true);
+            entry.add_css_class("tab-rename-entry");
+
+            // Hide the label, show the entry
+            title_label.set_visible(false);
+            content.prepend(&entry);
+            entry.grab_focus();
+            entry.select_region(0, -1);
+
+            // Commit on Enter
+            let content_enter = content.clone();
+            let label_enter = title_label.clone();
+            let on_rename_enter = on_rename.clone();
+
+            let entry_focus = entry.clone();
+
+            entry.connect_activate(move |entry| {
+                let new_title = entry.text().to_string();
+                content_enter.remove(entry);
+                label_enter.set_text(if new_title.is_empty() { &current_title } else { &new_title });
+                label_enter.set_visible(true);
+
+                if !new_title.is_empty() && new_title != current_title {
+                    on_rename_enter(new_title);
+                }
+            });
+
+            // Cancel on focus-out
+            let content_focus = content.clone();
+            let label_focus = title_label.clone();
+
+            let focus_controller = gtk4::EventControllerFocus::new();
+            focus_controller.connect_leave(move |_| {
+                if entry_focus.parent().is_some() {
+                    content_focus.remove(&entry_focus);
+                    label_focus.set_text(&original);
+                    label_focus.set_visible(true);
+                }
+            });
+
+            entry.add_controller(focus_controller);
+        });
+
+        self.title_label.add_controller(gesture);
     }
 }

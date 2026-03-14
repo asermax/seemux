@@ -7,7 +7,7 @@ pub fn hook_script(socket_path: &PathBuf) -> String {
 # Reads JSON from stdin and sends to seemux via Unix socket
 
 PAYLOAD=$(cat)
-echo "{{"event":"\"$1\"","session_id":"\"$SEEMUX_SESSION_ID\"","payload":$PAYLOAD}}" \
+printf '{{"event":"%s","session_id":"%s","payload":%s}}\n' "$1" "$SEEMUX_SESSION_ID" "$PAYLOAD" \
     | socat - UNIX-CONNECT:"{socket_path}" 2>/dev/null || true
 "#,
         socket_path = socket_path.display()
@@ -60,7 +60,7 @@ done
 
 HOOK_SCRIPT="{hook_script}"
 
-HOOKS_JSON='{{"hooks":{{"SessionStart":[{{"matcher":"","hooks":[{{"type":"command","command":"'"$HOOK_SCRIPT"' session-start","timeout":10}}]}}],"Stop":[{{"matcher":"","hooks":[{{"type":"command","command":"'"$HOOK_SCRIPT"' stop","timeout":10}}]}}],"Notification":[{{"matcher":"","hooks":[{{"type":"command","command":"'"$HOOK_SCRIPT"' notification","timeout":10}}]}}],"UserPromptSubmit":[{{"matcher":"","hooks":[{{"type":"command","command":"'"$HOOK_SCRIPT"' prompt-submit","timeout":10}}]}}],"PreToolUse":[{{"matcher":"","hooks":[{{"type":"command","command":"'"$HOOK_SCRIPT"' pre-tool-use","timeout":5,"async":true}}]}}"SessionEnd":[{{"matcher":"","hooks":[{{"type":"command","command":"'"$HOOK_SCRIPT"' session-end","timeout":1}}]}}]}}}}'
+HOOKS_JSON='{{"hooks":{{"SessionStart":[{{"matcher":"","hooks":[{{"type":"command","command":"'"$HOOK_SCRIPT"' session-start","timeout":10}}]}}],"Stop":[{{"matcher":"","hooks":[{{"type":"command","command":"'"$HOOK_SCRIPT"' stop","timeout":10}}]}}],"Notification":[{{"matcher":"","hooks":[{{"type":"command","command":"'"$HOOK_SCRIPT"' notification","timeout":10}}]}}],"UserPromptSubmit":[{{"matcher":"","hooks":[{{"type":"command","command":"'"$HOOK_SCRIPT"' prompt-submit","timeout":10}}]}}],"PreToolUse":[{{"matcher":"","hooks":[{{"type":"command","command":"'"$HOOK_SCRIPT"' pre-tool-use","timeout":5,"async":true}}]}}],"SessionEnd":[{{"matcher":"","hooks":[{{"type":"command","command":"'"$HOOK_SCRIPT"' session-end","timeout":1}}]}}]}}}}'
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"

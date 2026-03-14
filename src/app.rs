@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
+use vte4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box as GtkBox, EventControllerKey, Orientation, Separator,
     Stack, StackTransitionType,
@@ -53,10 +54,17 @@ pub fn build_window(app: &Application) {
     // Notification store
     let notification_store = Rc::new(RefCell::new(NotificationStore::new()));
 
-    // Wire notification changes to sidebar badge updates
+    // Wire notification changes to sidebar badge + preview updates
     let sidebar_for_notif = sidebar.clone();
-    notification_store.borrow_mut().set_on_change(move |session_id, count, _latest| {
+    notification_store.borrow_mut().set_on_change(move |session_id, count, latest| {
         sidebar_for_notif.update_badge(session_id, count);
+
+        let preview = if count > 0 {
+            latest.map(|n| n.body.as_str())
+        } else {
+            None
+        };
+        sidebar_for_notif.update_notification_preview(session_id, preview);
     });
 
     // Quit when all tabs are closed
@@ -67,13 +75,11 @@ pub fn build_window(app: &Application) {
 
     // Create the first session
     let first_id = manager.borrow_mut().create_session(None);
-    wire_close_button(&sidebar, &manager, &first_id);
+    wire_tab_lifecycle(&sidebar, &manager, &first_id);
 
     // Poll hook events from the background thread
     let mgr_for_hooks = manager.clone();
     let notif_store = notification_store.clone();
-    let _sidebar_for_hooks = sidebar.clone();
-
     glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
         while let Ok(event) = hook_rx.try_recv() {
             let result = hook_handler::handle_hook_event(event);
@@ -141,6 +147,8 @@ pub fn build_window(app: &Application) {
 
     // Keyboard shortcuts
     let key_controller = EventControllerKey::new();
+    // CAPTURE phase so we see events before VTE consumes them
+    key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
     let mgr = manager.clone();
     let sidebar_for_keys = sidebar.clone();
     let notif_for_keys = notification_store.clone();
@@ -150,10 +158,35 @@ pub fn build_window(app: &Application) {
         let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
         let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
 
-        // Ctrl+Shift+T: new tab
-        if ctrl && shift && key == Key::T {
+        // Only intercept our specific shortcuts — let everything else through to VTE
+        let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W))
+            || (ctrl && !shift && matches!(key, Key::t | Key::Tab))
+            || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9));
+
+        if !is_our_shortcut {
+            return glib::Propagation::Proceed;
+        }
+
+        // Ctrl+Shift+C: copy from terminal
+        if ctrl && shift && key == Key::C {
+            if let Some(term) = mgr.borrow().active_terminal() {
+                term.terminal().copy_clipboard_format(vte4::Format::Text);
+            }
+            return glib::Propagation::Stop;
+        }
+
+        // Ctrl+Shift+V: paste to terminal
+        if ctrl && shift && key == Key::V {
+            if let Some(term) = mgr.borrow().active_terminal() {
+                term.terminal().paste_clipboard();
+            }
+            return glib::Propagation::Stop;
+        }
+
+        // Ctrl+T or Ctrl+Shift+T: new tab
+        if ctrl && (key == Key::t || key == Key::T) {
             let id = mgr.borrow_mut().create_session(None);
-            wire_close_button(&sidebar_for_keys, &mgr, &id);
+            wire_tab_lifecycle(&sidebar_for_keys, &mgr, &id);
             return glib::Propagation::Stop;
         }
 
@@ -233,15 +266,22 @@ pub fn build_window(app: &Application) {
     window.present();
 }
 
-fn wire_close_button(
+fn wire_tab_lifecycle(
     sidebar: &Rc<Sidebar>,
-    manager: &Rc<RefCell<crate::session::manager::SessionManager>>,
+    manager: &Rc<RefCell<SessionManager>>,
     session_id: &str,
 ) {
     let mgr = manager.clone();
     sidebar.wire_close_button(session_id, move |id| {
         mgr.borrow_mut().destroy_session(&id);
     });
+
+    let sidebar_rename = sidebar.clone();
+    sidebar.wire_rename(session_id, move |id, new_title| {
+        sidebar_rename.update_title(&id, &new_title);
+    });
+
+    SessionManager::wire_child_exited(manager, session_id);
 }
 
 fn send_desktop_notification(title: &str, subtitle: &str, body: &str) {

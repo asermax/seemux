@@ -93,3 +93,73 @@ impl NotificationStore {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_notif(session_id: &str, subtitle: &str) -> Notification {
+        Notification {
+            id: uuid::Uuid::new_v4().to_string(),
+            session_id: session_id.to_string(),
+            title: "Claude Code".to_string(),
+            subtitle: subtitle.to_string(),
+            body: "test body".to_string(),
+            created_at: 0,
+            is_read: false,
+        }
+    }
+
+    #[test]
+    fn add_increments_unread_count() {
+        let mut store = NotificationStore::new();
+        store.add_notification(make_notif("s1", "Permission"));
+        store.add_notification(make_notif("s1", "Error"));
+
+        assert_eq!(store.unread_count("s1"), 2);
+        assert_eq!(store.unread_count("s2"), 0);
+    }
+
+    #[test]
+    fn mark_read_resets_count() {
+        let mut store = NotificationStore::new();
+        store.add_notification(make_notif("s1", "Permission"));
+        store.add_notification(make_notif("s1", "Waiting"));
+        store.mark_read("s1");
+
+        assert_eq!(store.unread_count("s1"), 0);
+    }
+
+    #[test]
+    fn clear_session_removes_all() {
+        let mut store = NotificationStore::new();
+        store.add_notification(make_notif("s1", "Permission"));
+        store.add_notification(make_notif("s2", "Error"));
+        store.clear_session("s1");
+
+        assert_eq!(store.unread_count("s1"), 0);
+        assert_eq!(store.unread_count("s2"), 1);
+        assert_eq!(store.notifications.len(), 1);
+    }
+
+    #[test]
+    fn latest_tracks_most_recent() {
+        let mut store = NotificationStore::new();
+        store.add_notification(make_notif("s1", "First"));
+        store.add_notification(make_notif("s1", "Second"));
+
+        let latest = store.latest_by_session.get("s1").unwrap();
+        assert_eq!(latest.subtitle, "Second");
+    }
+
+    #[test]
+    fn independent_sessions() {
+        let mut store = NotificationStore::new();
+        store.add_notification(make_notif("s1", "A"));
+        store.add_notification(make_notif("s2", "B"));
+        store.mark_read("s1");
+
+        assert_eq!(store.unread_count("s1"), 0);
+        assert_eq!(store.unread_count("s2"), 1);
+    }
+}

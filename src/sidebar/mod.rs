@@ -1,11 +1,11 @@
 pub mod tab_row;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{self, Box as GtkBox, Button, Label, ListBox, Orientation, SelectionMode};
+use gtk4::{self, Box as GtkBox, Button, ListBox, Orientation, SelectionMode};
 
 use crate::session::Session;
 use tab_row::TabRow;
@@ -15,6 +15,8 @@ pub struct Sidebar {
     list_box: ListBox,
     new_tab_btn: Button,
     rows: Rc<RefCell<HashMap<String, TabRow>>>,
+    /// Guard flag to prevent re-entrant signal firing during programmatic selection
+    selecting: Rc<Cell<bool>>,
 }
 
 impl Sidebar {
@@ -39,6 +41,7 @@ impl Sidebar {
             list_box,
             new_tab_btn,
             rows: Rc::new(RefCell::new(HashMap::new())),
+            selecting: Rc::new(Cell::new(false)),
         }
     }
 
@@ -50,7 +53,10 @@ impl Sidebar {
 
     pub fn remove_tab(&self, session_id: &str) {
         if let Some(row) = self.rows.borrow_mut().remove(session_id) {
-            self.list_box.remove(row.widget());
+            // ListBox wraps children in GtkListBoxRow — remove that parent
+            if let Some(list_box_row) = row.widget().parent() {
+                self.list_box.remove(&list_box_row);
+            }
         }
     }
 
@@ -58,13 +64,15 @@ impl Sidebar {
         let rows = self.rows.borrow();
 
         for (id, row) in rows.iter() {
-            if id == session_id {
-                row.set_active(true);
-                if let Some(gtk_row) = row.widget().parent().and_downcast::<gtk4::ListBoxRow>() {
-                    self.list_box.select_row(Some(&gtk_row));
-                }
-            } else {
-                row.set_active(false);
+            row.set_active(id == session_id);
+        }
+
+        // Select the row in the ListBox for visual feedback, guarded against re-entrancy
+        if let Some(row) = rows.get(session_id) {
+            if let Some(gtk_row) = row.widget().parent().and_downcast::<gtk4::ListBoxRow>() {
+                self.selecting.set(true);
+                self.list_box.select_row(Some(&gtk_row));
+                self.selecting.set(false);
             }
         }
     }
@@ -87,12 +95,30 @@ impl Sidebar {
         }
     }
 
+    pub fn update_notification_preview(&self, session_id: &str, text: Option<&str>) {
+        if let Some(row) = self.rows.borrow().get(session_id) {
+            row.set_notification_preview(text);
+        }
+    }
+
+    pub fn wire_rename<F: Fn(String, String) + Clone + 'static>(&self, session_id: &str, f: F) {
+        if let Some(row) = self.rows.borrow().get(session_id) {
+            let id = session_id.to_string();
+            row.connect_rename(move |new_title| f(id.clone(), new_title));
+        }
+    }
+
     pub fn connect_tab_selected<F: Fn(&str) + 'static>(&self, f: F) {
         let rows = self.rows.clone();
+        let selecting = self.selecting.clone();
 
         self.list_box.connect_row_selected(move |_, gtk_row| {
-            let Some(gtk_row) = gtk_row else { return };
+            // Skip if this was a programmatic selection
+            if selecting.get() {
+                return;
+            }
 
+            let Some(gtk_row) = gtk_row else { return };
             let child = gtk_row.child();
             let rows = rows.borrow();
 
@@ -103,14 +129,6 @@ impl Sidebar {
                 }
             }
         });
-    }
-
-    pub fn connect_tab_close<F: Fn(String) + Clone + 'static>(&self, f: F) {
-        let rows = self.rows.clone();
-
-        // Wire close buttons after adding rows — done lazily via this callback
-        // stored for the manager to call after add_tab
-        let _ = (rows, f);
     }
 
     pub fn connect_new_tab<F: Fn() + 'static>(&self, f: F) {
