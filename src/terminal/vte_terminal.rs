@@ -9,6 +9,7 @@ use vte4::prelude::*;
 use vte4::{Terminal, PtyFlags};
 
 use crate::config::Config;
+use crate::theme::{self, ColorScheme};
 
 pub struct VteTerminal {
     terminal: Terminal,
@@ -17,6 +18,8 @@ pub struct VteTerminal {
 
 impl VteTerminal {
     pub fn new_with_config(config: &Config) -> Self {
+        let scheme = theme::get_scheme(&config.color_scheme);
+
         let terminal = Terminal::builder()
             .scrollback_lines(config.scrollback_lines)
             .scroll_on_keystroke(true)
@@ -27,12 +30,21 @@ impl VteTerminal {
         let font = pango::FontDescription::from_string(&config.font_description());
         terminal.set_font(Some(&font));
 
-        let fg = gtk4::gdk::RGBA::parse("#cdd6f4").expect("valid color");
-        let bg = gtk4::gdk::RGBA::parse("#1e1e2e").expect("valid color");
-        terminal.set_color_foreground(&fg);
-        terminal.set_color_background(&bg);
+        Self::apply_colors(&terminal, scheme);
 
         Self { terminal, spawned: Cell::new(false) }
+    }
+
+    fn apply_colors(terminal: &Terminal, scheme: &ColorScheme) {
+        let fg = gtk4::gdk::RGBA::parse(scheme.terminal_fg).expect("valid fg color");
+        let bg = gtk4::gdk::RGBA::parse(scheme.terminal_bg).expect("valid bg color");
+
+        let palette: Vec<gtk4::gdk::RGBA> = scheme.palette.iter()
+            .map(|c| gtk4::gdk::RGBA::parse(*c).expect("valid palette color"))
+            .collect();
+
+        let palette_refs: Vec<&gtk4::gdk::RGBA> = palette.iter().collect();
+        terminal.set_colors(Some(&fg), Some(&bg), &palette_refs);
     }
 
     pub fn needs_spawn(&self) -> bool {

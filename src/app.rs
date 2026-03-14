@@ -4,14 +4,15 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use vte4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, EventControllerKey, Orientation, Paned,
+    Application, ApplicationWindow, CssProvider, EventControllerKey, Orientation, Paned,
     Stack, StackTransitionType,
-    gdk::Key,
+    gdk::{Display, Key},
     glib,
 };
 
 use crate::claude;
 use crate::config::{Config, SessionState};
+use crate::theme;
 use crate::notifications::hook_handler;
 use crate::notifications::hook_server::HookServer;
 use crate::notifications::NotificationStore;
@@ -29,6 +30,17 @@ pub fn build_window(app: &Application) {
     // Load config and saved session state
     let config = Rc::new(RefCell::new(Config::load()));
     let saved_state = SessionState::load();
+
+    // Load theme CSS
+    let scheme = theme::get_scheme(&config.borrow().color_scheme);
+    let css_content = theme::generate_css(scheme);
+    let provider = CssProvider::new();
+    provider.load_from_string(&css_content);
+    gtk4::style_context_add_provider_for_display(
+        &Display::default().expect("Could not connect to a display"),
+        &provider,
+        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
 
     // Start hook server
     let hook_server = HookServer::new();

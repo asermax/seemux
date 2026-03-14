@@ -10,6 +10,7 @@ pub struct Config {
     pub font_size: u32,
     pub scrollback_lines: u32,
     pub sidebar_width: i32,
+    pub color_scheme: String,
 }
 
 impl Default for Config {
@@ -19,6 +20,7 @@ impl Default for Config {
             font_size: 13,
             scrollback_lines: 10000,
             sidebar_width: 200,
+            color_scheme: "catppuccin-mocha".to_string(),
         }
     }
 }
@@ -145,6 +147,7 @@ mod tests {
             font_size: 14,
             scrollback_lines: 5000,
             sidebar_width: 250,
+            color_scheme: "dracula".to_string(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
