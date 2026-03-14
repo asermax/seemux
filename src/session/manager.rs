@@ -217,11 +217,11 @@ impl SessionManager {
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         sv.spawn_pane(&new_pane_id, None, &env_refs);
 
-        // Rebuild: unparent terminals, remove old widget, build new tree
-        sv.root.borrow().unparent_all();
+        // Rebuild: remove old tree from stack, unparent terminals, build new tree
         if let Some(old) = self.stack.child_by_name(&active_id) {
             self.stack.remove(&old);
         }
+        sv.root.borrow().unparent_all();
 
         let new_widget = sv.build_widget();
         self.stack.add_named(&new_widget, Some(&active_id));
@@ -246,17 +246,19 @@ impl SessionManager {
             return true; // Last pane — caller should destroy the session
         }
 
+        // Remove old widget tree from stack BEFORE modifying the split tree
+        if let Some(old) = self.stack.child_by_name(&active_id) {
+            self.stack.remove(&old);
+        }
+
         let should_destroy = sv.close_focused_pane();
 
         if should_destroy {
             return true;
         }
 
-        // Rebuild: unparent terminals, remove old widget, build new tree
+        // Unparent surviving terminals, then rebuild
         sv.root.borrow().unparent_all();
-        if let Some(old) = self.stack.child_by_name(&active_id) {
-            self.stack.remove(&old);
-        }
 
         let new_widget = sv.build_widget();
         self.stack.add_named(&new_widget, Some(&active_id));
