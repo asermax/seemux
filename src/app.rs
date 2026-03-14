@@ -11,16 +11,15 @@ use gtk4::{
     glib,
 };
 
-use crate::claude;
-use crate::config::{Config, SessionState};
+use crate::app_state::AppState;
+use crate::config::SessionState;
 use crate::theme;
 use crate::notifications::hook_handler;
-use crate::notifications::hook_server::HookServer;
 use crate::notifications::NotificationStore;
 use crate::session::manager::SessionManager;
 use crate::sidebar::Sidebar;
 
-pub fn build_window(app: &Application) {
+pub fn build_window(app: &Application, state: &Rc<AppState>) {
     let window = ApplicationWindow::builder()
         .application(app)
         .title("seemux")
@@ -28,28 +27,24 @@ pub fn build_window(app: &Application) {
         .default_height(700)
         .build();
 
-    // Load config and saved session state
-    let config = Rc::new(RefCell::new(Config::load()));
+    let config = state.config.clone();
     let saved_state = SessionState::load();
 
-    // Load theme CSS
-    let scheme = theme::get_scheme(&config.borrow().color_scheme);
-    let css_content = theme::generate_css(scheme);
-    let provider = CssProvider::new();
-    provider.load_from_string(&css_content);
-    gtk4::style_context_add_provider_for_display(
-        &Display::default().expect("Could not connect to a display"),
-        &provider,
-        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
+    // Load theme CSS (only on first window)
+    if app.windows().is_empty() || app.windows().len() == 1 {
+        let scheme = theme::get_scheme(&config.borrow().color_scheme);
+        let css_content = theme::generate_css(scheme);
+        let provider = CssProvider::new();
+        provider.load_from_string(&css_content);
+        gtk4::style_context_add_provider_for_display(
+            &Display::default().expect("Could not connect to a display"),
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
 
-    // Start hook server
-    let hook_server = HookServer::new();
-    let socket_path = hook_server.socket_path().clone();
-    let hook_rx = hook_server.start();
-
-    // Set up Claude wrapper scripts
-    let bin_dir = claude::setup_scripts(&socket_path);
+    let socket_path = state.socket_path.clone();
+    let bin_dir = state.bin_dir.clone();
 
     // Layout: sidebar | drag handle | terminal stack (via GtkPaned)
     let sidebar = Rc::new(Sidebar::new());
@@ -114,12 +109,15 @@ pub fn build_window(app: &Application) {
     // Create dropdown window (shown via `seemux toggle` CLI command)
     let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, &config.borrow()));
 
-    // Poll hook events from the background thread
+    // Poll hook events — only the first window claims the receiver
+    let hook_rx = state.take_hook_rx();
     let mgr_for_hooks = manager.clone();
     let notif_store = notification_store.clone();
     let dropdown_ref = Some(dropdown.clone());
     glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
-        while let Ok(event) = hook_rx.try_recv() {
+        let Some(ref rx) = hook_rx else { return glib::ControlFlow::Continue };
+
+        while let Ok(event) = rx.try_recv() {
             // Handle dropdown toggle command
             if event.event == "toggle-dropdown" {
                 if let Some(dd) = dropdown_ref.as_ref() {
@@ -198,6 +196,7 @@ pub fn build_window(app: &Application) {
     let mgr = manager.clone();
     let sidebar_for_keys = sidebar.clone();
     let notif_for_keys = notification_store.clone();
+    let window_ref = window.clone();
 
     key_controller.connect_key_pressed(move |_, key, _keycode, modifiers| {
         let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
@@ -205,7 +204,7 @@ pub fn build_window(app: &Application) {
         let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
 
         // Only intercept our specific shortcuts — let everything else through to VTE
-        let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W))
+        let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N))
             || (ctrl && !shift && matches!(key, Key::t | Key::Tab))
             || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9));
 
@@ -225,6 +224,14 @@ pub fn build_window(app: &Application) {
         if ctrl && shift && key == Key::V {
             if let Some(term) = mgr.borrow().active_terminal_vte() {
                 term.paste_clipboard();
+            }
+            return glib::Propagation::Stop;
+        }
+
+        // Ctrl+Shift+N: new window
+        if ctrl && shift && key == Key::N {
+            if let Some(app) = window_ref.application() {
+                app.activate();
             }
             return glib::Propagation::Stop;
         }
@@ -310,9 +317,6 @@ pub fn build_window(app: &Application) {
 
         glib::Propagation::Proceed
     });
-
-    // Keep hook_server alive for the window's lifetime.
-    let _hook_server: &'static _ = Box::leak(Box::new(hook_server));
 
     window.set_child(Some(&paned));
     window.present();
