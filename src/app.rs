@@ -139,33 +139,45 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         wire_tab_lifecycle(&sidebar_new_tab, &mgr_new_tab, &notif_new_tab, &id);
     });
 
-    // Wire "New Group" button — show a dialog with name input
-    let mgr_for_group = manager.clone();
-    let sidebar_for_group = sidebar.clone();
-    let notif_for_group = notification_store.clone();
-    let window_for_group = window.clone();
-    sidebar.connect_new_group(move || {
-        let mgr = mgr_for_group.clone();
-        let sid = sidebar_for_group.clone();
-        let notif = notif_for_group.clone();
+    // Shared "create new group" logic — used by both sidebar button and Ctrl+Shift+G
+    let create_group = {
+        let mgr = manager.clone();
+        let sid = sidebar.clone();
+        let notif = notification_store.clone();
+        let win = window.clone();
 
-        show_new_group_dialog(&window_for_group, move |name| {
-            let group_id = uuid::Uuid::new_v4().to_string();
-            sid.add_group(&group_id, &name);
+        Rc::new(move || {
+            let mgr = mgr.clone();
+            let sid = sid.clone();
+            let notif = notif.clone();
 
-            let mgr2 = mgr.clone();
-            let sid2 = sid.clone();
-            let notif2 = notif.clone();
-            let gid = group_id.clone();
-            let sid_expand = sid.clone();
-            let gid_expand = group_id.clone();
-            sid.connect_group_new_tab(&group_id, move |_| {
-                sid_expand.expand_group(&gid_expand);
-                let id = mgr2.borrow_mut().create_session_in_group(None, None, &gid);
-                wire_tab_lifecycle(&sid2, &mgr2, &notif2, &id);
+            show_new_group_dialog(&win, move |name| {
+                let group_id = uuid::Uuid::new_v4().to_string();
+                sid.add_group(&group_id, &name);
+
+                // Wire the group's "+" button
+                let mgr2 = mgr.clone();
+                let sid2 = sid.clone();
+                let notif2 = notif.clone();
+                let gid = group_id.clone();
+                let sid_expand = sid.clone();
+                let gid_expand = group_id.clone();
+                sid.connect_group_new_tab(&group_id, move |_| {
+                    sid_expand.expand_group(&gid_expand);
+                    let id = mgr2.borrow_mut().create_session_in_group(None, None, &gid);
+                    wire_tab_lifecycle(&sid2, &mgr2, &notif2, &id);
+                });
+
+                // Create initial tab in the new group
+                let first_id = mgr.borrow_mut().create_session_in_group(None, None, &group_id);
+                wire_tab_lifecycle(&sid, &mgr, &notif, &first_id);
             });
-        });
-    });
+        })
+    };
+
+    // Wire "New Group" sidebar button
+    let create_group_btn = create_group.clone();
+    sidebar.connect_new_group(move || create_group_btn());
 
     // Create dropdown window (shown via `seemux toggle` CLI command)
     let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, state));
@@ -258,6 +270,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     let sidebar_for_keys = sidebar.clone();
     let notif_for_keys = notification_store.clone();
     let window_ref = window.clone();
+    let create_group_key = create_group.clone();
 
     key_controller.connect_key_pressed(move |_, key, _keycode, modifiers| {
         let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
@@ -265,7 +278,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
 
         // Only intercept our specific shortcuts — let everything else through to VTE
-        let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::Page_Up | Key::Page_Down))
+        let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::Page_Up | Key::Page_Down))
             || (ctrl && !shift && matches!(key, Key::t | Key::Tab | Key::Page_Up | Key::Page_Down))
             || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9));
 
@@ -294,6 +307,12 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
             if let Some(app) = window_ref.application() {
                 app.activate();
             }
+            return glib::Propagation::Stop;
+        }
+
+        // Ctrl+Shift+G: new group
+        if ctrl && shift && key == Key::G {
+            create_group_key();
             return glib::Propagation::Stop;
         }
 
