@@ -81,7 +81,6 @@ pub struct SavedSession {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SessionState {
     pub sessions: Vec<SavedSession>,
-    pub sidebar_width: Option<i32>,
 }
 
 impl SessionState {
@@ -174,7 +173,6 @@ mod tests {
                 SavedSession { title: "Tab 1".to_string(), cwd: Some("/home/user".to_string()) },
                 SavedSession { title: "Tab 2".to_string(), cwd: None },
             ],
-            sidebar_width: Some(220),
         };
 
         let json = serde_json::to_string(&state).unwrap();
@@ -183,6 +181,5 @@ mod tests {
         assert_eq!(parsed.sessions.len(), 2);
         assert_eq!(parsed.sessions[0].title, "Tab 1");
         assert_eq!(parsed.sessions[1].cwd, None);
-        assert_eq!(parsed.sidebar_width, Some(220));
     }
 }

@@ -18,7 +18,7 @@ pub struct SessionManager {
     active_id: Option<String>,
     stack: Stack,
     sidebar: Rc<Sidebar>,
-    config: Rc<Config>,
+    config: Rc<RefCell<Config>>,
     on_empty: Option<Box<dyn Fn()>>,
     socket_path: PathBuf,
     bin_dir: PathBuf,
@@ -31,7 +31,7 @@ impl SessionManager {
         sidebar: Rc<Sidebar>,
         socket_path: PathBuf,
         bin_dir: PathBuf,
-        config: Rc<Config>,
+        config: Rc<RefCell<Config>>,
     ) -> Rc<RefCell<Self>> {
         let hook_script_path = bin_dir.join("seemux-hook.sh");
 
@@ -77,7 +77,7 @@ impl SessionManager {
         let env_vars = self.build_env_vars(&id);
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
-        let terminal = VteTerminal::new_with_config(&self.config);
+        let terminal = VteTerminal::new_with_config(&self.config.borrow());
 
         if self.stack.is_realized() {
             terminal.spawn_shell(cwd, &env_refs);
@@ -215,13 +215,12 @@ impl SessionManager {
     }
 
     /// Save current session state for restoration on next launch.
-    pub fn save_state(&self, sidebar_width: i32) {
+    pub fn save_state(&self) {
         let state = SessionState {
             sessions: self.sessions.iter().map(|s| SavedSession {
                 title: s.title.clone(),
                 cwd: s.cwd.clone(),
             }).collect(),
-            sidebar_width: Some(sidebar_width),
         };
 
         state.save();

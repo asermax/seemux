@@ -27,7 +27,7 @@ pub fn build_window(app: &Application) {
         .build();
 
     // Load config and saved session state
-    let config = Rc::new(Config::load());
+    let config = Rc::new(RefCell::new(Config::load()));
     let saved_state = SessionState::load();
 
     // Start hook server
@@ -49,13 +49,13 @@ pub fn build_window(app: &Application) {
     let paned = Paned::new(Orientation::Horizontal);
     paned.set_start_child(Some(&sidebar.container));
     paned.set_end_child(Some(&stack));
-    paned.set_position(saved_state.sidebar_width.unwrap_or(config.sidebar_width));
+    paned.set_position(config.borrow().sidebar_width);
     paned.set_shrink_start_child(false);
     paned.set_shrink_end_child(false);
     paned.set_resize_start_child(false);
     paned.set_resize_end_child(true);
 
-    let manager = SessionManager::new(stack, sidebar.clone(), socket_path, bin_dir, config);
+    let manager = SessionManager::new(stack, sidebar.clone(), socket_path, bin_dir, config.clone());
 
     // Notification store
     let notification_store = Rc::new(RefCell::new(NotificationStore::new()));
@@ -274,11 +274,17 @@ pub fn build_window(app: &Application) {
         }
     });
 
-    // Save session state on window close
+    // Save session state and sidebar width on window close
     let mgr_for_close = manager.clone();
     let paned_for_close = paned.clone();
+    let config_for_close = config.clone();
     window.connect_close_request(move |_| {
-        mgr_for_close.borrow().save_state(paned_for_close.position());
+        mgr_for_close.borrow().save_state();
+
+        let mut cfg = config_for_close.borrow_mut();
+        cfg.sidebar_width = paned_for_close.position();
+        cfg.save();
+
         glib::Propagation::Proceed
     });
 
