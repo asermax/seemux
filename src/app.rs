@@ -93,6 +93,20 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         app_clone.quit();
     });
 
+    // Restore saved groups first
+    for group in &saved_state.groups {
+        sidebar.add_group(&group.id, &group.name);
+
+        let mgr = manager.clone();
+        let sid = sidebar.clone();
+        let notif = notification_store.clone();
+        let gid = group.id.clone();
+        sidebar.connect_group_new_tab(&group.id, move |_| {
+            let id = mgr.borrow_mut().create_session_in_group(None, None, &gid);
+            wire_tab_lifecycle(&sid, &mgr, &notif, &id);
+        });
+    }
+
     // Restore saved sessions or create a fresh one
     if saved_state.sessions.is_empty() {
         let first_id = manager.borrow_mut().create_session(None, None);
@@ -102,7 +116,8 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
             let cwd = saved.cwd.as_deref()
                 .filter(|p| std::path::Path::new(p).exists());
 
-            let id = manager.borrow_mut().create_session(Some(&saved.title), cwd);
+            let group = if saved.group_id.is_empty() { crate::session::DEFAULT_GROUP } else { &saved.group_id };
+            let id = manager.borrow_mut().create_session_in_group(Some(&saved.title), cwd, group);
             wire_tab_lifecycle(&sidebar, &manager, &notification_store, &id);
         }
     }
@@ -343,6 +358,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     let mgr_for_close = manager.clone();
     let paned_for_close = paned.clone();
     let config_for_close = config.clone();
+    let app_for_close = app.clone();
     window.connect_close_request(move |_| {
         mgr_for_close.borrow().save_state();
 
@@ -350,16 +366,23 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         cfg.sidebar_width = paned_for_close.position();
         cfg.save();
 
+        // Quit the app — daemon threads will be killed on process exit
+        app_for_close.quit();
         glib::Propagation::Proceed
     });
 
     window.set_child(Some(&paned));
     window.present();
 
-    // Spawn deferred shells once the window is mapped and terminals have their real size
+    // Spawn deferred shells and focus the first terminal
     let mgr_for_map = manager.clone();
     glib::idle_add_local_once(move || {
         mgr_for_map.borrow().spawn_deferred();
+
+        // Focus the active terminal
+        if let Some(term) = mgr_for_map.borrow().active_terminal_vte() {
+            term.grab_focus();
+        }
     });
 }
 

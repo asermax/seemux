@@ -31,6 +31,19 @@ fn main() -> glib::ExitCode {
         return glib::ExitCode::SUCCESS;
     }
 
+    // Suppress harmless GTK4 GtkGizmo slider warning (GTK bug with Paned widget)
+    glib::log_set_handler(
+        Some("Gtk"),
+        glib::LogLevels::LEVEL_WARNING,
+        true,
+        true,
+        |_, _, msg: &str| {
+            if !msg.contains("GtkGizmo") || !msg.contains("slider") {
+                eprintln!("Gtk-WARNING: {msg}");
+            }
+        },
+    );
+
     let application = Application::builder()
         .application_id(APP_ID)
         .build();

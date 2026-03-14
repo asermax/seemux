@@ -21,6 +21,8 @@ pub struct SessionManager {
     sidebar: Rc<Sidebar>,
     config: Rc<RefCell<Config>>,
     on_empty: Option<Box<dyn Fn()>>,
+    /// Shared CWD tracking — updated by terminal CWD signal, read at save time
+    session_cwds: Rc<RefCell<HashMap<String, String>>>,
     socket_path: PathBuf,
     bin_dir: PathBuf,
     hook_script_path: PathBuf,
@@ -44,6 +46,7 @@ impl SessionManager {
             sidebar,
             config,
             on_empty: None,
+            session_cwds: Rc::new(RefCell::new(HashMap::new())),
             socket_path,
             bin_dir,
             hook_script_path,
@@ -101,6 +104,7 @@ impl SessionManager {
         let sidebar = self.sidebar.clone();
         let sid = session_id.to_string();
         let last_cwd: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let cwds = self.session_cwds.clone();
         terminal.connect_cwd_changed(move |path| {
             let Some(cwd) = path else {
                 sidebar.update_branch(&sid, None);
@@ -111,6 +115,7 @@ impl SessionManager {
                 return;
             }
             *last_cwd.borrow_mut() = Some(cwd.clone());
+            cwds.borrow_mut().insert(sid.clone(), cwd.clone());
 
             let sidebar = sidebar.clone();
             let sid = sid.clone();
@@ -249,13 +254,32 @@ impl SessionManager {
         }
     }
 
+    /// Update session CWD (called from CWD change signal).
+    #[allow(dead_code)]
+    pub fn update_session_cwd(&mut self, session_id: &str, cwd: &str) {
+        if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
+            session.cwd = Some(cwd.to_string());
+        }
+    }
+
     /// Save current session state for restoration on next launch.
     pub fn save_state(&self) {
+        let groups = self.sidebar.group_ids().iter().map(|(id, name)| {
+            crate::config::SavedGroup { id: id.clone(), name: name.clone() }
+        }).collect();
+
+        let cwds = self.session_cwds.borrow();
+
         let state = SessionState {
-            sessions: self.sessions.iter().map(|s| SavedSession {
-                title: s.title.clone(),
-                cwd: s.cwd.clone(),
+            sessions: self.sessions.iter().map(|s| {
+                let cwd = cwds.get(&s.id).cloned().or_else(|| s.cwd.clone());
+                SavedSession {
+                    title: s.title.clone(),
+                    cwd,
+                    group_id: s.group_id.clone(),
+                }
             }).collect(),
+            groups,
         };
 
         state.save();

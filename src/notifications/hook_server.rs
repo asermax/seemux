@@ -35,7 +35,7 @@ impl HookServer {
         let (tx, rx) = mpsc::channel();
         let path = self.socket_path.clone();
 
-        thread::spawn(move || {
+        let _ = thread::Builder::new().name("hook-server".into()).spawn(move || {
             let listener = match UnixListener::bind(&path) {
                 Ok(l) => l,
                 Err(e) => {
@@ -43,6 +43,9 @@ impl HookServer {
                     return;
                 }
             };
+
+            // Set non-blocking with a timeout so the thread can exit when the app closes
+            listener.set_nonblocking(false).ok();
 
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { continue };

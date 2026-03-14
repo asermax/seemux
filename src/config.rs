@@ -84,11 +84,21 @@ fn config_path() -> PathBuf {
 pub struct SavedSession {
     pub title: String,
     pub cwd: Option<String>,
+    #[serde(default)]
+    pub group_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedGroup {
+    pub id: String,
+    pub name: String,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SessionState {
     pub sessions: Vec<SavedSession>,
+    #[serde(default)]
+    pub groups: Vec<SavedGroup>,
 }
 
 impl SessionState {
@@ -182,8 +192,11 @@ mod tests {
     fn session_state_roundtrip() {
         let state = SessionState {
             sessions: vec![
-                SavedSession { title: "Tab 1".to_string(), cwd: Some("/home/user".to_string()) },
-                SavedSession { title: "Tab 2".to_string(), cwd: None },
+                SavedSession { title: "Tab 1".to_string(), cwd: Some("/home/user".to_string()), group_id: "default".to_string() },
+                SavedSession { title: "Tab 2".to_string(), cwd: None, group_id: "group1".to_string() },
+            ],
+            groups: vec![
+                SavedGroup { id: "group1".to_string(), name: "Work".to_string() },
             ],
         };
 
