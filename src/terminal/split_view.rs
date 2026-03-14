@@ -122,6 +122,10 @@ impl SplitView {
         self.root.borrow().build_widget()
     }
 
+    pub fn set_focused_pane_id(&self, id: &str) {
+        *self.focused_pane_id.borrow_mut() = id.to_string();
+    }
+
     /// Get the currently focused terminal.
     pub fn focused_terminal(&self) -> Option<vte4::Terminal> {
         let root = self.root.borrow();
@@ -206,31 +210,63 @@ impl SplitView {
         }
     }
 
+    /// Returns true if the target pane exists in this subtree.
+    fn contains_pane(node: &SplitNode, target_id: &str) -> bool {
+        match node {
+            SplitNode::Leaf { id, .. } => id == target_id,
+            SplitNode::Split { first, second, .. } => {
+                Self::contains_pane(first, target_id) || Self::contains_pane(second, target_id)
+            }
+        }
+    }
+
     fn remove_leaf(node: SplitNode, target_id: &str) -> (Option<SplitNode>, Option<String>) {
         match node {
             SplitNode::Leaf { id, .. } if id == target_id => {
                 (None, None)
             }
-            SplitNode::Split { first, second, .. } => {
-                // Check if first child is the target
+            SplitNode::Split { orientation, first, second } => {
+                // Check if first child is the target leaf — promote second
                 if matches!(&*first, SplitNode::Leaf { id, .. } if id == target_id) {
                     let new_focus = second.first_pane_id().to_string();
                     return (Some(*second), Some(new_focus));
                 }
 
-                // Check if second child is the target
+                // Check if second child is the target leaf — promote first
                 if matches!(&*second, SplitNode::Leaf { id, .. } if id == target_id) {
                     let new_focus = first.first_pane_id().to_string();
                     return (Some(*first), Some(new_focus));
                 }
 
-                // Recurse into children
-                // (simplified: only handles direct children for now)
-                (Some(SplitNode::Split {
-                    orientation: Orientation::Horizontal,
-                    first,
-                    second,
-                }), None)
+                // Target is deeper — recurse into the child that contains it
+                if Self::contains_pane(&first, target_id) {
+                    let (new_first, focus) = Self::remove_leaf(*first, target_id);
+
+                    return match new_first {
+                        Some(nf) => (Some(SplitNode::Split {
+                            orientation,
+                            first: Box::new(nf),
+                            second,
+                        }), focus),
+                        None => (Some(*second), focus),
+                    };
+                }
+
+                if Self::contains_pane(&second, target_id) {
+                    let (new_second, focus) = Self::remove_leaf(*second, target_id);
+
+                    return match new_second {
+                        Some(ns) => (Some(SplitNode::Split {
+                            orientation,
+                            first,
+                            second: Box::new(ns),
+                        }), focus),
+                        None => (Some(*first), focus),
+                    };
+                }
+
+                // Target not found in this subtree
+                (Some(SplitNode::Split { orientation, first, second }), None)
             }
             other => (Some(other), None),
         }

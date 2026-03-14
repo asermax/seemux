@@ -341,21 +341,38 @@ impl SessionManager {
     }
 
     pub fn wire_child_exited(self_ref: &Rc<RefCell<Self>>, session_id: &str) {
-        let mgr = self_ref.clone();
-        let id = session_id.to_string();
         let borrow = self_ref.borrow();
+        let Some(sv) = borrow.split_views.get(session_id) else { return };
 
-        if let Some(sv) = borrow.split_views.get(session_id) {
-            if let Some(term) = sv.focused_terminal() {
-                term.connect_child_exited(move |_term, _status| {
-                    let id = id.clone();
-                    let mgr = mgr.clone();
+        // Wire child-exited on ALL terminals in the split tree, not just the focused one
+        for (pane_id, vte_term) in sv.collect_vte_terminals() {
+            let mgr = self_ref.clone();
+            let sid = session_id.to_string();
+            let pid = pane_id.clone();
 
-                    glib::idle_add_local_once(move || {
-                        mgr.borrow_mut().destroy_session(&id);
-                    });
+            vte_term.connect_child_exited(move |_term, _status| {
+                let mgr = mgr.clone();
+                let sid = sid.clone();
+                let pid = pid.clone();
+
+                glib::idle_add_local_once(move || {
+                    let mut m = mgr.borrow_mut();
+
+                    // Check if this session has multiple panes
+                    if let Some(sv) = m.split_views.get(&sid) {
+                        if sv.pane_count() > 1 {
+                            // Set focus to the exited pane, then close it
+                            sv.set_focused_pane_id(&pid);
+                            drop(m);
+                            mgr.borrow_mut().close_active_pane();
+                            return;
+                        }
+                    }
+
+                    // Single pane — destroy the whole session
+                    m.destroy_session(&sid);
                 });
-            }
+            });
         }
     }
 
