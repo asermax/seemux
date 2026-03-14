@@ -11,6 +11,7 @@ use gtk4::{
 };
 
 use crate::claude;
+use crate::config::{Config, SessionState};
 use crate::notifications::hook_handler;
 use crate::notifications::hook_server::HookServer;
 use crate::notifications::NotificationStore;
@@ -24,6 +25,10 @@ pub fn build_window(app: &Application) {
         .default_width(1000)
         .default_height(700)
         .build();
+
+    // Load config and saved session state
+    let config = Rc::new(Config::load());
+    let saved_state = SessionState::load();
 
     // Start hook server
     let hook_server = HookServer::new();
@@ -44,13 +49,13 @@ pub fn build_window(app: &Application) {
     let paned = Paned::new(Orientation::Horizontal);
     paned.set_start_child(Some(&sidebar.container));
     paned.set_end_child(Some(&stack));
-    paned.set_position(200);
+    paned.set_position(saved_state.sidebar_width.unwrap_or(config.sidebar_width));
     paned.set_shrink_start_child(false);
     paned.set_shrink_end_child(false);
     paned.set_resize_start_child(false);
     paned.set_resize_end_child(true);
 
-    let manager = SessionManager::new(stack, sidebar.clone(), socket_path, bin_dir);
+    let manager = SessionManager::new(stack, sidebar.clone(), socket_path, bin_dir, config);
 
     // Notification store
     let notification_store = Rc::new(RefCell::new(NotificationStore::new()));
@@ -74,9 +79,19 @@ pub fn build_window(app: &Application) {
         app_clone.quit();
     });
 
-    // Create the first session
-    let first_id = manager.borrow_mut().create_session(None);
-    wire_tab_lifecycle(&sidebar, &manager, &first_id);
+    // Restore saved sessions or create a fresh one
+    if saved_state.sessions.is_empty() {
+        let first_id = manager.borrow_mut().create_session(None, None);
+        wire_tab_lifecycle(&sidebar, &manager, &first_id);
+    } else {
+        for saved in &saved_state.sessions {
+            let cwd = saved.cwd.as_deref()
+                .filter(|p| std::path::Path::new(p).exists());
+
+            let id = manager.borrow_mut().create_session(Some(&saved.title), cwd);
+            wire_tab_lifecycle(&sidebar, &manager, &id);
+        }
+    }
 
     // Poll hook events from the background thread
     let mgr_for_hooks = manager.clone();
@@ -186,7 +201,7 @@ pub fn build_window(app: &Application) {
 
         // Ctrl+T or Ctrl+Shift+T: new tab
         if ctrl && (key == Key::t || key == Key::T) {
-            let id = mgr.borrow_mut().create_session(None);
+            let id = mgr.borrow_mut().create_session(None, None);
             wire_tab_lifecycle(&sidebar_for_keys, &mgr, &id);
             return glib::Propagation::Stop;
         }
@@ -259,8 +274,15 @@ pub fn build_window(app: &Application) {
         }
     });
 
+    // Save session state on window close
+    let mgr_for_close = manager.clone();
+    let paned_for_close = paned.clone();
+    window.connect_close_request(move |_| {
+        mgr_for_close.borrow().save_state(paned_for_close.position());
+        glib::Propagation::Proceed
+    });
+
     // Keep hook_server alive for the window's lifetime.
-    // Leak into a static ref — cleaned up on process exit via Drop.
     let _hook_server: &'static _ = Box::leak(Box::new(hook_server));
 
     window.set_child(Some(&paned));

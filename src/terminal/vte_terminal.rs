@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::env;
 
 use gtk4::glib;
@@ -7,7 +8,7 @@ use gtk4::prelude::*;
 use vte4::prelude::*;
 use vte4::{Terminal, PtyFlags};
 
-use std::cell::Cell;
+use crate::config::Config;
 
 pub struct VteTerminal {
     terminal: Terminal,
@@ -15,15 +16,15 @@ pub struct VteTerminal {
 }
 
 impl VteTerminal {
-    pub fn new() -> Self {
+    pub fn new_with_config(config: &Config) -> Self {
         let terminal = Terminal::builder()
-            .scrollback_lines(10000)
+            .scrollback_lines(config.scrollback_lines)
             .scroll_on_keystroke(true)
             .audible_bell(false)
             .bold_is_bright(true)
             .build();
 
-        let font = pango::FontDescription::from_string("Monospace 13");
+        let font = pango::FontDescription::from_string(&config.font_description());
         terminal.set_font(Some(&font));
 
         let fg = gtk4::gdk::RGBA::parse("#cdd6f4").expect("valid color");
@@ -50,7 +51,6 @@ impl VteTerminal {
         self.spawned.set(true);
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
 
-        // Build environment: inherit current env + add extras
         let mut envv: Vec<String> = env::vars()
             .map(|(k, v)| format!("{k}={v}"))
             .collect();

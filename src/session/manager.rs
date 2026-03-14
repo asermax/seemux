@@ -7,6 +7,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::Stack;
 
+use crate::config::{Config, SavedSession, SessionState};
 use crate::session::{Session, SessionStatus};
 use crate::sidebar::Sidebar;
 use crate::terminal::VteTerminal;
@@ -17,6 +18,7 @@ pub struct SessionManager {
     active_id: Option<String>,
     stack: Stack,
     sidebar: Rc<Sidebar>,
+    config: Rc<Config>,
     on_empty: Option<Box<dyn Fn()>>,
     socket_path: PathBuf,
     bin_dir: PathBuf,
@@ -29,6 +31,7 @@ impl SessionManager {
         sidebar: Rc<Sidebar>,
         socket_path: PathBuf,
         bin_dir: PathBuf,
+        config: Rc<Config>,
     ) -> Rc<RefCell<Self>> {
         let hook_script_path = bin_dir.join("seemux-hook.sh");
 
@@ -38,13 +41,14 @@ impl SessionManager {
             active_id: None,
             stack,
             sidebar,
+            config,
             on_empty: None,
             socket_path,
             bin_dir,
             hook_script_path,
         }));
 
-        // Wire sidebar tab selection (use try_borrow_mut to avoid re-entrant panics)
+        // Wire sidebar tab selection
         let mgr = manager.clone();
         manager.borrow().sidebar.connect_tab_selected(move |id| {
             if let Ok(mut m) = mgr.try_borrow_mut() {
@@ -55,7 +59,7 @@ impl SessionManager {
         // Wire new tab button
         let mgr = manager.clone();
         manager.borrow().sidebar.connect_new_tab(move || {
-            mgr.borrow_mut().create_session(None);
+            mgr.borrow_mut().create_session(None, None);
         });
 
         manager
@@ -65,44 +69,23 @@ impl SessionManager {
         self.on_empty = Some(Box::new(f));
     }
 
-    pub fn create_session(&mut self, title: Option<&str>) -> String {
+    pub fn create_session(&mut self, title: Option<&str>, cwd: Option<&str>) -> String {
         let index = self.sessions.len() + 1;
         let session = Session::new(title.unwrap_or(&format!("Tab {index}")).to_string());
         let id = session.id.clone();
 
-        // Build environment for the shell
-        let socket_str = self.socket_path.to_string_lossy().to_string();
-        let bin_dir_str = self.bin_dir.to_string_lossy().to_string();
-        let hook_script_str = self.hook_script_path.to_string_lossy().to_string();
+        let env_vars = self.build_env_vars(&id);
+        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
-        // Prepend our bin dir to PATH
-        let current_path = std::env::var("PATH").unwrap_or_default();
-        let new_path = format!("{bin_dir_str}:{current_path}");
+        let terminal = VteTerminal::new_with_config(&self.config);
 
-        let env_vars: Vec<(&str, &str)> = vec![
-            ("SEEMUX_SOCKET", &socket_str),
-            ("SEEMUX_SESSION_ID", &id),
-            ("SEEMUX_HOOK_SCRIPT", &hook_script_str),
-            ("SEEMUX_BIN_DIR", &bin_dir_str),
-            ("PATH", &new_path),
-        ];
-
-        // Create terminal (shell spawn is deferred if this is the first session
-        // and the window hasn't been mapped yet — caller handles that via spawn_session)
-        let terminal = VteTerminal::new();
         if self.stack.is_realized() {
-            terminal.spawn_shell(None, &env_vars);
+            terminal.spawn_shell(cwd, &env_refs);
         }
 
-        // Add terminal to stack
         self.stack.add_named(terminal.widget(), Some(&id));
-
-        // Add tab to sidebar
         self.sidebar.add_tab(&session);
 
-        // Wire child-exited: will be connected by the caller via wire_child_exited
-
-        // Wire title changed
         let sidebar = self.sidebar.clone();
         let session_id = id.clone();
         terminal.connect_title_changed(move |new_title| {
@@ -111,8 +94,6 @@ impl SessionManager {
 
         self.terminals.insert(id.clone(), terminal);
         self.sessions.push(session);
-
-        // Switch to the new session
         self.switch_to(&id);
 
         id
@@ -120,7 +101,6 @@ impl SessionManager {
 
     pub fn destroy_session(&mut self, session_id: &str) {
         if let Some(terminal) = self.terminals.get(session_id) {
-            // Only remove if still a child of the stack
             if terminal.widget().parent().as_ref() == Some(self.stack.upcast_ref()) {
                 self.stack.remove(terminal.widget());
             }
@@ -156,26 +136,13 @@ impl SessionManager {
         }
     }
 
-    /// Spawn the shell for sessions that were created before the window was mapped.
     pub fn spawn_deferred(&self) {
         for session in &self.sessions {
             if let Some(terminal) = self.terminals.get(&session.id) {
                 if terminal.needs_spawn() {
-                    let socket_str = self.socket_path.to_string_lossy().to_string();
-                    let bin_dir_str = self.bin_dir.to_string_lossy().to_string();
-                    let hook_script_str = self.hook_script_path.to_string_lossy().to_string();
-                    let current_path = std::env::var("PATH").unwrap_or_default();
-                    let new_path = format!("{bin_dir_str}:{current_path}");
-
-                    let env_vars: Vec<(&str, &str)> = vec![
-                        ("SEEMUX_SOCKET", &socket_str),
-                        ("SEEMUX_SESSION_ID", &session.id),
-                        ("SEEMUX_HOOK_SCRIPT", &hook_script_str),
-                        ("SEEMUX_BIN_DIR", &bin_dir_str),
-                        ("PATH", &new_path),
-                    ];
-
-                    terminal.spawn_shell(None, &env_vars);
+                    let env_vars = self.build_env_vars(&session.id);
+                    let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+                    terminal.spawn_shell(session.cwd.as_deref(), &env_refs);
                 }
             }
         }
@@ -195,7 +162,7 @@ impl SessionManager {
         self.active_id.as_deref()
     }
 
-    pub fn active_terminal(&self) -> Option<&crate::terminal::VteTerminal> {
+    pub fn active_terminal(&self) -> Option<&VteTerminal> {
         self.active_id.as_deref().and_then(|id| self.terminals.get(id))
     }
 
@@ -230,12 +197,9 @@ impl SessionManager {
             .collect()
     }
 
-    /// Wire child-exited on a session's terminal to auto-close the tab.
-    /// Must be called after create_session with an Rc to self.
     pub fn wire_child_exited(self_ref: &Rc<RefCell<Self>>, session_id: &str) {
         let mgr = self_ref.clone();
         let id = session_id.to_string();
-
         let borrow = self_ref.borrow();
 
         if let Some(terminal) = borrow.terminals.get(session_id) {
@@ -243,11 +207,36 @@ impl SessionManager {
                 let id = id.clone();
                 let mgr = mgr.clone();
 
-                // Defer destruction to avoid re-entrant borrow
                 glib::idle_add_local_once(move || {
                     mgr.borrow_mut().destroy_session(&id);
                 });
             });
         }
+    }
+
+    /// Save current session state for restoration on next launch.
+    pub fn save_state(&self, sidebar_width: i32) {
+        let state = SessionState {
+            sessions: self.sessions.iter().map(|s| SavedSession {
+                title: s.title.clone(),
+                cwd: s.cwd.clone(),
+            }).collect(),
+            sidebar_width: Some(sidebar_width),
+        };
+
+        state.save();
+    }
+
+    fn build_env_vars(&self, session_id: &str) -> Vec<(String, String)> {
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        let bin_dir_str = self.bin_dir.to_string_lossy().to_string();
+
+        vec![
+            ("SEEMUX_SOCKET".to_string(), self.socket_path.to_string_lossy().to_string()),
+            ("SEEMUX_SESSION_ID".to_string(), session_id.to_string()),
+            ("SEEMUX_HOOK_SCRIPT".to_string(), self.hook_script_path.to_string_lossy().to_string()),
+            ("SEEMUX_BIN_DIR".to_string(), bin_dir_str.clone()),
+            ("PATH".to_string(), format!("{bin_dir_str}:{current_path}")),
+        ]
     }
 }
