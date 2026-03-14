@@ -67,6 +67,7 @@ impl SessionManager {
         let index = self.sessions.len() + 1;
         let mut session = Session::new(title.unwrap_or(&format!("Tab {index}")).to_string());
         session.group_id = group_id.to_string();
+        session.cwd = cwd.map(|s| s.to_string());
         let id = session.id.clone();
 
         let env_vars = self.build_env_vars(&id);
