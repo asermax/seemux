@@ -7,7 +7,6 @@ use crate::config::Config;
 use crate::terminal::VteTerminal;
 
 /// A tree node representing either a single terminal or a split.
-#[allow(dead_code)]
 pub enum SplitNode {
     Leaf {
         id: String,
@@ -20,7 +19,6 @@ pub enum SplitNode {
     },
 }
 
-#[allow(dead_code)]
 impl SplitNode {
     /// Recursively build the GTK widget tree for this node.
     pub fn build_widget(&self) -> Widget {
@@ -80,13 +78,11 @@ impl SplitNode {
 }
 
 /// Manages the split tree for a single session.
-#[allow(dead_code)]
 pub struct SplitView {
     root: RefCell<SplitNode>,
     focused_pane_id: RefCell<String>,
 }
 
-#[allow(dead_code)]
 impl SplitView {
     pub fn new(terminal: VteTerminal, pane_id: String) -> Self {
         let focused = pane_id.clone();

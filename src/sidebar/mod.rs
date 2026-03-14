@@ -12,7 +12,6 @@ use crate::session::{Session, DEFAULT_GROUP};
 use tab_group::TabGroupWidget;
 use tab_row::TabRow;
 
-#[allow(dead_code)]
 pub struct Sidebar {
     pub container: GtkBox,
     scroll: ScrolledWindow,
@@ -33,13 +32,11 @@ pub struct Sidebar {
     selecting: Rc<Cell<bool>>,
 }
 
-#[allow(dead_code)]
 struct GroupEntry {
     id: String,
     name: String,
 }
 
-#[allow(dead_code)]
 impl Sidebar {
     pub fn new() -> Self {
         let container = GtkBox::new(Orientation::Vertical, 0);
@@ -161,6 +158,12 @@ impl Sidebar {
     pub fn setup_context_menu(&self, session_id: &str) {
         if let Some((row, _)) = self.rows.borrow().get(session_id) {
             row.setup_context_menu(session_id);
+        }
+    }
+
+    pub fn trigger_rename<F: Fn(String) + Clone + 'static>(&self, session_id: &str, on_rename: F) {
+        if let Some((row, _)) = self.rows.borrow().get(session_id) {
+            row.start_rename(on_rename);
         }
     }
 

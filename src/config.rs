@@ -154,6 +154,9 @@ mod tests {
     fn default_config_is_valid() {
         let config = Config::default();
         assert_eq!(config.font_family, "Monospace");
+        assert_eq!(config.dropdown_width_percent, 90);
+        assert_eq!(config.dropdown_height_percent, 50);
+        assert_eq!(config.dropdown_animation_ms, 200);
         assert_eq!(config.font_size, 13);
         assert_eq!(config.font_description(), "Monospace 13");
     }

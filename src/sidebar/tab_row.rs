@@ -189,7 +189,56 @@ impl TabRow {
         self.container.add_controller(gesture);
     }
 
-    /// Set up double-click to rename. Calls `on_rename` with the new title.
+    /// Start inline rename. Shows an Entry replacing the title label.
+    pub fn start_rename<F: Fn(String) + Clone + 'static>(&self, on_rename: F) {
+        let content = &self.content;
+        let title_label = &self.title_label;
+
+        let current_title = title_label.text().to_string();
+        let original = current_title.clone();
+
+        let entry = Entry::new();
+        entry.set_text(&current_title);
+        entry.set_hexpand(true);
+        entry.add_css_class("tab-rename-entry");
+
+        title_label.set_visible(false);
+        content.prepend(&entry);
+        entry.grab_focus();
+        entry.select_region(0, -1);
+
+        let content_enter = content.clone();
+        let label_enter = title_label.clone();
+        let on_rename_enter = on_rename.clone();
+        let entry_focus = entry.clone();
+
+        entry.connect_activate(move |entry| {
+            let new_title = entry.text().to_string();
+            content_enter.remove(entry);
+            label_enter.set_text(if new_title.is_empty() { &current_title } else { &new_title });
+            label_enter.set_visible(true);
+
+            if !new_title.is_empty() && new_title != current_title {
+                on_rename_enter(new_title);
+            }
+        });
+
+        let content_focus = content.clone();
+        let label_focus = title_label.clone();
+
+        let focus_controller = gtk4::EventControllerFocus::new();
+        focus_controller.connect_leave(move |_| {
+            if entry_focus.parent().is_some() {
+                content_focus.remove(&entry_focus);
+                label_focus.set_text(&original);
+                label_focus.set_visible(true);
+            }
+        });
+
+        entry.add_controller(focus_controller);
+    }
+
+    /// Set up double-click to rename.
     pub fn connect_rename<F: Fn(String) + Clone + 'static>(&self, on_rename: F) {
         let content = self.content.clone();
         let title_label = self.title_label.clone();
@@ -204,6 +253,7 @@ impl TabRow {
 
             gesture.set_state(gtk4::EventSequenceState::Claimed);
 
+            // Reuse start_rename logic inline (can't call self.start_rename from closure)
             let current_title = title_label.text().to_string();
             let original = current_title.clone();
 
@@ -212,17 +262,14 @@ impl TabRow {
             entry.set_hexpand(true);
             entry.add_css_class("tab-rename-entry");
 
-            // Hide the label, show the entry
             title_label.set_visible(false);
             content.prepend(&entry);
             entry.grab_focus();
             entry.select_region(0, -1);
 
-            // Commit on Enter
             let content_enter = content.clone();
             let label_enter = title_label.clone();
             let on_rename_enter = on_rename.clone();
-
             let entry_focus = entry.clone();
 
             entry.connect_activate(move |entry| {
@@ -236,7 +283,6 @@ impl TabRow {
                 }
             });
 
-            // Cancel on focus-out
             let content_focus = content.clone();
             let label_focus = title_label.clone();
 

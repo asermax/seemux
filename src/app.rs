@@ -162,7 +162,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     });
 
     // Create dropdown window (shown via `seemux toggle` CLI command)
-    let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, &config.borrow()));
+    let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, state));
 
     // Poll hook events — only the first window claims the receiver
     let hook_rx = state.take_hook_rx();
@@ -340,14 +340,12 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
             return glib::Propagation::Stop;
         }
 
-        // Ctrl+Shift+PgDown/PgUp: next/previous group (jump to first tab)
+        // Ctrl+Shift+PgDown/PgUp: next/previous group (jump to first tab of group)
         if ctrl && shift && matches!(key, Key::Page_Down | Key::Page_Up) {
-            // For now, same as tab cycling — group navigation requires
-            // tracking group boundaries in SessionManager
             if key == Key::Page_Down {
-                mgr.borrow_mut().switch_next();
+                mgr.borrow_mut().switch_next_group();
             } else {
-                mgr.borrow_mut().switch_prev();
+                mgr.borrow_mut().switch_prev_group();
             }
 
             if let Some(active) = mgr.borrow().active_id() {
@@ -475,14 +473,16 @@ fn register_tab_actions(
     sidebar: &Rc<Sidebar>,
 ) {
     // tab-rename
-    let mgr = manager.clone();
     let sidebar_clone = sidebar.clone();
     let action = gio::SimpleAction::new("tab-rename", Some(&String::static_variant_type()));
     action.connect_activate(move |_, param| {
         let Some(id) = param.and_then(|v| v.get::<String>()) else { return };
-        // Trigger rename by calling the sidebar's inline rename
-        // For now just update title via a prompt — the double-click rename already works
-        let _ = (mgr.clone(), sidebar_clone.clone(), id);
+
+        let sidebar_update = sidebar_clone.clone();
+        let id_clone = id.clone();
+        sidebar_clone.trigger_rename(&id, move |new_title| {
+            sidebar_update.update_title(&id_clone, &new_title);
+        });
     });
     window.add_action(&action);
 
@@ -528,12 +528,53 @@ fn register_terminal_actions(
         }
     });
     window.add_action(&action);
+
+    // split-h
+    let mgr = manager.clone();
+    let action = gio::SimpleAction::new("split-h", None);
+    action.connect_activate(move |_, _| {
+        mgr.borrow_mut().split_active_pane(gtk4::Orientation::Horizontal);
+    });
+    window.add_action(&action);
+
+    // split-v
+    let mgr = manager.clone();
+    let action = gio::SimpleAction::new("split-v", None);
+    action.connect_activate(move |_, _| {
+        mgr.borrow_mut().split_active_pane(gtk4::Orientation::Vertical);
+    });
+    window.add_action(&action);
+
+    // term-close (close pane or tab)
+    let mgr = manager.clone();
+    let action = gio::SimpleAction::new("term-close", None);
+    action.connect_activate(move |_, _| {
+        let should_destroy = mgr.borrow_mut().close_active_pane();
+
+        if should_destroy {
+            let active = mgr.borrow().active_id().map(|s| s.to_string());
+
+            if let Some(id) = active {
+                mgr.borrow_mut().destroy_session(&id);
+            }
+        }
+    });
+    window.add_action(&action);
 }
 
 fn setup_terminal_context_menu(stack: &Stack) {
     let menu = gio::Menu::new();
     menu.append(Some("Copy"), Some("win.term-copy"));
     menu.append(Some("Paste"), Some("win.term-paste"));
+
+    let split_section = gio::Menu::new();
+    split_section.append(Some("Split Horizontal"), Some("win.split-h"));
+    split_section.append(Some("Split Vertical"), Some("win.split-v"));
+    menu.append_section(None, &split_section);
+
+    let close_section = gio::Menu::new();
+    close_section.append(Some("Close"), Some("win.term-close"));
+    menu.append_section(None, &close_section);
 
     let popover = PopoverMenu::from_model(Some(&menu));
     popover.set_parent(stack);

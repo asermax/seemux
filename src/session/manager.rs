@@ -287,6 +287,55 @@ impl SessionManager {
         self.switch_to(&id);
     }
 
+    pub fn switch_next_group(&mut self) {
+        let Some(active_id) = &self.active_id else { return };
+        let Some(current) = self.sessions.iter().find(|s| &s.id == active_id) else { return };
+
+        let current_group = &current.group_id;
+
+        // Collect unique group IDs in session order
+        let mut group_order: Vec<&str> = Vec::new();
+        for s in &self.sessions {
+            if !group_order.contains(&s.group_id.as_str()) {
+                group_order.push(&s.group_id);
+            }
+        }
+
+        if let Some(gpos) = group_order.iter().position(|g| *g == current_group) {
+            let next_gpos = (gpos + 1) % group_order.len();
+            let target_group = group_order[next_gpos];
+
+            if let Some(first) = self.sessions.iter().find(|s| s.group_id == target_group) {
+                let id = first.id.clone();
+                self.switch_to(&id);
+            }
+        }
+    }
+
+    pub fn switch_prev_group(&mut self) {
+        let Some(active_id) = &self.active_id else { return };
+        let Some(current) = self.sessions.iter().find(|s| &s.id == active_id) else { return };
+
+        let current_group = &current.group_id;
+
+        let mut group_order: Vec<&str> = Vec::new();
+        for s in &self.sessions {
+            if !group_order.contains(&s.group_id.as_str()) {
+                group_order.push(&s.group_id);
+            }
+        }
+
+        if let Some(gpos) = group_order.iter().position(|g| *g == current_group) {
+            let prev_gpos = if gpos == 0 { group_order.len() - 1 } else { gpos - 1 };
+            let target_group = group_order[prev_gpos];
+
+            if let Some(first) = self.sessions.iter().find(|s| s.group_id == target_group) {
+                let id = first.id.clone();
+                self.switch_to(&id);
+            }
+        }
+    }
+
     pub fn sessions_with_claude_pid(&self) -> Vec<(String, u32)> {
         self.sessions.iter()
             .filter_map(|s| s.claude_pid.map(|pid| (s.id.clone(), pid)))
