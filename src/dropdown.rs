@@ -1,19 +1,18 @@
 use std::cell::RefCell;
-use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, Orientation, Paned, Revealer, RevealerTransitionType, Stack, StackTransitionType};
+use gtk4::{Application, ApplicationWindow, Revealer, RevealerTransitionType};
 
 use crate::config::Config;
-use crate::session::manager::SessionManager;
-use crate::sidebar::Sidebar;
 
+#[allow(dead_code)]
 pub struct DropdownWindow {
     window: ApplicationWindow,
     revealer: Revealer,
     visible: RefCell<bool>,
 }
 
+#[allow(dead_code)]
 impl DropdownWindow {
     pub fn new(app: &Application, config: &Config) -> Self {
         let window = ApplicationWindow::builder()

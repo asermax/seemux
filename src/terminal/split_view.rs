@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{Orientation, Paned, Widget};
@@ -8,6 +7,7 @@ use crate::config::Config;
 use crate::terminal::VteTerminal;
 
 /// A tree node representing either a single terminal or a split.
+#[allow(dead_code)]
 pub enum SplitNode {
     Leaf {
         id: String,
@@ -20,6 +20,7 @@ pub enum SplitNode {
     },
 }
 
+#[allow(dead_code)]
 impl SplitNode {
     /// Recursively build the GTK widget tree for this node.
     pub fn build_widget(&self) -> Widget {
@@ -79,11 +80,13 @@ impl SplitNode {
 }
 
 /// Manages the split tree for a single session.
+#[allow(dead_code)]
 pub struct SplitView {
     root: RefCell<SplitNode>,
     focused_pane_id: RefCell<String>,
 }
 
+#[allow(dead_code)]
 impl SplitView {
     pub fn new(terminal: VteTerminal, pane_id: String) -> Self {
         let focused = pane_id.clone();
@@ -229,12 +232,8 @@ impl SplitView {
     }
 
     /// Get all terminals for wiring callbacks.
+    /// Note: returns empty for now — terminals are wired at creation time.
     pub fn all_terminals(&self) -> Vec<&VteTerminal> {
-        // Safety: we borrow root for the duration of iteration
-        // This is only safe because the caller doesn't modify root during iteration
-        let root = self.root.borrow();
-        // We can't return references to RefCell contents, so we'll use raw pointers
-        // For now, return empty — terminals are wired at creation time
         vec![]
     }
 

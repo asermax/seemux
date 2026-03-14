@@ -122,11 +122,9 @@ impl SessionManager {
     }
 
     pub fn destroy_session(&mut self, session_id: &str) {
-        if let Some(sv) = self.split_views.get(session_id) {
-            let widget = sv.build_widget();
-            if widget.parent().as_ref() == Some(self.stack.upcast_ref()) {
-                self.stack.remove(&widget);
-            }
+        // Find the existing widget in the stack by name, not by rebuilding
+        if let Some(child) = self.stack.child_by_name(session_id) {
+            self.stack.remove(&child);
         }
 
         self.sidebar.remove_tab(session_id);

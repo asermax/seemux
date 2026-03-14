@@ -106,6 +106,24 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         }
     }
 
+    // Wire "New Group" button
+    let mgr_for_group = manager.clone();
+    let sidebar_for_group = sidebar.clone();
+    let notif_for_group = notification_store.clone();
+    sidebar.connect_new_group(move || {
+        let group_id = uuid::Uuid::new_v4().to_string();
+        sidebar_for_group.add_group(&group_id, "New Group");
+
+        // Wire the group's "+" button to create a tab in that group
+        let mgr = mgr_for_group.clone();
+        let sid = sidebar_for_group.clone();
+        let notif = notif_for_group.clone();
+        sidebar_for_group.connect_group_new_tab(&group_id, move |_gid| {
+            let id = mgr.borrow_mut().create_session(None, None);
+            wire_tab_lifecycle(&sid, &mgr, &notif, &id);
+        });
+    });
+
     // Create dropdown window (shown via `seemux toggle` CLI command)
     let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, &config.borrow()));
 

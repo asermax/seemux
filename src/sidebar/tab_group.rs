@@ -4,6 +4,7 @@ use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Button, Label, ListBox, Orientation, SelectionMode, Widget};
 
 /// A named, collapsible group of tabs in the sidebar.
+#[allow(dead_code)]
 pub struct TabGroupWidget {
     pub container: GtkBox,
     header: GtkBox,
@@ -14,6 +15,7 @@ pub struct TabGroupWidget {
     collapsed: Cell<bool>,
 }
 
+#[allow(dead_code)]
 impl TabGroupWidget {
     pub fn new(name: &str) -> Self {
         let container = GtkBox::new(Orientation::Vertical, 0);

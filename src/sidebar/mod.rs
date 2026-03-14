@@ -12,6 +12,7 @@ use crate::session::{Session, DEFAULT_GROUP};
 use tab_group::TabGroupWidget;
 use tab_row::TabRow;
 
+#[allow(dead_code)]
 pub struct Sidebar {
     pub container: GtkBox,
     scroll: ScrolledWindow,
@@ -32,11 +33,13 @@ pub struct Sidebar {
     selecting: Rc<Cell<bool>>,
 }
 
+#[allow(dead_code)]
 struct GroupEntry {
     id: String,
     name: String,
 }
 
+#[allow(dead_code)]
 impl Sidebar {
     pub fn new() -> Self {
         let container = GtkBox::new(Orientation::Vertical, 0);

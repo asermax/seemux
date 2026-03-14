@@ -111,7 +111,6 @@ separator {{
 }}
 
 paned > separator {{
-    min-width: 2px;
     background-color: {separator};
 }}
 

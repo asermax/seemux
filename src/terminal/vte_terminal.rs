@@ -90,6 +90,7 @@ impl VteTerminal {
         );
     }
 
+    #[allow(dead_code)]
     pub fn connect_child_exited<F: Fn(i32) + 'static>(&self, f: F) {
         self.terminal.connect_child_exited(move |_term, status| {
             f(status);
