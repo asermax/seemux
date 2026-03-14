@@ -120,6 +120,11 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
             let id = manager.borrow_mut().create_session_in_group(Some(&saved.title), cwd, group);
             wire_tab_lifecycle(&sidebar, &manager, &notification_store, &id);
         }
+
+        // Restore last focused tab
+        if let Some(idx) = saved_state.active_session_index {
+            manager.borrow_mut().switch_to_index(idx);
+        }
     }
 
     // Wire default group's "+ Add tab" button
@@ -254,8 +259,8 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
 
         // Only intercept our specific shortcuts — let everything else through to VTE
-        let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N))
-            || (ctrl && !shift && matches!(key, Key::t | Key::Tab))
+        let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::Page_Up | Key::Page_Down))
+            || (ctrl && !shift && matches!(key, Key::t | Key::Tab | Key::Page_Up | Key::Page_Down))
             || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9));
 
         if !is_our_shortcut {
@@ -293,12 +298,60 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
             return glib::Propagation::Stop;
         }
 
-        // Ctrl+Shift+W: close current tab
-        if ctrl && shift && key == Key::W {
-            let active = mgr.borrow().active_id().map(|s| s.to_string());
+        // Ctrl+Shift+H: split horizontal
+        if ctrl && shift && key == Key::H {
+            mgr.borrow_mut().split_active_pane(gtk4::Orientation::Horizontal);
+            return glib::Propagation::Stop;
+        }
 
-            if let Some(id) = active {
-                mgr.borrow_mut().destroy_session(&id);
+        // Ctrl+Shift+E: split vertical
+        if ctrl && shift && key == Key::E {
+            mgr.borrow_mut().split_active_pane(gtk4::Orientation::Vertical);
+            return glib::Propagation::Stop;
+        }
+
+        // Ctrl+Shift+W: close pane (or tab if single pane)
+        if ctrl && shift && key == Key::W {
+            let should_destroy = mgr.borrow_mut().close_active_pane();
+
+            if should_destroy {
+                let active = mgr.borrow().active_id().map(|s| s.to_string());
+
+                if let Some(id) = active {
+                    mgr.borrow_mut().destroy_session(&id);
+                }
+            }
+
+            return glib::Propagation::Stop;
+        }
+
+        // Ctrl+PgDown: next tab / Ctrl+PgUp: previous tab
+        if ctrl && !shift && matches!(key, Key::Page_Down | Key::Page_Up) {
+            if key == Key::Page_Down {
+                mgr.borrow_mut().switch_next();
+            } else {
+                mgr.borrow_mut().switch_prev();
+            }
+
+            if let Some(active) = mgr.borrow().active_id() {
+                notif_for_keys.borrow_mut().mark_read(active);
+            }
+
+            return glib::Propagation::Stop;
+        }
+
+        // Ctrl+Shift+PgDown/PgUp: next/previous group (jump to first tab)
+        if ctrl && shift && matches!(key, Key::Page_Down | Key::Page_Up) {
+            // For now, same as tab cycling — group navigation requires
+            // tracking group boundaries in SessionManager
+            if key == Key::Page_Down {
+                mgr.borrow_mut().switch_next();
+            } else {
+                mgr.borrow_mut().switch_prev();
+            }
+
+            if let Some(active) = mgr.borrow().active_id() {
+                notif_for_keys.borrow_mut().mark_read(active);
             }
 
             return glib::Propagation::Stop;

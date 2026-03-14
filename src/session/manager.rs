@@ -205,6 +205,63 @@ impl SessionManager {
             .and_then(|sv| sv.focused_terminal())
     }
 
+    /// Split the focused pane in the active session. Returns true if split succeeded.
+    pub fn split_active_pane(&mut self, orientation: gtk4::Orientation) -> bool {
+        let Some(active_id) = self.active_id.clone() else { return false };
+        let Some(sv) = self.split_views.get(&active_id) else { return false };
+
+        let config = self.config.borrow();
+        let new_pane_id = sv.split(orientation, &config);
+        drop(config);
+
+        // Spawn shell in the new pane
+        let env_vars = self.build_env_vars(&active_id);
+        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        sv.spawn_pane(&new_pane_id, None, &env_refs);
+
+        // Rebuild the widget in the stack
+        if let Some(old) = self.stack.child_by_name(&active_id) {
+            self.stack.remove(&old);
+        }
+
+        let new_widget = sv.build_widget();
+        self.stack.add_named(&new_widget, Some(&active_id));
+        self.stack.set_visible_child_name(&active_id);
+
+        true
+    }
+
+    /// Close the focused pane in the active session. Returns true if the session should be destroyed.
+    pub fn close_active_pane(&mut self) -> bool {
+        let Some(active_id) = self.active_id.clone() else { return false };
+        let Some(sv) = self.split_views.get(&active_id) else { return false };
+
+        if sv.pane_count() <= 1 {
+            return true; // Last pane — caller should destroy the session
+        }
+
+        let should_destroy = sv.close_focused_pane();
+
+        if should_destroy {
+            return true;
+        }
+
+        // Rebuild the widget in the stack
+        if let Some(old) = self.stack.child_by_name(&active_id) {
+            self.stack.remove(&old);
+        }
+
+        let new_widget = sv.build_widget();
+        self.stack.add_named(&new_widget, Some(&active_id));
+        self.stack.set_visible_child_name(&active_id);
+
+        if let Some(term) = sv.focused_terminal() {
+            term.grab_focus();
+        }
+
+        false
+    }
+
     pub fn switch_to_index(&mut self, index: usize) {
         if let Some(session) = self.sessions.get(index) {
             let id = session.id.clone();
@@ -255,14 +312,6 @@ impl SessionManager {
         }
     }
 
-    /// Update session CWD (called from CWD change signal).
-    #[allow(dead_code)]
-    pub fn update_session_cwd(&mut self, session_id: &str, cwd: &str) {
-        if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
-            session.cwd = Some(cwd.to_string());
-        }
-    }
-
     /// Save current session state for restoration on next launch.
     pub fn save_state(&self) {
         let groups = self.sidebar.group_ids().iter().map(|(id, name)| {
@@ -270,6 +319,9 @@ impl SessionManager {
         }).collect();
 
         let cwds = self.session_cwds.borrow();
+
+        let active_session_index = self.active_id.as_ref()
+            .and_then(|id| self.sessions.iter().position(|s| &s.id == id));
 
         let state = SessionState {
             sessions: self.sessions.iter().map(|s| {
@@ -281,6 +333,7 @@ impl SessionManager {
                 }
             }).collect(),
             groups,
+            active_session_index,
         };
 
         state.save();

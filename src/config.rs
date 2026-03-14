@@ -99,6 +99,8 @@ pub struct SessionState {
     pub sessions: Vec<SavedSession>,
     #[serde(default)]
     pub groups: Vec<SavedGroup>,
+    #[serde(default)]
+    pub active_session_index: Option<usize>,
 }
 
 impl SessionState {
@@ -198,6 +200,7 @@ mod tests {
             groups: vec![
                 SavedGroup { id: "group1".to_string(), name: "Work".to_string() },
             ],
+            active_session_index: Some(1),
         };
 
         let json = serde_json::to_string(&state).unwrap();

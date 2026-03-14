@@ -259,4 +259,15 @@ impl SplitView {
             }
         }
     }
+
+    /// Spawn a shell in a specific pane by ID.
+    pub fn spawn_pane(&self, pane_id: &str, cwd: Option<&str>, env_vars: &[(&str, &str)]) {
+        let root = self.root.borrow();
+
+        if let Some(terminal) = root.find_terminal(pane_id) {
+            if terminal.needs_spawn() {
+                terminal.spawn_shell(cwd, env_vars);
+            }
+        }
+    }
 }

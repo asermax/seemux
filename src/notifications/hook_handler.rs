@@ -152,6 +152,25 @@ mod tests {
         assert_eq!(body, "Claude needs your attention");
     }
 
+    #[test]
+    fn classify_mixed_case() {
+        let (subtitle, _) = classify_notification("Permission_PROMPT", "");
+        assert_eq!(subtitle, "Permission");
+    }
+
+    #[test]
+    fn classify_keyword_in_message_not_signal() {
+        let (subtitle, _) = classify_notification("", "Task is done successfully");
+        assert_eq!(subtitle, "Completed");
+    }
+
+    #[test]
+    fn classify_multiple_keywords_first_wins() {
+        // "permission" comes before "error" in the check order
+        let (subtitle, _) = classify_notification("permission error", "");
+        assert_eq!(subtitle, "Permission");
+    }
+
     // handle_hook_event tests
 
     fn make_event(event: &str, payload: serde_json::Value) -> HookEvent {

@@ -66,3 +66,41 @@ impl Session {
 }
 
 use gtk4::glib;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_new_defaults() {
+        let session = Session::new("Test Tab".to_string());
+
+        assert_eq!(session.title, "Test Tab");
+        assert_eq!(session.status, SessionStatus::Idle);
+        assert_eq!(session.claude_pid, None);
+        assert_eq!(session.cwd, None);
+        assert_eq!(session.group_id, DEFAULT_GROUP);
+        assert!(!session.id.is_empty());
+        assert!(uuid::Uuid::parse_str(&session.id).is_ok());
+    }
+
+    #[test]
+    fn session_status_labels() {
+        assert_eq!(SessionStatus::Idle.label(), "Idle");
+        assert_eq!(SessionStatus::Running.label(), "Running");
+        assert_eq!(SessionStatus::NeedsInput.label(), "Needs input");
+        assert_eq!(SessionStatus::Completed.label(), "Completed");
+        assert_eq!(SessionStatus::Error.label(), "Error");
+        assert_eq!(SessionStatus::Exited.label(), "Exited");
+    }
+
+    #[test]
+    fn session_status_css_classes() {
+        assert_eq!(SessionStatus::Idle.css_class(), "status-pill--idle");
+        assert_eq!(SessionStatus::Running.css_class(), "status-pill--running");
+        assert_eq!(SessionStatus::NeedsInput.css_class(), "status-pill--needs-input");
+        assert_eq!(SessionStatus::Completed.css_class(), "status-pill--completed");
+        assert_eq!(SessionStatus::Error.css_class(), "status-pill--error");
+        assert_eq!(SessionStatus::Exited.css_class(), "status-pill--idle");
+    }
+}
