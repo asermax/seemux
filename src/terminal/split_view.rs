@@ -48,18 +48,6 @@ impl SplitNode {
         }
     }
 
-    /// Get all terminals in the tree.
-    pub fn all_terminals(&self) -> Vec<&VteTerminal> {
-        match self {
-            SplitNode::Leaf { terminal, .. } => vec![terminal],
-            SplitNode::Split { first, second, .. } => {
-                let mut result = first.all_terminals();
-                result.extend(second.all_terminals());
-                result
-            }
-        }
-    }
-
     /// Get the first leaf's pane ID.
     pub fn first_pane_id(&self) -> &str {
         match self {
@@ -105,21 +93,6 @@ impl SplitView {
 
         root.find_terminal(&focused_id)
             .map(|vt| vt.terminal().clone())
-    }
-
-    /// Get the focused VteTerminal wrapper.
-    pub fn focused_vte_terminal(&self) -> Option<*const VteTerminal> {
-        let root = self.root.borrow();
-        let focused_id = self.focused_pane_id.borrow();
-        root.find_terminal(&focused_id).map(|vt| vt as *const _)
-    }
-
-    pub fn focused_pane_id(&self) -> String {
-        self.focused_pane_id.borrow().clone()
-    }
-
-    pub fn set_focused_pane_id(&self, id: &str) {
-        *self.focused_pane_id.borrow_mut() = id.to_string();
     }
 
     /// Split the focused pane. Returns the new pane ID.
@@ -225,12 +198,6 @@ impl SplitView {
             }
             other => (Some(other), None),
         }
-    }
-
-    /// Get all terminals for wiring callbacks.
-    /// Note: returns empty for now — terminals are wired at creation time.
-    pub fn all_terminals(&self) -> Vec<&VteTerminal> {
-        vec![]
     }
 
     pub fn pane_count(&self) -> usize {

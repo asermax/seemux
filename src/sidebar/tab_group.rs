@@ -6,12 +6,8 @@ use gtk4::{Box as GtkBox, Button, GestureClick, Label, ListBox, Orientation, Sel
 /// A named, collapsible group of tabs in the sidebar.
 pub struct TabGroupWidget {
     pub container: GtkBox,
-    header: GtkBox,
-    name_label: Label,
-    toggle_label: Label,
     pub add_btn: Button,
     pub list_box: ListBox,
-    collapsed: Cell<bool>,
 }
 
 impl TabGroupWidget {
@@ -49,18 +45,15 @@ impl TabGroupWidget {
 
         // Click anywhere on the header toggles collapse (GestureClick on header)
         let list_box_toggle = list_box.clone();
-        let collapsed_ref = collapsed.clone();
         let toggle_label_ref = toggle_label.clone();
 
         let gesture = GestureClick::new();
         gesture.set_button(1);
         gesture.connect_released(move |gesture, _n_press, _x, _y| {
-            // Don't toggle if the click was on the add button (it has its own handler)
-            // The gesture is on the header, so if the add button consumed the event, we won't get here
             gesture.set_state(gtk4::EventSequenceState::Claimed);
 
-            let new_state = !collapsed_ref.get();
-            collapsed_ref.set(new_state);
+            let new_state = !collapsed.get();
+            collapsed.set(new_state);
             list_box_toggle.set_visible(!new_state);
             toggle_label_ref.set_text(if new_state { "\u{25b6}" } else { "\u{25bc}" });
         });
@@ -69,12 +62,8 @@ impl TabGroupWidget {
 
         Self {
             container,
-            header,
-            name_label,
-            toggle_label,
             add_btn,
             list_box,
-            collapsed,
         }
     }
 
@@ -82,11 +71,4 @@ impl TabGroupWidget {
         self.container.upcast_ref()
     }
 
-    pub fn set_name(&self, name: &str) {
-        self.name_label.set_text(name);
-    }
-
-    pub fn is_collapsed(&self) -> bool {
-        self.collapsed.get()
-    }
 }

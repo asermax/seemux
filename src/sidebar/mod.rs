@@ -1,12 +1,13 @@
 pub mod tab_group;
 pub mod tab_row;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{self, Box as GtkBox, Button, ListBox, Orientation, ScrolledWindow, SelectionMode};
+
 
 use crate::session::{Session, DEFAULT_GROUP};
 use tab_group::TabGroupWidget;
@@ -14,7 +15,6 @@ use tab_row::TabRow;
 
 pub struct Sidebar {
     pub container: GtkBox,
-    scroll: ScrolledWindow,
     content: GtkBox,
 
     // Default group (no header, just a ListBox at the top)
@@ -28,8 +28,6 @@ pub struct Sidebar {
 
     // All tab rows indexed by session ID
     rows: Rc<RefCell<HashMap<String, (TabRow, String)>>>, // session_id -> (row, group_id)
-
-    selecting: Rc<Cell<bool>>,
 }
 
 struct GroupEntry {
@@ -71,7 +69,6 @@ impl Sidebar {
 
         Self {
             container,
-            scroll,
             content,
             default_list,
             default_add_btn,
@@ -79,7 +76,6 @@ impl Sidebar {
             group_widgets: Rc::new(RefCell::new(HashMap::new())),
             new_group_btn,
             rows: Rc::new(RefCell::new(HashMap::new())),
-            selecting: Rc::new(Cell::new(false)),
         }
     }
 
@@ -174,12 +170,6 @@ impl Sidebar {
         }
     }
 
-    pub fn connect_tab_selected<F: Fn(&str) + Clone + 'static>(&self, f: F) {
-        // Wire click-to-select on each tab row instead of ListBox row-selected
-        // This is handled per-row via wire_tab_click
-        let _ = f;
-    }
-
     pub fn wire_tab_click<F: Fn(String) + Clone + 'static>(&self, session_id: &str, f: F) {
         if let Some((row, _)) = self.rows.borrow().get(session_id) {
             let id = session_id.to_string();
@@ -227,34 +217,6 @@ impl Sidebar {
             let gid = group_id.to_string();
             gw.add_btn.connect_clicked(move |_| f(gid.clone()));
         }
-    }
-
-    pub fn remove_group(&self, group_id: &str) {
-        // Move tabs from this group back to default
-        let mut rows = self.rows.borrow_mut();
-        let session_ids: Vec<String> = rows.iter()
-            .filter(|(_, (_, gid))| gid == group_id)
-            .map(|(sid, _)| sid.clone())
-            .collect();
-
-        for sid in &session_ids {
-            if let Some((row, gid)) = rows.get_mut(sid) {
-                if let Some(parent) = row.widget().parent() {
-                    if let Some(list) = self.list_for_group(gid) {
-                        list.remove(&parent);
-                    }
-                }
-                self.default_list.append(row.widget());
-                *gid = DEFAULT_GROUP.to_string();
-            }
-        }
-        drop(rows);
-
-        // Remove the group widget
-        if let Some(gw) = self.group_widgets.borrow_mut().remove(group_id) {
-            self.content.remove(gw.widget());
-        }
-        self.groups.borrow_mut().retain(|g| g.id != group_id);
     }
 
     pub fn wire_close_button<F: Fn(String) + Clone + 'static>(&self, session_id: &str, f: F) {
