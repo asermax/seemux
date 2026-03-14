@@ -107,6 +107,12 @@ impl Sidebar {
         }
     }
 
+    pub fn setup_context_menu(&self, session_id: &str) {
+        if let Some(row) = self.rows.borrow().get(session_id) {
+            row.setup_context_menu(session_id);
+        }
+    }
+
     pub fn wire_rename<F: Fn(String, String) + Clone + 'static>(&self, session_id: &str, f: F) {
         if let Some(row) = self.rows.borrow().get(session_id) {
             let id = session_id.to_string();

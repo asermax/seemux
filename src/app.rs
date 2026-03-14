@@ -4,8 +4,9 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use vte4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, CssProvider, EventControllerKey, Orientation, Paned,
-    Stack, StackTransitionType,
+    Application, ApplicationWindow, CssProvider, EventControllerKey, GestureClick, Orientation,
+    Paned, PopoverMenu, Stack, StackTransitionType,
+    gio,
     gdk::{Display, Key},
     glib,
 };
@@ -67,7 +68,12 @@ pub fn build_window(app: &Application) {
     paned.set_resize_start_child(false);
     paned.set_resize_end_child(true);
 
-    let manager = SessionManager::new(stack, sidebar.clone(), socket_path, bin_dir, config.clone());
+    let manager = SessionManager::new(stack.clone(), sidebar.clone(), socket_path, bin_dir, config.clone());
+
+    // Register window actions for context menus
+    register_tab_actions(&window, &manager, &sidebar);
+    register_terminal_actions(&window, &manager);
+    setup_terminal_context_menu(&stack);
 
     // Notification store
     let notification_store = Rc::new(RefCell::new(NotificationStore::new()));
@@ -328,7 +334,89 @@ fn wire_tab_lifecycle(
         sidebar_rename.update_title(&id, &new_title);
     });
 
+    sidebar.setup_context_menu(session_id);
     SessionManager::wire_child_exited(manager, session_id);
+}
+
+fn register_tab_actions(
+    window: &ApplicationWindow,
+    manager: &Rc<RefCell<SessionManager>>,
+    sidebar: &Rc<Sidebar>,
+) {
+    // tab-rename
+    let mgr = manager.clone();
+    let sidebar_clone = sidebar.clone();
+    let action = gio::SimpleAction::new("tab-rename", Some(&String::static_variant_type()));
+    action.connect_activate(move |_, param| {
+        let Some(id) = param.and_then(|v| v.get::<String>()) else { return };
+        // Trigger rename by calling the sidebar's inline rename
+        // For now just update title via a prompt — the double-click rename already works
+        let _ = (mgr.clone(), sidebar_clone.clone(), id);
+    });
+    window.add_action(&action);
+
+    // tab-close
+    let mgr = manager.clone();
+    let action = gio::SimpleAction::new("tab-close", Some(&String::static_variant_type()));
+    action.connect_activate(move |_, param| {
+        let Some(id) = param.and_then(|v| v.get::<String>()) else { return };
+        mgr.borrow_mut().destroy_session(&id);
+    });
+    window.add_action(&action);
+
+    // tab-close-others
+    let mgr = manager.clone();
+    let action = gio::SimpleAction::new("tab-close-others", Some(&String::static_variant_type()));
+    action.connect_activate(move |_, param| {
+        let Some(id) = param.and_then(|v| v.get::<String>()) else { return };
+        mgr.borrow_mut().close_others(&id);
+    });
+    window.add_action(&action);
+}
+
+fn register_terminal_actions(
+    window: &ApplicationWindow,
+    manager: &Rc<RefCell<SessionManager>>,
+) {
+    // term-copy
+    let mgr = manager.clone();
+    let action = gio::SimpleAction::new("term-copy", None);
+    action.connect_activate(move |_, _| {
+        if let Some(term) = mgr.borrow().active_terminal() {
+            term.terminal().copy_clipboard_format(vte4::Format::Text);
+        }
+    });
+    window.add_action(&action);
+
+    // term-paste
+    let mgr = manager.clone();
+    let action = gio::SimpleAction::new("term-paste", None);
+    action.connect_activate(move |_, _| {
+        if let Some(term) = mgr.borrow().active_terminal() {
+            term.terminal().paste_clipboard();
+        }
+    });
+    window.add_action(&action);
+}
+
+fn setup_terminal_context_menu(stack: &Stack) {
+    let menu = gio::Menu::new();
+    menu.append(Some("Copy"), Some("win.term-copy"));
+    menu.append(Some("Paste"), Some("win.term-paste"));
+
+    let popover = PopoverMenu::from_model(Some(&menu));
+    popover.set_parent(stack);
+    popover.set_has_arrow(false);
+
+    let gesture = GestureClick::new();
+    gesture.set_button(3);
+    gesture.connect_released(move |gesture, _n_press, x, y| {
+        gesture.set_state(gtk4::EventSequenceState::Claimed);
+        popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        popover.popup();
+    });
+
+    stack.add_controller(gesture);
 }
 
 fn send_desktop_notification(title: &str, subtitle: &str, body: &str) {

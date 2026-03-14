@@ -1,5 +1,6 @@
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, Entry, GestureClick, Label, Orientation, Widget};
+use gtk4::gio;
+use gtk4::{Box as GtkBox, Button, Entry, GestureClick, Label, Orientation, PopoverMenu, Widget};
 
 use crate::session::SessionStatus;
 
@@ -163,6 +164,29 @@ impl TabRow {
 
     pub fn connect_close<F: Fn() + 'static>(&self, f: F) {
         self.close_btn.connect_clicked(move |_| f());
+    }
+
+    /// Set up right-click context menu with Rename, Close, Close Others.
+    pub fn setup_context_menu(&self, session_id: &str) {
+        let menu = gio::Menu::new();
+        menu.append(Some("Rename"), Some(&format!("win.tab-rename('{session_id}')")));
+        menu.append(Some("Close"), Some(&format!("win.tab-close('{session_id}')")));
+        menu.append(Some("Close Others"), Some(&format!("win.tab-close-others('{session_id}')")));
+
+        let popover = PopoverMenu::from_model(Some(&menu));
+        popover.set_parent(&self.container);
+        popover.set_has_arrow(false);
+
+        let gesture = GestureClick::new();
+        gesture.set_button(3);
+
+        gesture.connect_released(move |gesture, _n_press, x, y| {
+            gesture.set_state(gtk4::EventSequenceState::Claimed);
+            popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            popover.popup();
+        });
+
+        self.container.add_controller(gesture);
     }
 
     /// Set up double-click to rename. Calls `on_rename` with the new title.

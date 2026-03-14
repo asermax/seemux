@@ -146,6 +146,17 @@ impl SessionManager {
         }
     }
 
+    pub fn close_others(&mut self, keep_id: &str) {
+        let to_remove: Vec<String> = self.sessions.iter()
+            .filter(|s| s.id != keep_id)
+            .map(|s| s.id.clone())
+            .collect();
+
+        for id in to_remove {
+            self.destroy_session(&id);
+        }
+    }
+
     pub fn update_session_status(&mut self, session_id: &str, status: SessionStatus) {
         if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
             session.status = status.clone();
