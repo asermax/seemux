@@ -116,11 +116,12 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         wire_tab_lifecycle(&sidebar, &manager, &notification_store, &first_id);
     } else {
         for saved in &saved_state.sessions {
-            let cwd = saved.cwd.as_deref()
-                .filter(|p| std::path::Path::new(p).exists());
-
             let group = if saved.group_id.is_empty() { crate::session::DEFAULT_GROUP } else { &saved.group_id };
-            let id = manager.borrow_mut().create_session_in_group(Some(&saved.title), cwd, group);
+            let id = manager.borrow_mut().restore_session_with_splits(
+                &saved.title,
+                group,
+                &saved.split_tree,
+            );
             wire_tab_lifecycle(&sidebar, &manager, &notification_store, &id);
         }
 

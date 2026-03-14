@@ -12,6 +12,7 @@ use crate::config::{Config, SavedSession, SessionState};
 use crate::session::{Session, SessionStatus};
 use crate::sidebar::Sidebar;
 use crate::terminal::{VteTerminal, SplitView};
+use crate::terminal::split_view::SplitNode;
 
 pub struct SessionManager {
     sessions: Vec<Session>,
@@ -81,7 +82,7 @@ impl SessionManager {
         }
 
         // Wire title and CWD signals
-        self.wire_terminal_signals(&terminal, &id);
+        self.wire_terminal_signals(&terminal, &id, &pane_id);
 
         let split_view = SplitView::new(terminal, pane_id);
         let widget = split_view.build_widget();
@@ -95,7 +96,7 @@ impl SessionManager {
         id
     }
 
-    fn wire_terminal_signals(&self, terminal: &VteTerminal, session_id: &str) {
+    fn wire_terminal_signals(&self, terminal: &VteTerminal, session_id: &str, pane_id: &str) {
         let sidebar = self.sidebar.clone();
         let sid = session_id.to_string();
         terminal.connect_title_changed(move |new_title| {
@@ -104,6 +105,7 @@ impl SessionManager {
 
         let sidebar = self.sidebar.clone();
         let sid = session_id.to_string();
+        let pid = pane_id.to_string();
         let last_cwd: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let cwds = self.session_cwds.clone();
         terminal.connect_cwd_changed(move |path| {
@@ -116,7 +118,7 @@ impl SessionManager {
                 return;
             }
             *last_cwd.borrow_mut() = Some(cwd.clone());
-            cwds.borrow_mut().insert(sid.clone(), cwd.clone());
+            cwds.borrow_mut().insert(pid.clone(), cwd.clone());
 
             let sidebar = sidebar.clone();
             let sid = sid.clone();
@@ -175,11 +177,7 @@ impl SessionManager {
 
     pub fn spawn_deferred(&self) {
         for session in &self.sessions {
-            if let Some(sv) = self.split_views.get(&session.id) {
-                let env_vars = self.build_env_vars(&session.id);
-                let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-                sv.spawn_deferred(session.cwd.as_deref(), &env_refs);
-            }
+            self.spawn_restored_panes(&session.id);
         }
     }
 
@@ -374,10 +372,15 @@ impl SessionManager {
 
         let state = SessionState {
             sessions: self.sessions.iter().map(|s| {
-                let cwd = cwds.get(&s.id).cloned().or_else(|| s.cwd.clone());
+                let split_tree = self.split_views.get(&s.id)
+                    .map(|sv| sv.to_saved(&cwds))
+                    .unwrap_or_else(|| crate::config::SavedSplitNode::Leaf {
+                        cwd: cwds.get(&s.id).cloned().or_else(|| s.cwd.clone()),
+                    });
+
                 SavedSession {
                     title: s.title.clone(),
-                    cwd,
+                    split_tree,
                     group_id: s.group_id.clone(),
                 }
             }).collect(),
@@ -386,6 +389,110 @@ impl SessionManager {
         };
 
         state.save();
+    }
+
+    /// Restore a session from a saved split tree.
+    pub fn restore_session_with_splits(
+        &mut self,
+        title: &str,
+        group_id: &str,
+        split_tree: &crate::config::SavedSplitNode,
+    ) -> String {
+        let mut session = crate::session::Session::new(title.to_string());
+        session.group_id = group_id.to_string();
+        let id = session.id.clone();
+
+        let config = self.config.borrow();
+        let (split_view, panes) = SplitView::from_saved(split_tree, &config);
+        drop(config);
+
+        // Wire signals for all panes via vte4::Terminal (GObject ref, no borrow issue)
+        for (pane_id, vte_term) in split_view.collect_vte_terminals() {
+            let sidebar = self.sidebar.clone();
+            let sid = id.clone();
+            vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
+                if let Some(title) = term.window_title() {
+                    sidebar.update_title(&sid, &title);
+                }
+            });
+
+            let sidebar = self.sidebar.clone();
+            let sid = id.clone();
+            let pid = pane_id.clone();
+            let last_cwd: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+            let cwds = self.session_cwds.clone();
+            vte_term.connect_current_directory_uri_changed(move |term: &vte4::Terminal| {
+                let path: Option<String> = term.current_directory_uri()
+                    .and_then(|uri| {
+                        let s = uri.to_string();
+                        Some(s.strip_prefix("file://").unwrap_or(&s).to_string())
+                    });
+
+                let Some(cwd) = path else {
+                    sidebar.update_branch(&sid, None);
+                    return;
+                };
+
+                if last_cwd.borrow().as_deref() == Some(cwd.as_str()) {
+                    return;
+                }
+                *last_cwd.borrow_mut() = Some(cwd.clone());
+                cwds.borrow_mut().insert(pid.clone(), cwd.clone());
+
+                let sidebar = sidebar.clone();
+                let sid = sid.clone();
+                crate::git::detect_branch_async(&cwd, move |branch| {
+                    sidebar.update_branch(&sid, branch.as_deref());
+                });
+            });
+        }
+
+        let widget = split_view.build_widget();
+        self.stack.add_named(&widget, Some(&id));
+        self.sidebar.add_tab(&session);
+
+        self.split_views.insert(id.clone(), split_view);
+        self.sessions.push(session);
+        self.switch_to(&id);
+
+        // Store pane CWDs for deferred spawning
+        for (pane_id, cwd) in &panes {
+            if let Some(c) = cwd {
+                self.session_cwds.borrow_mut().insert(pane_id.clone(), c.clone());
+            }
+        }
+
+        id
+    }
+
+    /// Spawn deferred shells for a restored session with per-pane CWDs.
+    pub fn spawn_restored_panes(&self, session_id: &str) {
+        let Some(sv) = self.split_views.get(session_id) else { return };
+        let env_vars = self.build_env_vars(session_id);
+        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let cwds = self.session_cwds.borrow();
+
+        // Spawn each pane with its own CWD
+        Self::spawn_panes_recursive(&sv.root.borrow(), &cwds, &env_refs);
+    }
+
+    fn spawn_panes_recursive(
+        node: &SplitNode,
+        cwds: &std::collections::HashMap<String, String>,
+        env_vars: &[(&str, &str)],
+    ) {
+        match node {
+            SplitNode::Leaf { id, terminal } => {
+                if terminal.needs_spawn() {
+                    let cwd = cwds.get(id).map(|s| s.as_str());
+                    terminal.spawn_shell(cwd, env_vars);
+                }
+            }
+            SplitNode::Split { first, second, .. } => {
+                Self::spawn_panes_recursive(first, cwds, env_vars);
+                Self::spawn_panes_recursive(second, cwds, env_vars);
+            }
+        }
     }
 
     fn build_env_vars(&self, session_id: &str) -> Vec<(String, String)> {

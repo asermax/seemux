@@ -1,9 +1,10 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use gtk4::prelude::*;
 use gtk4::{Orientation, Paned, Widget};
 
-use crate::config::Config;
+use crate::config::{Config, SavedSplitNode};
 use crate::terminal::VteTerminal;
 
 /// A tree node representing either a single terminal or a split.
@@ -63,15 +64,50 @@ impl SplitNode {
             SplitNode::Split { first, second, .. } => first.pane_count() + second.pane_count(),
         }
     }
+
+    /// Convert to serializable form, looking up per-pane CWDs.
+    pub fn to_saved(&self, cwds: &HashMap<String, String>) -> SavedSplitNode {
+        match self {
+            SplitNode::Leaf { id, .. } => SavedSplitNode::Leaf {
+                cwd: cwds.get(id).cloned(),
+            },
+            SplitNode::Split { orientation, first, second } => SavedSplitNode::Split {
+                orientation: match orientation {
+                    Orientation::Horizontal => "horizontal".to_string(),
+                    _ => "vertical".to_string(),
+                },
+                first: Box::new(first.to_saved(cwds)),
+                second: Box::new(second.to_saved(cwds)),
+            },
+        }
+    }
 }
 
 /// Manages the split tree for a single session.
 pub struct SplitView {
-    root: RefCell<SplitNode>,
+    pub root: RefCell<SplitNode>,
     focused_pane_id: RefCell<String>,
 }
 
 impl SplitView {
+    /// Collect all (pane_id, vte4::Terminal) pairs for signal wiring.
+    pub fn collect_vte_terminals(&self) -> Vec<(String, vte4::Terminal)> {
+        let mut result = Vec::new();
+        fn collect(node: &SplitNode, out: &mut Vec<(String, vte4::Terminal)>) {
+            match node {
+                SplitNode::Leaf { id, terminal } => {
+                    out.push((id.clone(), terminal.terminal().clone()));
+                }
+                SplitNode::Split { first, second, .. } => {
+                    collect(first, out);
+                    collect(second, out);
+                }
+            }
+        }
+        collect(&self.root.borrow(), &mut result);
+        result
+    }
+
     pub fn new(terminal: VteTerminal, pane_id: String) -> Self {
         let focused = pane_id.clone();
 
@@ -204,24 +240,7 @@ impl SplitView {
         self.root.borrow().pane_count()
     }
 
-    /// Spawn shells for all terminals that haven't been spawned yet.
-    pub fn spawn_deferred(&self, cwd: Option<&str>, env_vars: &[(&str, &str)]) {
-        Self::spawn_node(&self.root.borrow(), cwd, env_vars);
-    }
 
-    fn spawn_node(node: &SplitNode, cwd: Option<&str>, env_vars: &[(&str, &str)]) {
-        match node {
-            SplitNode::Leaf { terminal, .. } => {
-                if terminal.needs_spawn() {
-                    terminal.spawn_shell(cwd, env_vars);
-                }
-            }
-            SplitNode::Split { first, second, .. } => {
-                Self::spawn_node(first, cwd, env_vars);
-                Self::spawn_node(second, cwd, env_vars);
-            }
-        }
-    }
 
     /// Spawn a shell in a specific pane by ID.
     pub fn spawn_pane(&self, pane_id: &str, cwd: Option<&str>, env_vars: &[(&str, &str)]) {
@@ -230,6 +249,51 @@ impl SplitView {
         if let Some(terminal) = root.find_terminal(pane_id) {
             if terminal.needs_spawn() {
                 terminal.spawn_shell(cwd, env_vars);
+            }
+        }
+    }
+
+    /// Convert the entire split tree to serializable form.
+    pub fn to_saved(&self, cwds: &HashMap<String, String>) -> SavedSplitNode {
+        self.root.borrow().to_saved(cwds)
+    }
+
+    /// Build a SplitView from a saved tree, creating terminals with per-pane CWDs.
+    /// Returns the view and a list of (pane_id, cwd) pairs for spawning shells.
+    pub fn from_saved(saved: &SavedSplitNode, config: &Config) -> (Self, Vec<(String, Option<String>)>) {
+        let mut panes = Vec::new();
+        let root = Self::node_from_saved(saved, config, &mut panes);
+        let focused = root.first_pane_id().to_string();
+
+        let view = Self {
+            root: RefCell::new(root),
+            focused_pane_id: RefCell::new(focused),
+        };
+
+        (view, panes)
+    }
+
+    fn node_from_saved(saved: &SavedSplitNode, config: &Config, panes: &mut Vec<(String, Option<String>)>) -> SplitNode {
+        match saved {
+            SavedSplitNode::Leaf { cwd } => {
+                let pane_id = uuid::Uuid::new_v4().to_string();
+                let terminal = VteTerminal::new_with_config(config);
+                panes.push((pane_id.clone(), cwd.clone()));
+
+                SplitNode::Leaf { id: pane_id, terminal }
+            }
+            SavedSplitNode::Split { orientation, first, second } => {
+                let orient = if orientation == "horizontal" {
+                    Orientation::Horizontal
+                } else {
+                    Orientation::Vertical
+                };
+
+                SplitNode::Split {
+                    orientation: orient,
+                    first: Box::new(Self::node_from_saved(first, config, panes)),
+                    second: Box::new(Self::node_from_saved(second, config, panes)),
+                }
             }
         }
     }

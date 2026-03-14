@@ -79,11 +79,28 @@ fn config_path() -> PathBuf {
         .join("config.toml")
 }
 
+/// Serializable split tree node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SavedSplitNode {
+    Leaf { cwd: Option<String> },
+    Split {
+        orientation: String,
+        first: Box<SavedSplitNode>,
+        second: Box<SavedSplitNode>,
+    },
+}
+
+impl Default for SavedSplitNode {
+    fn default() -> Self {
+        Self::Leaf { cwd: None }
+    }
+}
+
 /// Session state saved/restored across restarts
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedSession {
     pub title: String,
-    pub cwd: Option<String>,
+    pub split_tree: SavedSplitNode,
     #[serde(default)]
     pub group_id: String,
 }
@@ -197,8 +214,20 @@ mod tests {
     fn session_state_roundtrip() {
         let state = SessionState {
             sessions: vec![
-                SavedSession { title: "Tab 1".to_string(), cwd: Some("/home/user".to_string()), group_id: "default".to_string() },
-                SavedSession { title: "Tab 2".to_string(), cwd: None, group_id: "group1".to_string() },
+                SavedSession {
+                    title: "Tab 1".to_string(),
+                    split_tree: SavedSplitNode::Leaf { cwd: Some("/home/user".to_string()) },
+                    group_id: "default".to_string(),
+                },
+                SavedSession {
+                    title: "Tab 2".to_string(),
+                    split_tree: SavedSplitNode::Split {
+                        orientation: "horizontal".to_string(),
+                        first: Box::new(SavedSplitNode::Leaf { cwd: Some("/tmp".to_string()) }),
+                        second: Box::new(SavedSplitNode::Leaf { cwd: None }),
+                    },
+                    group_id: "group1".to_string(),
+                },
             ],
             groups: vec![
                 SavedGroup { id: "group1".to_string(), name: "Work".to_string() },
@@ -211,6 +240,8 @@ mod tests {
 
         assert_eq!(parsed.sessions.len(), 2);
         assert_eq!(parsed.sessions[0].title, "Tab 1");
-        assert_eq!(parsed.sessions[1].cwd, None);
+        assert!(matches!(parsed.sessions[0].split_tree, SavedSplitNode::Leaf { .. }));
+        assert!(matches!(parsed.sessions[1].split_tree, SavedSplitNode::Split { .. }));
+        assert_eq!(parsed.active_session_index, Some(1));
     }
 }
