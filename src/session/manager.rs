@@ -11,7 +11,7 @@ use vte4::prelude::*;
 use crate::config::{Config, SavedSession, SessionState};
 use crate::session::{Session, SessionStatus};
 use crate::sidebar::Sidebar;
-use crate::terminal::{VteTerminal, SplitView};
+use crate::terminal::{Direction, VteTerminal, SplitView};
 
 pub struct SessionManager {
     sessions: Vec<Session>,
@@ -211,6 +211,23 @@ impl SessionManager {
             .and_then(|sv| sv.focused_terminal())
     }
 
+    /// Navigate between split panes in the active session.
+    pub fn navigate_pane(&mut self, direction: Direction) {
+        let Some(active_id) = self.active_id.clone() else { return };
+        let Some(sv) = self.split_views.get(&active_id) else { return };
+
+        if let Some(term) = sv.navigate(direction) {
+            term.grab_focus();
+        }
+    }
+
+    /// Update the focused pane for a session (called by focus tracking).
+    fn update_focused_pane(&self, session_id: &str, pane_id: &str) {
+        if let Some(sv) = self.split_views.get(session_id) {
+            sv.set_focused_pane_id(pane_id);
+        }
+    }
+
     /// Split the focused pane in the active session.
     /// Static method — needs Rc<RefCell<Self>> to wire child-exited on the new pane.
     pub fn split_active_pane(self_ref: &Rc<RefCell<Self>>, orientation: gtk4::Orientation) -> bool {
@@ -239,8 +256,9 @@ impl SessionManager {
 
         drop(mgr);
 
-        // Wire child-exited (needs Rc<RefCell<Self>>)
+        // Wire child-exited and focus tracking (needs Rc<RefCell<Self>>)
         Self::wire_pane_child_exited(self_ref, &active_id, &new_pane_id, &new_vte);
+        Self::wire_pane_focus(self_ref, &active_id, &new_pane_id, &new_vte);
 
         true
     }
@@ -409,6 +427,42 @@ impl SessionManager {
 
         for (pane_id, vte_term) in terminals {
             Self::wire_pane_child_exited(self_ref, session_id, &pane_id, &vte_term);
+        }
+    }
+
+    /// Wire focus tracking on a single terminal pane.
+    fn wire_pane_focus(
+        self_ref: &Rc<RefCell<Self>>,
+        session_id: &str,
+        pane_id: &str,
+        vte_term: &vte4::Terminal,
+    ) {
+        let mgr = Rc::downgrade(self_ref);
+        let sid = session_id.to_string();
+        let pid = pane_id.to_string();
+
+        let focus_controller = gtk4::EventControllerFocus::new();
+        focus_controller.connect_enter(move |_| {
+            let Some(mgr) = mgr.upgrade() else { return };
+
+            if let Ok(m) = mgr.try_borrow() {
+                m.update_focused_pane(&sid, &pid);
+            }
+        });
+
+        vte_term.upcast_ref::<gtk4::Widget>().add_controller(focus_controller);
+    }
+
+    /// Wire focus tracking on ALL terminals in a session's split tree.
+    pub fn wire_focus_tracking(self_ref: &Rc<RefCell<Self>>, session_id: &str) {
+        let terminals = {
+            let borrow = self_ref.borrow();
+            let Some(sv) = borrow.split_views.get(session_id) else { return };
+            sv.collect_vte_terminals()
+        };
+
+        for (pane_id, vte_term) in terminals {
+            Self::wire_pane_focus(self_ref, session_id, &pane_id, &vte_term);
         }
     }
 

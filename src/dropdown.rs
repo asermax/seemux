@@ -107,6 +107,7 @@ impl DropdownWindow {
         });
 
         SessionManager::wire_child_exited(&manager, &first_id);
+        SessionManager::wire_focus_tracking(&manager, &first_id);
 
         // Wire new tab button
         let mgr = manager.clone();
@@ -130,6 +131,7 @@ impl DropdownWindow {
             });
 
             SessionManager::wire_child_exited(&mgr, &id);
+            SessionManager::wire_focus_tracking(&mgr, &id);
         });
 
         // Quit-on-empty for dropdown just hides it

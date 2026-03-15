@@ -4,6 +4,13 @@ use std::collections::HashMap;
 use gtk4::prelude::*;
 use gtk4::{Orientation, Paned, Stack, Widget};
 
+pub enum Direction {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 use crate::config::{Config, SavedSplitNode};
 use crate::terminal::VteTerminal;
 
@@ -41,6 +48,51 @@ impl SplitTree {
         match self {
             SplitTree::Leaf(id) => id,
             SplitTree::Split { first, .. } => first.first_pane_id(),
+        }
+    }
+
+    fn last_pane_id(&self) -> &str {
+        match self {
+            SplitTree::Leaf(id) => id,
+            SplitTree::Split { second, .. } => second.last_pane_id(),
+        }
+    }
+
+    /// Find the neighbor pane in a given direction.
+    fn find_neighbor(&self, focused_id: &str, direction: &Direction) -> Option<String> {
+        let (matching_orient, toward_second) = match direction {
+            Direction::Left  => (Orientation::Horizontal, false),
+            Direction::Right => (Orientation::Horizontal, true),
+            Direction::Up    => (Orientation::Vertical, false),
+            Direction::Down  => (Orientation::Vertical, true),
+        };
+
+        self.find_neighbor_inner(focused_id, matching_orient, toward_second)
+    }
+
+    fn find_neighbor_inner(
+        &self,
+        focused_id: &str,
+        matching_orient: Orientation,
+        toward_second: bool,
+    ) -> Option<String> {
+        let SplitTree::Split { orientation, first, second } = self else { return None };
+
+        if *orientation == matching_orient {
+            if toward_second && first.contains(focused_id) {
+                return Some(second.first_pane_id().to_string());
+            }
+
+            if !toward_second && second.contains(focused_id) {
+                return Some(first.last_pane_id().to_string());
+            }
+        }
+
+        // Perpendicular split, or focused is already on the target side — recurse deeper
+        if first.contains(focused_id) {
+            first.find_neighbor_inner(focused_id, matching_orient, toward_second)
+        } else {
+            second.find_neighbor_inner(focused_id, matching_orient, toward_second)
         }
     }
 
@@ -155,8 +207,21 @@ impl SplitView {
         self.tree.borrow().build_widget(&self.panes.borrow())
     }
 
+    /// Navigate from the focused pane in a direction. Returns the target terminal if found.
+    pub fn navigate(&self, direction: Direction) -> Option<vte4::Terminal> {
+        let focused_id = self.focused_pane_id.borrow().clone();
+        let new_id = self.tree.borrow().find_neighbor(&focused_id, &direction)?;
+
+        *self.focused_pane_id.borrow_mut() = new_id.clone();
+        self.panes.borrow().get(&new_id).map(|vt| vt.terminal().clone())
+    }
+
     /// Remove old widget tree from stack, rebuild, re-add.
     pub fn rebuild_in_stack(&self, stack: &Stack, name: &str) {
+        // Move focus away from the pane tree before tearing it down
+        // to avoid GTK warnings about focus on detached widgets
+        stack.grab_focus();
+
         if let Some(old) = stack.child_by_name(name) {
             // Recursively clear Paned children using the proper API
             // (direct unparent() leaves dangling pointers in Paned internals)
@@ -182,6 +247,9 @@ impl SplitView {
             Self::clear_paned_children(&end);
         }
 
+        // Clear the Paned's internal focus child before detaching,
+        // otherwise GTK warns about set_focus_child on a non-child widget
+        paned.set_focus_child(None::<&Widget>);
         paned.set_start_child(None::<&Widget>);
         paned.set_end_child(None::<&Widget>);
     }

@@ -281,6 +281,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         // Only intercept our specific shortcuts — let everything else through to VTE
         let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::Page_Up | Key::Page_Down))
             || (ctrl && !shift && matches!(key, Key::t | Key::Tab | Key::Page_Up | Key::Page_Down))
+            || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l))
             || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9));
 
         if !is_our_shortcut {
@@ -334,6 +335,23 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         if ctrl && shift && key == Key::E {
             SessionManager::split_active_pane(&mgr, gtk4::Orientation::Vertical);
             return glib::Propagation::Stop;
+        }
+
+        // Alt+hjkl: navigate between split panes
+        if alt && !ctrl && !shift {
+            use crate::terminal::Direction;
+            let direction = match key {
+                Key::h => Some(Direction::Left),
+                Key::l => Some(Direction::Right),
+                Key::k => Some(Direction::Up),
+                Key::j => Some(Direction::Down),
+                _ => None,
+            };
+
+            if let Some(dir) = direction {
+                mgr.borrow_mut().navigate_pane(dir);
+                return glib::Propagation::Stop;
+            }
         }
 
         // Ctrl+Shift+W: close pane (or tab if single pane)
@@ -491,6 +509,7 @@ fn wire_tab_lifecycle(
 
     sidebar.setup_context_menu(session_id);
     SessionManager::wire_child_exited(manager, session_id);
+    SessionManager::wire_focus_tracking(manager, session_id);
 }
 
 fn register_tab_actions(
