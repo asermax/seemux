@@ -10,9 +10,9 @@ StartupNotify=true
 StartupWMClass=com.asermax.seemux
 Categories=System;TerminalEmulator;Utility;
 Keywords=shell;prompt;command;terminal;multiplexer;claude;
-Actions=quake-mode;
+Actions=toggle;
 
-[Desktop Action quake-mode]
-Name=Quake Mode
-Exec=seemux --quake
+[Desktop Action toggle]
+Name=Toggle Dropdown
+Exec=seemux toggle
 Icon=seemux
