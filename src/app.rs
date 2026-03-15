@@ -65,6 +65,12 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
 
     let manager = SessionManager::new(stack.clone(), sidebar.clone(), socket_path, config.clone());
 
+    // Wire drag-and-drop tab movement between groups
+    let mgr_for_dnd = manager.clone();
+    sidebar.set_on_tab_moved(move |session_id, new_group| {
+        mgr_for_dnd.borrow_mut().move_session_to_group(&session_id, &new_group);
+    });
+
     // Register window actions for context menus
     register_tab_actions(&window, &manager, &sidebar);
     register_terminal_actions(&window, &manager);

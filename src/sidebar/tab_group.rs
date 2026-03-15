@@ -79,6 +79,10 @@ impl TabGroupWidget {
         self.container.upcast_ref()
     }
 
+    pub fn header_widget(&self) -> &GtkBox {
+        &self.header
+    }
+
     /// Expand the group if it's collapsed.
     pub fn expand(&self) {
         if self.collapsed.get() {

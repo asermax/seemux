@@ -1,6 +1,7 @@
 use gtk4::prelude::*;
 use gtk4::gio;
 use gtk4::{Box as GtkBox, Button, Entry, GestureClick, Label, Orientation, PopoverMenu, Widget};
+use gtk4::gdk;
 
 use crate::session::SessionStatus;
 
@@ -160,6 +161,31 @@ impl TabRow {
                 self.status_label.set_visible(true);
             }
         }
+    }
+
+    pub fn setup_drag_source(&self) {
+        let drag_source = gtk4::DragSource::new();
+        drag_source.set_actions(gdk::DragAction::MOVE);
+
+        let container = self.container.clone();
+        drag_source.connect_prepare(move |_source, _x, _y| {
+            let session_id = container.widget_name().to_string();
+            Some(gdk::ContentProvider::for_value(&session_id.to_value()))
+        });
+
+        let container = self.container.clone();
+        drag_source.connect_drag_begin(move |source, _drag| {
+            let paintable = gtk4::WidgetPaintable::new(Some(&container));
+            source.set_icon(Some(&paintable), 0, 0);
+            container.add_css_class("dragging");
+        });
+
+        let container = self.container.clone();
+        drag_source.connect_drag_end(move |_source, _drag, _delete_data| {
+            container.remove_css_class("dragging");
+        });
+
+        self.container.add_controller(drag_source);
     }
 
     pub fn connect_close<F: Fn() + 'static>(&self, f: F) {

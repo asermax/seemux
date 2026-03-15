@@ -295,6 +295,17 @@ list row:selected {{
     color: {text_secondary};
     background-color: {surface_hover};
 }}
+
+/* Drag and drop */
+
+.tab-row.dragging {{
+    opacity: 0.4;
+}}
+
+.drop-target-highlight {{
+    background-color: alpha({accent}, 0.15);
+    border-radius: 6px;
+}}
 "#,
         name = s.name,
         window_bg = s.window_bg,

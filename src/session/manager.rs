@@ -351,6 +351,12 @@ impl SessionManager {
         }
     }
 
+    pub fn move_session_to_group(&mut self, session_id: &str, new_group_id: &str) {
+        if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
+            session.group_id = new_group_id.to_string();
+        }
+    }
+
     pub fn sessions_with_claude_pid(&self) -> Vec<(String, u32)> {
         self.sessions.iter()
             .filter_map(|s| s.claude_pid.map(|pid| (s.id.clone(), pid)))

@@ -7,7 +7,8 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{self, Box as GtkBox, Button, ListBox, Orientation, ScrolledWindow, SelectionMode};
-
+use gtk4::gdk;
+use gtk4::glib;
 
 use crate::session::{Session, DEFAULT_GROUP};
 use tab_group::TabGroupWidget;
@@ -28,6 +29,9 @@ pub struct Sidebar {
 
     // All tab rows indexed by session ID
     rows: Rc<RefCell<HashMap<String, (TabRow, String)>>>, // session_id -> (row, group_id)
+
+    // Callback when a tab is moved between groups via drag-and-drop
+    on_tab_moved: Rc<RefCell<Option<Box<dyn Fn(String, String)>>>>, // (session_id, new_group_id)
 }
 
 struct GroupEntry {
@@ -67,16 +71,27 @@ impl Sidebar {
         scroll.set_child(Some(&content));
         container.append(&scroll);
 
-        Self {
+        let on_tab_moved: Rc<RefCell<Option<Box<dyn Fn(String, String)>>>> =
+            Rc::new(RefCell::new(None));
+
+        let sidebar = Self {
             container,
             content,
-            default_list,
+            default_list: default_list.clone(),
             default_add_btn,
             groups: Rc::new(RefCell::new(Vec::new())),
             group_widgets: Rc::new(RefCell::new(HashMap::new())),
             new_group_btn,
             rows: Rc::new(RefCell::new(HashMap::new())),
-        }
+            on_tab_moved,
+        };
+
+        sidebar.setup_drop_target(&default_list, DEFAULT_GROUP);
+        sidebar
+    }
+
+    pub fn set_on_tab_moved<F: Fn(String, String) + 'static>(&self, f: F) {
+        *self.on_tab_moved.borrow_mut() = Some(Box::new(f));
     }
 
     fn list_for_group(&self, group_id: &str) -> Option<ListBox> {
@@ -87,8 +102,88 @@ impl Sidebar {
         self.group_widgets.borrow().get(group_id).map(|gw| gw.list_box.clone())
     }
 
+    fn setup_drop_target(&self, widget: &impl IsA<gtk4::Widget>, group_id: &str) {
+        let drop_target = gtk4::DropTarget::new(glib::GString::static_type(), gdk::DragAction::MOVE);
+
+        let widget_ref = widget.as_ref().clone();
+        drop_target.connect_enter(move |_target, _x, _y| {
+            widget_ref.add_css_class("drop-target-highlight");
+            gdk::DragAction::MOVE
+        });
+
+        let widget_ref = widget.as_ref().clone();
+        drop_target.connect_leave(move |_target| {
+            widget_ref.remove_css_class("drop-target-highlight");
+        });
+
+        let rows = self.rows.clone();
+        let group_widgets = self.group_widgets.clone();
+        let default_list = self.default_list.clone();
+        let target_group = group_id.to_string();
+        let on_moved = self.on_tab_moved.clone();
+
+        drop_target.connect_drop(move |target, value, _x, _y| {
+            if let Some(w) = target.widget() {
+                w.remove_css_class("drop-target-highlight");
+            }
+
+            let Ok(session_id) = value.get::<glib::GString>() else { return false };
+            let session_id = session_id.to_string();
+
+            let mut rows_ref = rows.borrow_mut();
+            let Some((row, current_group)) = rows_ref.get_mut(&session_id) else { return false };
+
+            if *current_group == target_group {
+                return false;
+            }
+
+            // Remove from old ListBox
+            if let Some(parent) = row.widget().parent() {
+                let old_list = if *current_group == DEFAULT_GROUP {
+                    Some(default_list.clone())
+                } else {
+                    group_widgets.borrow().get(current_group.as_str()).map(|gw| gw.list_box.clone())
+                };
+
+                if let Some(list) = old_list {
+                    list.remove(&parent);
+                }
+            }
+
+            // Append to target ListBox
+            let new_list = if target_group == DEFAULT_GROUP {
+                Some(default_list.clone())
+            } else {
+                group_widgets.borrow().get(target_group.as_str()).map(|gw| gw.list_box.clone())
+            };
+
+            if let Some(list) = new_list {
+                list.append(row.widget());
+            }
+
+            // Expand target group if collapsed
+            if target_group != DEFAULT_GROUP {
+                if let Some(gw) = group_widgets.borrow().get(target_group.as_str()) {
+                    gw.expand();
+                }
+            }
+
+            *current_group = target_group.clone();
+            drop(rows_ref);
+
+            if let Some(ref callback) = *on_moved.borrow() {
+                callback(session_id, target_group.clone());
+            }
+
+            true
+        });
+
+        widget.as_ref().add_controller(drop_target);
+    }
+
     pub fn add_tab(&self, session: &Session) {
         let tab_row = TabRow::new(&session.id, &session.title);
+        tab_row.setup_drag_source();
 
         if let Some(list) = self.list_for_group(&session.group_id) {
             list.append(tab_row.widget());
@@ -200,6 +295,10 @@ impl Sidebar {
     pub fn add_group(&self, id: &str, name: &str) {
         let group_widget = TabGroupWidget::new(name);
         group_widget.setup_context_menu(id);
+
+        // Set up drop targets on the group's list and header
+        self.setup_drop_target(&group_widget.list_box, id);
+        self.setup_drop_target(group_widget.header_widget(), id);
 
         // Insert before the new_group_btn
         self.content.remove(&self.new_group_btn);
