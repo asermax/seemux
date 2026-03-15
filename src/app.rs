@@ -44,7 +44,6 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     }
 
     let socket_path = state.socket_path.clone();
-    let bin_dir = state.bin_dir.clone();
 
     // Layout: sidebar | drag handle | terminal stack (via GtkPaned)
     let sidebar = Rc::new(Sidebar::new());
@@ -64,7 +63,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     paned.set_resize_start_child(false);
     paned.set_resize_end_child(true);
 
-    let manager = SessionManager::new(stack.clone(), sidebar.clone(), socket_path, bin_dir, config.clone());
+    let manager = SessionManager::new(stack.clone(), sidebar.clone(), socket_path, config.clone());
 
     // Register window actions for context menus
     register_tab_actions(&window, &manager, &sidebar);

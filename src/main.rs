@@ -1,6 +1,5 @@
 mod app;
 mod app_state;
-mod claude;
 mod cli;
 mod config;
 mod dropdown;

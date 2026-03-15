@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc;
 
-use crate::claude;
 use crate::config::Config;
 use crate::notifications::hook_handler::HookEvent;
 use crate::notifications::hook_server::HookServer;
@@ -14,7 +13,6 @@ pub struct AppState {
     /// The hook receiver — taken by the first window that sets up polling.
     pub hook_rx: RefCell<Option<mpsc::Receiver<HookEvent>>>,
     pub socket_path: PathBuf,
-    pub bin_dir: PathBuf,
     _hook_server: HookServer,
 }
 
@@ -26,13 +24,10 @@ impl AppState {
         let socket_path = hook_server.socket_path().clone();
         let hook_rx = hook_server.start();
 
-        let bin_dir = claude::setup_scripts(&socket_path);
-
         Self {
             config,
             hook_rx: RefCell::new(Some(hook_rx)),
             socket_path,
-            bin_dir,
             _hook_server: hook_server,
         }
     }

@@ -82,7 +82,6 @@ impl DropdownWindow {
             stack,
             sidebar.clone(),
             state.socket_path.clone(),
-            state.bin_dir.clone(),
             config.clone(),
         );
 

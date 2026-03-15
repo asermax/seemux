@@ -1,0 +1,11 @@
+{
+  "name": "seemux",
+  "owner": { "name": "asermax" },
+  "plugins": [
+    {
+      "name": "seemux-hooks",
+      "version": "0.1.0",
+      "source": { "source": "github", "repo": "asermax/seemux", "path": "plugins/seemux-hooks" }
+    }
+  ]
+}

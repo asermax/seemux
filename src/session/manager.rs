@@ -24,8 +24,6 @@ pub struct SessionManager {
     /// Shared CWD tracking — updated by terminal CWD signal, read at save time
     session_cwds: Rc<RefCell<HashMap<String, String>>>,
     socket_path: PathBuf,
-    bin_dir: PathBuf,
-    hook_script_path: PathBuf,
 }
 
 impl SessionManager {
@@ -33,11 +31,8 @@ impl SessionManager {
         stack: Stack,
         sidebar: Rc<Sidebar>,
         socket_path: PathBuf,
-        bin_dir: PathBuf,
         config: Rc<RefCell<Config>>,
     ) -> Rc<RefCell<Self>> {
-        let hook_script_path = bin_dir.join("seemux-hook.sh");
-
         let manager = Rc::new(RefCell::new(Self {
             sessions: Vec::new(),
             split_views: HashMap::new(),
@@ -48,8 +43,6 @@ impl SessionManager {
             on_empty: None,
             session_cwds: Rc::new(RefCell::new(HashMap::new())),
             socket_path,
-            bin_dir,
-            hook_script_path,
         }));
 
         manager
@@ -550,15 +543,9 @@ impl SessionManager {
     }
 
     fn build_env_vars(&self, session_id: &str) -> Vec<(String, String)> {
-        let current_path = std::env::var("PATH").unwrap_or_default();
-        let bin_dir_str = self.bin_dir.to_string_lossy().to_string();
-
         vec![
             ("SEEMUX_SOCKET".to_string(), self.socket_path.to_string_lossy().to_string()),
             ("SEEMUX_SESSION_ID".to_string(), session_id.to_string()),
-            ("SEEMUX_HOOK_SCRIPT".to_string(), self.hook_script_path.to_string_lossy().to_string()),
-            ("SEEMUX_BIN_DIR".to_string(), bin_dir_str.clone()),
-            ("PATH".to_string(), format!("{bin_dir_str}:{current_path}")),
         ]
     }
 }
