@@ -10,9 +10,3 @@ StartupNotify=true
 StartupWMClass=com.asermax.seemux
 Categories=System;TerminalEmulator;Utility;
 Keywords=shell;prompt;command;terminal;multiplexer;claude;
-Actions=toggle;
-
-[Desktop Action toggle]
-Name=Toggle Dropdown
-Exec=seemux toggle
-Icon=seemux

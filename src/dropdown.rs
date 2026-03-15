@@ -198,8 +198,8 @@ impl DropdownWindow {
             let elapsed = now - start_time.get();
             let progress = (elapsed as f64 / duration_us as f64).clamp(0.0, 1.0);
 
-            // Ease-out quint for smoother deceleration
-            let eased = 1.0 - (1.0 - progress).powi(5);
+            // Ease-out cubic
+            let eased = 1.0 - (1.0 - progress).powi(3);
 
             let (margin, opacity) = if opening {
                 let m = -target + (target as f64 * eased) as i32;
