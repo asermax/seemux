@@ -1,21 +1,27 @@
 use std::io::Write;
 use std::os::unix::net::UnixStream;
 
-/// Parse CLI args. Returns true if the app should launch normally,
-/// false if a command was handled (e.g. `seemux toggle`).
-pub fn handle_args() -> bool {
+pub enum LaunchMode {
+    Normal,
+    Quake,
+    CommandHandled,
+}
+
+/// Parse CLI args. Returns the launch mode for the application.
+pub fn handle_args() -> LaunchMode {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
-        return true; // No subcommand, launch normally
+        return LaunchMode::Normal;
     }
 
     match args[1].as_str() {
         "toggle" => {
             send_socket_command("toggle-dropdown");
-            false
+            LaunchMode::CommandHandled
         }
-        _ => true,
+        "--quake" => LaunchMode::Quake,
+        _ => LaunchMode::Normal,
     }
 }
 

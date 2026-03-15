@@ -4,16 +4,15 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use vte4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, CssProvider, EventControllerKey, GestureClick, Orientation,
+    Application, ApplicationWindow, EventControllerKey, GestureClick, Orientation,
     Paned, PopoverMenu, Stack, StackTransitionType,
     gio,
-    gdk::{Display, Key},
+    gdk::Key,
     glib,
 };
 
 use crate::app_state::AppState;
 use crate::config::SessionState;
-use crate::theme;
 use crate::notifications::hook_handler;
 use crate::notifications::NotificationStore;
 use crate::session::manager::SessionManager;
@@ -29,20 +28,6 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
 
     let config = state.config.clone();
     let saved_state = SessionState::load();
-
-    // Load theme CSS (only on first window)
-    if app.windows().is_empty() || app.windows().len() == 1 {
-        let scheme = theme::get_scheme(&config.borrow().color_scheme);
-        let css_content = theme::generate_css(scheme);
-        let provider = CssProvider::new();
-        provider.load_from_string(&css_content);
-        gtk4::style_context_add_provider_for_display(
-            &Display::default().expect("Could not connect to a display"),
-            &provider,
-            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
-
     let socket_path = state.socket_path.clone();
 
     // Layout: sidebar | drag handle | terminal stack (via GtkPaned)
@@ -188,269 +173,40 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     // Create dropdown window (shown via `seemux toggle` CLI command)
     let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, state));
 
-    // Poll hook events — only the first window claims the receiver
-    let hook_rx = state.take_hook_rx();
-    let mgr_for_hooks = manager.clone();
-    let notif_store = notification_store.clone();
-    let dropdown_ref = Some(dropdown.clone());
-    glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
-        let Some(ref rx) = hook_rx else { return glib::ControlFlow::Continue };
-
-        while let Ok(event) = rx.try_recv() {
-            // Handle dropdown toggle command
-            if event.event == "toggle-dropdown" {
-                if let Some(dd) = dropdown_ref.as_ref() {
-                    dd.toggle();
-                }
-                continue;
-            }
-
-            let result = hook_handler::handle_hook_event(event);
-
-            // Update session status
-            if let Some(status) = result.new_status {
-                mgr_for_hooks.borrow_mut().update_session_status(&result.session_id, status);
-            }
-
-            // Update Claude PID
-            if let Some(pid) = result.claude_pid {
-                let pid_val = if pid == 0 { None } else { Some(pid) };
-                mgr_for_hooks.borrow_mut().set_claude_pid(&result.session_id, pid_val);
-            }
-
-            // Clear notifications if requested
-            if result.clear_notifications {
-                notif_store.borrow_mut().clear_session(&result.session_id);
-            }
-
-            // Add notification if present
-            if let Some((title, subtitle, body)) = result.notification {
-                let notification = crate::notifications::Notification::new(
-                    &result.session_id,
-                    &title,
-                    &subtitle,
-                    &body,
-                );
-
-                // Send desktop notification if tab is not active
-                let is_active = mgr_for_hooks.borrow().active_id()
-                    .map(|id| id == result.session_id)
-                    .unwrap_or(false);
-
-                if !is_active && matches!(subtitle.as_str(), "Permission" | "Error" | "Waiting" | "Attention") {
-                    send_desktop_notification(&title, &subtitle, &body);
-                }
-
-                notif_store.borrow_mut().add_notification(notification);
-            }
-        }
-
-        glib::ControlFlow::Continue
-    });
-
-    // Stale PID detection — check every 5 seconds
-    let mgr_for_pid = manager.clone();
-    glib::timeout_add_seconds_local(5, move || {
-        let sessions = mgr_for_pid.borrow().sessions_with_claude_pid();
-
-        for (session_id, pid) in sessions {
-            let alive = unsafe { libc::kill(pid as i32, 0) } == 0;
-
-            if !alive {
-                mgr_for_pid.borrow_mut().set_claude_pid(&session_id, None);
-                mgr_for_pid.borrow_mut().update_session_status(
-                    &session_id,
-                    crate::session::SessionStatus::Idle,
-                );
-            }
-        }
-
-        glib::ControlFlow::Continue
-    });
+    setup_hook_polling(state, &manager, &notification_store, Some(dropdown));
+    setup_stale_pid_detection(&manager);
 
     // Keyboard shortcuts
-    let key_controller = EventControllerKey::new();
-    // CAPTURE phase so we see events before VTE consumes them
-    key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
-    let mgr = manager.clone();
-    let sidebar_for_keys = sidebar.clone();
-    let notif_for_keys = notification_store.clone();
+    let on_new_tab: Rc<dyn Fn()> = {
+        let sidebar = sidebar.clone();
+        let mgr = manager.clone();
+        let notif = notification_store.clone();
+
+        Rc::new(move || {
+            let id = mgr.borrow_mut().create_session(None, None);
+            wire_tab_lifecycle(&sidebar, &mgr, &notif, &id);
+        })
+    };
+
     let window_ref = window.clone();
     let create_group_key = create_group.clone();
-
-    key_controller.connect_key_pressed(move |_, key, _keycode, modifiers| {
-        let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
-        let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
-        let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
-
-        // Only intercept our specific shortcuts — let everything else through to VTE
-        let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::Page_Up | Key::Page_Down))
-            || (ctrl && !shift && matches!(key, Key::t | Key::Tab | Key::Page_Up | Key::Page_Down))
-            || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l))
-            || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9));
-
-        if !is_our_shortcut {
-            return glib::Propagation::Proceed;
-        }
-
-        // Ctrl+Shift+C: copy from terminal
-        if ctrl && shift && key == Key::C {
-            if let Some(term) = mgr.borrow().active_terminal_vte() {
-                term.copy_clipboard_format(vte4::Format::Text);
-            }
-            return glib::Propagation::Stop;
-        }
-
-        // Ctrl+Shift+V: paste to terminal
-        if ctrl && shift && key == Key::V {
-            if let Some(term) = mgr.borrow().active_terminal_vte() {
-                term.paste_clipboard();
-            }
-            return glib::Propagation::Stop;
-        }
-
-        // Ctrl+Shift+N: new window
+    let extra_handler: Option<Rc<dyn Fn(Key, bool, bool) -> Option<glib::Propagation>>> = Some(Rc::new(move |key, ctrl, shift| {
         if ctrl && shift && key == Key::N {
             if let Some(app) = window_ref.application() {
                 app.activate();
             }
-            return glib::Propagation::Stop;
+            return Some(glib::Propagation::Stop);
         }
 
-        // Ctrl+Shift+G: new group
         if ctrl && shift && key == Key::G {
             create_group_key();
-            return glib::Propagation::Stop;
+            return Some(glib::Propagation::Stop);
         }
 
-        // Ctrl+T or Ctrl+Shift+T: new tab
-        if ctrl && (key == Key::t || key == Key::T) {
-            let id = mgr.borrow_mut().create_session(None, None);
-            wire_tab_lifecycle(&sidebar_for_keys, &mgr, &notif_for_keys, &id);
-            return glib::Propagation::Stop;
-        }
+        None
+    }));
 
-        // Ctrl+Shift+H: split horizontal
-        if ctrl && shift && key == Key::H {
-            SessionManager::split_active_pane(&mgr, gtk4::Orientation::Horizontal);
-            return glib::Propagation::Stop;
-        }
-
-        // Ctrl+Shift+E: split vertical
-        if ctrl && shift && key == Key::E {
-            SessionManager::split_active_pane(&mgr, gtk4::Orientation::Vertical);
-            return glib::Propagation::Stop;
-        }
-
-        // Alt+hjkl: navigate between split panes
-        if alt && !ctrl && !shift {
-            use crate::terminal::Direction;
-            let direction = match key {
-                Key::h => Some(Direction::Left),
-                Key::l => Some(Direction::Right),
-                Key::k => Some(Direction::Up),
-                Key::j => Some(Direction::Down),
-                _ => None,
-            };
-
-            if let Some(dir) = direction {
-                mgr.borrow_mut().navigate_pane(dir);
-                return glib::Propagation::Stop;
-            }
-        }
-
-        // Ctrl+Shift+W: close pane (or tab if single pane)
-        if ctrl && shift && key == Key::W {
-            let should_destroy = mgr.borrow_mut().close_active_pane();
-
-            if should_destroy {
-                let active = mgr.borrow().active_id().map(|s| s.to_string());
-
-                if let Some(id) = active {
-                    mgr.borrow_mut().destroy_session(&id);
-                }
-            }
-
-            return glib::Propagation::Stop;
-        }
-
-        // Ctrl+PgDown: next tab / Ctrl+PgUp: previous tab
-        if ctrl && !shift && matches!(key, Key::Page_Down | Key::Page_Up) {
-            if key == Key::Page_Down {
-                mgr.borrow_mut().switch_next();
-            } else {
-                mgr.borrow_mut().switch_prev();
-            }
-
-            if let Some(active) = mgr.borrow().active_id() {
-                notif_for_keys.borrow_mut().mark_read(active);
-            }
-
-            return glib::Propagation::Stop;
-        }
-
-        // Ctrl+Shift+PgDown/PgUp: next/previous group (jump to first tab of group)
-        if ctrl && shift && matches!(key, Key::Page_Down | Key::Page_Up) {
-            if key == Key::Page_Down {
-                mgr.borrow_mut().switch_next_group();
-            } else {
-                mgr.borrow_mut().switch_prev_group();
-            }
-
-            if let Some(active) = mgr.borrow().active_id() {
-                notif_for_keys.borrow_mut().mark_read(active);
-            }
-
-            return glib::Propagation::Stop;
-        }
-
-        // Alt+1-9: switch to tab by index
-        if alt {
-            let tab_index = match key {
-                Key::_1 => Some(0),
-                Key::_2 => Some(1),
-                Key::_3 => Some(2),
-                Key::_4 => Some(3),
-                Key::_5 => Some(4),
-                Key::_6 => Some(5),
-                Key::_7 => Some(6),
-                Key::_8 => Some(7),
-                Key::_9 => Some(8),
-                _ => None,
-            };
-
-            if let Some(idx) = tab_index {
-                mgr.borrow_mut().switch_to_index(idx);
-
-                // Auto-mark notifications as read for switched tab
-                if let Some(active) = mgr.borrow().active_id() {
-                    notif_for_keys.borrow_mut().mark_read(active);
-                }
-
-                return glib::Propagation::Stop;
-            }
-        }
-
-        // Ctrl+Tab / Ctrl+Shift+Tab: cycle tabs
-        if ctrl && key == Key::Tab {
-            if shift {
-                mgr.borrow_mut().switch_prev();
-            } else {
-                mgr.borrow_mut().switch_next();
-            }
-
-            // Auto-mark notifications as read
-            if let Some(active) = mgr.borrow().active_id() {
-                notif_for_keys.borrow_mut().mark_read(active);
-            }
-
-            return glib::Propagation::Stop;
-        }
-
-        glib::Propagation::Proceed
-    });
-
-    window.add_controller(key_controller);
+    setup_keyboard_shortcuts(&window, &manager, &notification_store, on_new_tab, extra_handler);
 
     // Note: auto-read on tab click is handled in wire_tab_lifecycle via wire_tab_click
 
@@ -758,4 +514,290 @@ fn send_desktop_notification(title: &str, subtitle: &str, body: &str) {
     {
         eprintln!("Desktop notification failed: {e}");
     }
+}
+
+fn setup_keyboard_shortcuts(
+    window: &ApplicationWindow,
+    manager: &Rc<RefCell<SessionManager>>,
+    notification_store: &Rc<RefCell<NotificationStore>>,
+    on_new_tab: Rc<dyn Fn()>,
+    extra_handler: Option<Rc<dyn Fn(Key, bool, bool) -> Option<glib::Propagation>>>,
+) {
+    let key_controller = EventControllerKey::new();
+    key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+    let mgr = manager.clone();
+    let notif_for_keys = notification_store.clone();
+
+    key_controller.connect_key_pressed(move |_, key, _keycode, modifiers| {
+        let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+        let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+        let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
+
+        let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::Page_Up | Key::Page_Down))
+            || (ctrl && !shift && matches!(key, Key::t | Key::Tab | Key::Page_Up | Key::Page_Down))
+            || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l))
+            || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9));
+
+        if !is_our_shortcut {
+            return glib::Propagation::Proceed;
+        }
+
+        // Let the extra handler try first (for window-specific shortcuts like new window/group)
+        if let Some(ref handler) = extra_handler {
+            if let Some(result) = handler(key, ctrl, shift) {
+                return result;
+            }
+        }
+
+        if ctrl && shift && key == Key::C {
+            if let Some(term) = mgr.borrow().active_terminal_vte() {
+                term.copy_clipboard_format(vte4::Format::Text);
+            }
+            return glib::Propagation::Stop;
+        }
+
+        if ctrl && shift && key == Key::V {
+            if let Some(term) = mgr.borrow().active_terminal_vte() {
+                term.paste_clipboard();
+            }
+            return glib::Propagation::Stop;
+        }
+
+        if ctrl && (key == Key::t || key == Key::T) {
+            on_new_tab();
+            return glib::Propagation::Stop;
+        }
+
+        if ctrl && shift && key == Key::H {
+            SessionManager::split_active_pane(&mgr, gtk4::Orientation::Horizontal);
+            return glib::Propagation::Stop;
+        }
+
+        if ctrl && shift && key == Key::E {
+            SessionManager::split_active_pane(&mgr, gtk4::Orientation::Vertical);
+            return glib::Propagation::Stop;
+        }
+
+        if alt && !ctrl && !shift {
+            use crate::terminal::Direction;
+            let direction = match key {
+                Key::h => Some(Direction::Left),
+                Key::l => Some(Direction::Right),
+                Key::k => Some(Direction::Up),
+                Key::j => Some(Direction::Down),
+                _ => None,
+            };
+
+            if let Some(dir) = direction {
+                mgr.borrow_mut().navigate_pane(dir);
+                return glib::Propagation::Stop;
+            }
+        }
+
+        if ctrl && shift && key == Key::W {
+            let should_destroy = mgr.borrow_mut().close_active_pane();
+
+            if should_destroy {
+                let active = mgr.borrow().active_id().map(|s| s.to_string());
+
+                if let Some(id) = active {
+                    mgr.borrow_mut().destroy_session(&id);
+                }
+            }
+
+            return glib::Propagation::Stop;
+        }
+
+        if ctrl && !shift && matches!(key, Key::Page_Down | Key::Page_Up) {
+            if key == Key::Page_Down {
+                mgr.borrow_mut().switch_next();
+            } else {
+                mgr.borrow_mut().switch_prev();
+            }
+
+            if let Some(active) = mgr.borrow().active_id() {
+                notif_for_keys.borrow_mut().mark_read(active);
+            }
+
+            return glib::Propagation::Stop;
+        }
+
+        if ctrl && shift && matches!(key, Key::Page_Down | Key::Page_Up) {
+            if key == Key::Page_Down {
+                mgr.borrow_mut().switch_next_group();
+            } else {
+                mgr.borrow_mut().switch_prev_group();
+            }
+
+            if let Some(active) = mgr.borrow().active_id() {
+                notif_for_keys.borrow_mut().mark_read(active);
+            }
+
+            return glib::Propagation::Stop;
+        }
+
+        if alt {
+            let tab_index = match key {
+                Key::_1 => Some(0),
+                Key::_2 => Some(1),
+                Key::_3 => Some(2),
+                Key::_4 => Some(3),
+                Key::_5 => Some(4),
+                Key::_6 => Some(5),
+                Key::_7 => Some(6),
+                Key::_8 => Some(7),
+                Key::_9 => Some(8),
+                _ => None,
+            };
+
+            if let Some(idx) = tab_index {
+                mgr.borrow_mut().switch_to_index(idx);
+
+                if let Some(active) = mgr.borrow().active_id() {
+                    notif_for_keys.borrow_mut().mark_read(active);
+                }
+
+                return glib::Propagation::Stop;
+            }
+        }
+
+        if ctrl && key == Key::Tab {
+            if shift {
+                mgr.borrow_mut().switch_prev();
+            } else {
+                mgr.borrow_mut().switch_next();
+            }
+
+            if let Some(active) = mgr.borrow().active_id() {
+                notif_for_keys.borrow_mut().mark_read(active);
+            }
+
+            return glib::Propagation::Stop;
+        }
+
+        glib::Propagation::Proceed
+    });
+
+    window.add_controller(key_controller);
+}
+
+fn setup_hook_polling(
+    state: &Rc<AppState>,
+    manager: &Rc<RefCell<SessionManager>>,
+    notification_store: &Rc<RefCell<NotificationStore>>,
+    dropdown: Option<Rc<crate::dropdown::DropdownWindow>>,
+) {
+    let hook_rx = state.take_hook_rx();
+    let mgr_for_hooks = manager.clone();
+    let notif_store = notification_store.clone();
+
+    glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+        let Some(ref rx) = hook_rx else { return glib::ControlFlow::Continue };
+
+        while let Ok(event) = rx.try_recv() {
+            if event.event == "toggle-dropdown" {
+                if let Some(dd) = dropdown.as_ref() {
+                    dd.toggle();
+                }
+                continue;
+            }
+
+            let result = hook_handler::handle_hook_event(event);
+
+            if let Some(status) = result.new_status {
+                mgr_for_hooks.borrow_mut().update_session_status(&result.session_id, status);
+            }
+
+            if let Some(pid) = result.claude_pid {
+                let pid_val = if pid == 0 { None } else { Some(pid) };
+                mgr_for_hooks.borrow_mut().set_claude_pid(&result.session_id, pid_val);
+            }
+
+            if result.clear_notifications {
+                notif_store.borrow_mut().clear_session(&result.session_id);
+            }
+
+            if let Some((title, subtitle, body)) = result.notification {
+                let notification = crate::notifications::Notification::new(
+                    &result.session_id,
+                    &title,
+                    &subtitle,
+                    &body,
+                );
+
+                let is_active = mgr_for_hooks.borrow().active_id()
+                    .map(|id| id == result.session_id)
+                    .unwrap_or(false);
+
+                if !is_active && matches!(subtitle.as_str(), "Permission" | "Error" | "Waiting" | "Attention") {
+                    send_desktop_notification(&title, &subtitle, &body);
+                }
+
+                notif_store.borrow_mut().add_notification(notification);
+            }
+        }
+
+        glib::ControlFlow::Continue
+    });
+}
+
+fn setup_stale_pid_detection(manager: &Rc<RefCell<SessionManager>>) {
+    let mgr_for_pid = manager.clone();
+
+    glib::timeout_add_seconds_local(5, move || {
+        let sessions = mgr_for_pid.borrow().sessions_with_claude_pid();
+
+        for (session_id, pid) in sessions {
+            let alive = unsafe { libc::kill(pid as i32, 0) } == 0;
+
+            if !alive {
+                mgr_for_pid.borrow_mut().set_claude_pid(&session_id, None);
+                mgr_for_pid.borrow_mut().update_session_status(
+                    &session_id,
+                    crate::session::SessionStatus::Idle,
+                );
+            }
+        }
+
+        glib::ControlFlow::Continue
+    });
+}
+
+pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
+    let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, state));
+
+    setup_hook_polling(state, &dropdown.manager, &dropdown.notification_store, Some(dropdown.clone()));
+    setup_stale_pid_detection(&dropdown.manager);
+
+    // Keyboard shortcuts — use dropdown's tab wiring (with close guard)
+    let on_new_tab: Rc<dyn Fn()> = {
+        let mgr = dropdown.manager.clone();
+        let sid = dropdown.sidebar.clone();
+        let notif = dropdown.notification_store.clone();
+
+        Rc::new(move || {
+            let id = mgr.borrow_mut().create_session(None, None);
+            crate::dropdown::wire_tab(&sid, &mgr, &notif, &id);
+        })
+    };
+
+    setup_keyboard_shortcuts(
+        dropdown.window(),
+        &dropdown.manager,
+        &dropdown.notification_store,
+        on_new_tab,
+        None,
+    );
+
+    // Quit app on window close
+    let app_for_close = app.clone();
+    dropdown.window().connect_close_request(move |_| {
+        app_for_close.quit();
+        glib::Propagation::Proceed
+    });
+
+    // Show the dropdown and focus the terminal
+    dropdown.show();
+    dropdown.focus_terminal();
 }

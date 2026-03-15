@@ -52,6 +52,10 @@ impl SessionManager {
         self.on_empty = Some(Box::new(f));
     }
 
+    pub fn session_count(&self) -> usize {
+        self.sessions.len()
+    }
+
     pub fn create_session(&mut self, title: Option<&str>, cwd: Option<&str>) -> String {
         self.create_session_in_group(title, cwd, crate::session::DEFAULT_GROUP)
     }

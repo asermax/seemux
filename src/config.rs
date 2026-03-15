@@ -26,7 +26,7 @@ impl Default for Config {
             color_scheme: "catppuccin-mocha".to_string(),
             dropdown_width_percent: 90,
             dropdown_height_percent: 50,
-            dropdown_animation_ms: 200,
+            dropdown_animation_ms: 500,
         }
     }
 }
@@ -173,7 +173,7 @@ mod tests {
         assert_eq!(config.font_family, "Monospace");
         assert_eq!(config.dropdown_width_percent, 90);
         assert_eq!(config.dropdown_height_percent, 50);
-        assert_eq!(config.dropdown_animation_ms, 200);
+        assert_eq!(config.dropdown_animation_ms, 500);
         assert_eq!(config.font_size, 13);
         assert_eq!(config.font_description(), "Monospace 13");
     }

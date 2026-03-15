@@ -306,6 +306,14 @@ list row:selected {{
     background-color: alpha({accent}, 0.15);
     border-radius: 6px;
 }}
+
+/* Dropdown */
+
+.dropdown-border {{
+    border: 2px solid {accent};
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+}}
 "#,
         name = s.name,
         window_bg = s.window_bg,

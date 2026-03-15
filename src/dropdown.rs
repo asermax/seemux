@@ -1,9 +1,9 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, Orientation, Paned, Revealer, RevealerTransitionType,
+    Application, ApplicationWindow, Box as GtkBox, Orientation, Paned,
     Stack, StackTransitionType, glib,
 };
 
@@ -11,12 +11,17 @@ use crate::app_state::AppState;
 use crate::notifications::NotificationStore;
 use crate::session::manager::SessionManager;
 use crate::sidebar::Sidebar;
-use crate::theme;
 
 pub struct DropdownWindow {
     window: ApplicationWindow,
-    revealer: Revealer,
     visible: RefCell<bool>,
+    target_height: i32,
+    animation_ms: u32,
+    /// Incremented on each animation start; stale callbacks see a mismatch and stop.
+    animation_generation: Rc<Cell<u32>>,
+    pub manager: Rc<RefCell<SessionManager>>,
+    pub notification_store: Rc<RefCell<NotificationStore>>,
+    pub sidebar: Rc<Sidebar>,
 }
 
 impl DropdownWindow {
@@ -28,22 +33,7 @@ impl DropdownWindow {
             .application(app)
             .title("seemux dropdown")
             .decorated(false)
-            .default_width(1)
-            .default_height(1)
             .build();
-
-        // Load theme CSS for this window
-        let scheme = theme::get_scheme(&cfg.color_scheme);
-        let css_content = theme::generate_css(scheme);
-        let provider = gtk4::CssProvider::new();
-        provider.load_from_string(&css_content);
-        if let Some(display) = gtk4::gdk::Display::default() {
-            gtk4::style_context_add_provider_for_display(
-                &display,
-                &provider,
-                gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-            );
-        }
 
         // Get monitor dimensions
         let display = gtk4::gdk::Display::default().expect("display");
@@ -56,11 +46,14 @@ impl DropdownWindow {
         };
 
         let width = (monitor_width as f64 * cfg.dropdown_width_percent as f64 / 100.0) as i32;
-        let height = (monitor_height as f64 * cfg.dropdown_height_percent as f64 / 100.0) as i32;
+        let target_height = (monitor_height as f64 * cfg.dropdown_height_percent as f64 / 100.0) as i32;
 
-        window.set_default_size(width, height);
+        // Layer shell: anchor to top of screen, start off-screen
+        crate::layer_shell::setup_dropdown(&window, width, monitor_width, -target_height);
 
-        // Build full UI inside the revealer
+        window.set_default_size(width, target_height);
+
+        // Build full UI
         let sidebar = Rc::new(Sidebar::new());
 
         let stack = Stack::new();
@@ -85,65 +78,46 @@ impl DropdownWindow {
             config.clone(),
         );
 
-        // Create first session
-        let first_id = manager.borrow_mut().create_session(None, None);
-
-        // Wire tab click + close + child-exited
         let notification_store = Rc::new(RefCell::new(NotificationStore::new()));
 
-        let mgr = manager.clone();
-        let notif = notification_store.clone();
-        sidebar.wire_tab_click(&first_id, move |id| {
-            if let Ok(mut m) = mgr.try_borrow_mut() {
-                m.switch_to(&id);
-            }
-            notif.borrow_mut().mark_read(&id);
-        });
-
-        let mgr = manager.clone();
-        sidebar.wire_close_button(&first_id, move |id| {
-            mgr.borrow_mut().destroy_session(&id);
-        });
-
-        SessionManager::wire_child_exited(&manager, &first_id);
-        SessionManager::wire_focus_tracking(&manager, &first_id);
+        // Create first session
+        let first_id = manager.borrow_mut().create_session(None, None);
+        wire_tab(&sidebar, &manager, &notification_store, &first_id);
 
         // Wire new tab button
         let mgr = manager.clone();
         let sid = sidebar.clone();
-        let notif2 = notification_store.clone();
+        let notif = notification_store.clone();
         sidebar.connect_new_tab(move || {
             let id = mgr.borrow_mut().create_session(None, None);
-
-            let mgr2 = mgr.clone();
-            let notif3 = notif2.clone();
-            sid.wire_tab_click(&id, move |id| {
-                if let Ok(mut m) = mgr2.try_borrow_mut() {
-                    m.switch_to(&id);
-                }
-                notif3.borrow_mut().mark_read(&id);
-            });
-
-            let mgr2 = mgr.clone();
-            sid.wire_close_button(&id, move |id| {
-                mgr2.borrow_mut().destroy_session(&id);
-            });
-
-            SessionManager::wire_child_exited(&mgr, &id);
-            SessionManager::wire_focus_tracking(&mgr, &id);
+            wire_tab(&sid, &mgr, &notif, &id);
         });
 
-        // Quit-on-empty for dropdown just hides it
-        // (don't quit the whole app when dropdown tabs are closed)
+        // When all sessions are closed (via child-exited), respawn a new one
+        let mgr_empty = manager.clone();
+        let sid_empty = sidebar.clone();
+        let notif_empty = notification_store.clone();
+        manager.borrow_mut().set_on_empty(move || {
+            let mgr = mgr_empty.clone();
+            let sid = sid_empty.clone();
+            let notif = notif_empty.clone();
 
-        let revealer = Revealer::new();
-        revealer.set_transition_type(RevealerTransitionType::SlideDown);
-        revealer.set_transition_duration(cfg.dropdown_animation_ms);
-        revealer.set_reveal_child(false);
-        revealer.set_child(Some(&paned));
-        revealer.set_vexpand(true);
+            glib::idle_add_local_once(move || {
+                let id = mgr.borrow_mut().create_session(None, None);
+                wire_tab(&sid, &mgr, &notif, &id);
+                mgr.borrow().spawn_deferred();
+            });
+        });
 
-        window.set_child(Some(&revealer));
+        // Border wrapper
+        let content = GtkBox::new(Orientation::Vertical, 0);
+        content.add_css_class("dropdown-border");
+        content.set_vexpand(true);
+        content.append(&paned);
+
+        window.set_child(Some(&content));
+
+        let animation_ms = cfg.dropdown_animation_ms;
 
         drop(cfg);
 
@@ -155,32 +129,133 @@ impl DropdownWindow {
 
         Self {
             window,
-            revealer,
             visible: RefCell::new(false),
+            target_height,
+            animation_ms,
+            animation_generation: Rc::new(Cell::new(0)),
+            manager,
+            notification_store,
+            sidebar,
         }
+    }
+
+    pub fn window(&self) -> &ApplicationWindow {
+        &self.window
+    }
+
+    pub fn show(&self) {
+        // First show: make window visible (subsequent toggles keep it visible off-screen)
+        if !self.window.is_visible() {
+            self.window.set_opacity(0.0);
+            crate::layer_shell::set_top_margin(&self.window, -self.target_height);
+            self.window.set_visible(true);
+            self.window.present();
+        }
+
+        self.animate(true);
+        *self.visible.borrow_mut() = true;
     }
 
     pub fn toggle(&self) {
         let is_visible = *self.visible.borrow();
 
         if is_visible {
-            self.revealer.set_reveal_child(false);
-
-            let window = self.window.clone();
-            let duration = self.revealer.transition_duration();
-            glib::timeout_add_local_once(
-                std::time::Duration::from_millis(duration as u64),
-                move || {
-                    window.set_visible(false);
-                },
-            );
-
+            self.animate(false);
             *self.visible.borrow_mut() = false;
         } else {
-            self.window.set_visible(true);
-            self.window.present();
-            self.revealer.set_reveal_child(true);
-            *self.visible.borrow_mut() = true;
+            self.show();
         }
     }
+
+    /// Focus the active terminal — call after show to grab keyboard input.
+    pub fn focus_terminal(&self) {
+        let mgr = self.manager.clone();
+
+        glib::idle_add_local_once(move || {
+            if let Some(term) = mgr.borrow().active_terminal_vte() {
+                term.grab_focus();
+            }
+        });
+    }
+
+    fn animate(&self, opening: bool) {
+        let generation = self.animation_generation.get().wrapping_add(1);
+        self.animation_generation.set(generation);
+
+        let target = self.target_height;
+        let duration_us = (self.animation_ms as i64) * 1000;
+        let animation_generation = self.animation_generation.clone();
+        let start_time: Rc<Cell<i64>> = Rc::new(Cell::new(0));
+        let window = self.window.clone();
+
+        self.window.add_tick_callback(move |_widget, clock| {
+            if animation_generation.get() != generation {
+                return glib::ControlFlow::Break;
+            }
+
+            let now = clock.frame_time();
+
+            if start_time.get() == 0 {
+                start_time.set(now);
+            }
+
+            let elapsed = now - start_time.get();
+            let progress = (elapsed as f64 / duration_us as f64).clamp(0.0, 1.0);
+
+            // Ease-out quint for smoother deceleration
+            let eased = 1.0 - (1.0 - progress).powi(5);
+
+            let (margin, opacity) = if opening {
+                let m = -target + (target as f64 * eased) as i32;
+                (m, eased)
+            } else {
+                let m = -(target as f64 * eased) as i32;
+                (m, 1.0 - eased)
+            };
+
+            crate::layer_shell::set_top_margin(&window, margin);
+            window.set_opacity(opacity);
+
+            if progress >= 1.0 {
+                if opening {
+                    // Ensure final state is exact
+                    crate::layer_shell::set_top_margin(&window, 0);
+                    window.set_opacity(1.0);
+                } else {
+                    crate::layer_shell::set_top_margin(&window, -target);
+                    window.set_opacity(0.0);
+                }
+                return glib::ControlFlow::Break;
+            }
+
+            glib::ControlFlow::Continue
+        });
+    }
+}
+
+/// Wire tab click, close button (with last-session guard), child-exited, and focus tracking.
+pub fn wire_tab(
+    sidebar: &Rc<Sidebar>,
+    manager: &Rc<RefCell<SessionManager>>,
+    notification_store: &Rc<RefCell<NotificationStore>>,
+    session_id: &str,
+) {
+    let mgr = manager.clone();
+    let notif = notification_store.clone();
+    sidebar.wire_tab_click(session_id, move |id| {
+        if let Ok(mut m) = mgr.try_borrow_mut() {
+            m.switch_to(&id);
+        }
+        notif.borrow_mut().mark_read(&id);
+    });
+
+    let mgr = manager.clone();
+    sidebar.wire_close_button(session_id, move |id| {
+        if mgr.borrow().session_count() > 1 {
+            mgr.borrow_mut().destroy_session(&id);
+        }
+    });
+
+    SessionManager::wire_child_exited(manager, session_id);
+    SessionManager::wire_focus_tracking(manager, session_id);
 }

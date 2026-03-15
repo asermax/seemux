@@ -13,11 +13,12 @@ pub struct AppState {
     /// The hook receiver — taken by the first window that sets up polling.
     pub hook_rx: RefCell<Option<mpsc::Receiver<HookEvent>>>,
     pub socket_path: PathBuf,
+    pub quake: bool,
     _hook_server: HookServer,
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(quake: bool) -> Self {
         let config = Rc::new(RefCell::new(Config::load()));
 
         let hook_server = HookServer::new();
@@ -28,6 +29,7 @@ impl AppState {
             config,
             hook_rx: RefCell::new(Some(hook_rx)),
             socket_path,
+            quake,
             _hook_server: hook_server,
         }
     }
