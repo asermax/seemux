@@ -12,7 +12,6 @@ use crate::config::{Config, SavedSession, SessionState};
 use crate::session::{Session, SessionStatus};
 use crate::sidebar::Sidebar;
 use crate::terminal::{VteTerminal, SplitView};
-use crate::terminal::split_view::SplitNode;
 
 pub struct SessionManager {
     sessions: Vec<Session>,
@@ -76,13 +75,14 @@ impl SessionManager {
 
         let pane_id = uuid::Uuid::new_v4().to_string();
         let terminal = VteTerminal::new_with_config(&self.config.borrow());
+        let vte_term = terminal.terminal().clone();
 
         if self.stack.is_realized() {
             terminal.spawn_shell(cwd, &env_refs);
         }
 
         // Wire title and CWD signals
-        self.wire_terminal_signals(&terminal, &id, &pane_id);
+        self.wire_vte_signals(&vte_term, &id, &pane_id);
 
         let split_view = SplitView::new(terminal, pane_id);
         let widget = split_view.build_widget();
@@ -96,11 +96,14 @@ impl SessionManager {
         id
     }
 
-    fn wire_terminal_signals(&self, terminal: &VteTerminal, session_id: &str, pane_id: &str) {
+    /// Wire title and CWD signals on a vte4::Terminal.
+    fn wire_vte_signals(&self, vte_term: &vte4::Terminal, session_id: &str, pane_id: &str) {
         let sidebar = self.sidebar.clone();
         let sid = session_id.to_string();
-        terminal.connect_title_changed(move |new_title| {
-            sidebar.update_title(&sid, new_title);
+        vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
+            if let Some(title) = term.window_title() {
+                sidebar.update_title(&sid, &title);
+            }
         });
 
         let sidebar = self.sidebar.clone();
@@ -108,13 +111,19 @@ impl SessionManager {
         let pid = pane_id.to_string();
         let last_cwd: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let cwds = self.session_cwds.clone();
-        terminal.connect_cwd_changed(move |path| {
+        vte_term.connect_current_directory_uri_changed(move |term: &vte4::Terminal| {
+            let path = term.current_directory_uri()
+                .map(|uri| {
+                    let s = uri.to_string();
+                    s.strip_prefix("file://").unwrap_or(&s).to_string()
+                });
+
             let Some(cwd) = path else {
                 sidebar.update_branch(&sid, None);
                 return;
             };
 
-            if last_cwd.borrow().as_deref() == Some(&cwd) {
+            if last_cwd.borrow().as_deref() == Some(cwd.as_str()) {
                 return;
             }
             *last_cwd.borrow_mut() = Some(cwd.clone());
@@ -129,7 +138,6 @@ impl SessionManager {
     }
 
     pub fn destroy_session(&mut self, session_id: &str) {
-        // Find the existing widget in the stack by name, not by rebuilding
         if let Some(child) = self.stack.child_by_name(session_id) {
             self.stack.remove(&child);
         }
@@ -203,36 +211,36 @@ impl SessionManager {
             .and_then(|sv| sv.focused_terminal())
     }
 
-    /// Split the focused pane in the active session. Returns true if split succeeded.
-    pub fn split_active_pane(&mut self, orientation: gtk4::Orientation) -> bool {
-        let Some(active_id) = self.active_id.clone() else { return false };
-        let Some(sv) = self.split_views.get(&active_id) else { return false };
+    /// Split the focused pane in the active session.
+    /// Static method — needs Rc<RefCell<Self>> to wire child-exited on the new pane.
+    pub fn split_active_pane(self_ref: &Rc<RefCell<Self>>, orientation: gtk4::Orientation) -> bool {
+        let mgr = self_ref.borrow();
+        let Some(active_id) = mgr.active_id.clone() else { return false };
+        let Some(sv) = mgr.split_views.get(&active_id) else { return false };
 
-        let config = self.config.borrow();
-        let new_pane_id = sv.split(orientation, &config);
+        let config = mgr.config.borrow();
+        let (new_pane_id, new_vte) = sv.split(orientation, &config);
         drop(config);
 
         // Spawn shell in the new pane
-        let env_vars = self.build_env_vars(&active_id);
+        let env_vars = mgr.build_env_vars(&active_id);
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         sv.spawn_pane(&new_pane_id, None, &env_refs);
 
-        // Rebuild: remove old tree from stack, unparent terminals, build new tree
-        if let Some(old) = self.stack.child_by_name(&active_id) {
-            self.stack.remove(&old);
-        }
-        sv.root.borrow().unparent_all();
+        // Rebuild widget tree in the stack
+        sv.rebuild_in_stack(&mgr.stack, &active_id);
 
-        let new_widget = sv.build_widget();
-        self.stack.add_named(&new_widget, Some(&active_id));
-        self.stack.set_visible_child_name(&active_id);
+        // Wire title/CWD signals on the new terminal
+        mgr.wire_vte_signals(&new_vte, &active_id, &new_pane_id);
 
         // Focus the new pane
-        sv.set_focused_pane_id(&new_pane_id);
-        if let Some(term) = sv.focused_terminal() {
-            let term = term.clone();
-            glib::idle_add_local_once(move || { term.grab_focus(); });
-        }
+        let term = new_vte.clone();
+        glib::idle_add_local_once(move || { term.grab_focus(); });
+
+        drop(mgr);
+
+        // Wire child-exited (needs Rc<RefCell<Self>>)
+        Self::wire_pane_child_exited(self_ref, &active_id, &new_pane_id, &new_vte);
 
         true
     }
@@ -242,27 +250,12 @@ impl SessionManager {
         let Some(active_id) = self.active_id.clone() else { return false };
         let Some(sv) = self.split_views.get(&active_id) else { return false };
 
-        if sv.pane_count() <= 1 {
+        if sv.close_focused_pane() {
             return true; // Last pane — caller should destroy the session
         }
 
-        // Remove old widget tree from stack BEFORE modifying the split tree
-        if let Some(old) = self.stack.child_by_name(&active_id) {
-            self.stack.remove(&old);
-        }
-
-        let should_destroy = sv.close_focused_pane();
-
-        if should_destroy {
-            return true;
-        }
-
-        // Unparent surviving terminals, then rebuild
-        sv.root.borrow().unparent_all();
-
-        let new_widget = sv.build_widget();
-        self.stack.add_named(&new_widget, Some(&active_id));
-        self.stack.set_visible_child_name(&active_id);
+        // Rebuild widget tree in the stack
+        sv.rebuild_in_stack(&self.stack, &active_id);
 
         // Focus the remaining terminal
         if let Some(term) = sv.focused_terminal() {
@@ -353,39 +346,69 @@ impl SessionManager {
             .collect()
     }
 
-    pub fn wire_child_exited(self_ref: &Rc<RefCell<Self>>, session_id: &str) {
-        let borrow = self_ref.borrow();
-        let Some(sv) = borrow.split_views.get(session_id) else { return };
+    /// Close a specific pane in a specific session (used by child-exited handler).
+    fn close_pane(&mut self, session_id: &str, pane_id: &str) {
+        let should_destroy = {
+            let Some(sv) = self.split_views.get(session_id) else { return };
+            if !sv.has_pane(pane_id) { return; }
 
-        // Wire child-exited on ALL terminals in the split tree, not just the focused one
-        for (pane_id, vte_term) in sv.collect_vte_terminals() {
-            let mgr = self_ref.clone();
-            let sid = session_id.to_string();
-            let pid = pane_id.clone();
+            sv.set_focused_pane_id(pane_id);
+            sv.close_focused_pane()
+        };
 
-            vte_term.connect_child_exited(move |_term, _status| {
-                let mgr = mgr.clone();
-                let sid = sid.clone();
-                let pid = pid.clone();
+        if should_destroy {
+            self.destroy_session(session_id);
+            return;
+        }
 
-                glib::idle_add_local_once(move || {
-                    let mut m = mgr.borrow_mut();
+        // Rebuild widget tree in the stack
+        if let Some(sv) = self.split_views.get(session_id) {
+            sv.rebuild_in_stack(&self.stack, session_id);
+        }
 
-                    // Check if this session has multiple panes
-                    if let Some(sv) = m.split_views.get(&sid) {
-                        if sv.pane_count() > 1 {
-                            // Set focus to the exited pane, then close it
-                            sv.set_focused_pane_id(&pid);
-                            drop(m);
-                            mgr.borrow_mut().close_active_pane();
-                            return;
-                        }
-                    }
+        // Only grab focus if this is the active session
+        if self.active_id.as_deref() == Some(session_id) {
+            if let Some(sv) = self.split_views.get(session_id) {
+                if let Some(term) = sv.focused_terminal() {
+                    let term = term.clone();
+                    glib::idle_add_local_once(move || { term.grab_focus(); });
+                }
+            }
+        }
+    }
 
-                    // Single pane — destroy the whole session
-                    m.destroy_session(&sid);
-                });
+    /// Wire child-exited on a single terminal pane.
+    fn wire_pane_child_exited(
+        self_ref: &Rc<RefCell<Self>>,
+        session_id: &str,
+        pane_id: &str,
+        vte_term: &vte4::Terminal,
+    ) {
+        let mgr = self_ref.clone();
+        let sid = session_id.to_string();
+        let pid = pane_id.to_string();
+
+        vte_term.connect_child_exited(move |_term, _status| {
+            let mgr = mgr.clone();
+            let sid = sid.clone();
+            let pid = pid.clone();
+
+            glib::idle_add_local_once(move || {
+                mgr.borrow_mut().close_pane(&sid, &pid);
             });
+        });
+    }
+
+    /// Wire child-exited on ALL terminals in a session's split tree.
+    pub fn wire_child_exited(self_ref: &Rc<RefCell<Self>>, session_id: &str) {
+        let terminals = {
+            let borrow = self_ref.borrow();
+            let Some(sv) = borrow.split_views.get(session_id) else { return };
+            sv.collect_vte_terminals()
+        };
+
+        for (pane_id, vte_term) in terminals {
+            Self::wire_pane_child_exited(self_ref, session_id, &pane_id, &vte_term);
         }
     }
 
@@ -436,45 +459,9 @@ impl SessionManager {
         let (split_view, panes) = SplitView::from_saved(split_tree, &config);
         drop(config);
 
-        // Wire signals for all panes via vte4::Terminal (GObject ref, no borrow issue)
+        // Wire signals for all panes
         for (pane_id, vte_term) in split_view.collect_vte_terminals() {
-            let sidebar = self.sidebar.clone();
-            let sid = id.clone();
-            vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
-                if let Some(title) = term.window_title() {
-                    sidebar.update_title(&sid, &title);
-                }
-            });
-
-            let sidebar = self.sidebar.clone();
-            let sid = id.clone();
-            let pid = pane_id.clone();
-            let last_cwd: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
-            let cwds = self.session_cwds.clone();
-            vte_term.connect_current_directory_uri_changed(move |term: &vte4::Terminal| {
-                let path: Option<String> = term.current_directory_uri()
-                    .and_then(|uri| {
-                        let s = uri.to_string();
-                        Some(s.strip_prefix("file://").unwrap_or(&s).to_string())
-                    });
-
-                let Some(cwd) = path else {
-                    sidebar.update_branch(&sid, None);
-                    return;
-                };
-
-                if last_cwd.borrow().as_deref() == Some(cwd.as_str()) {
-                    return;
-                }
-                *last_cwd.borrow_mut() = Some(cwd.clone());
-                cwds.borrow_mut().insert(pid.clone(), cwd.clone());
-
-                let sidebar = sidebar.clone();
-                let sid = sid.clone();
-                crate::git::detect_branch_async(&cwd, move |branch| {
-                    sidebar.update_branch(&sid, branch.as_deref());
-                });
-            });
+            self.wire_vte_signals(&vte_term, &id, &pane_id);
         }
 
         let widget = split_view.build_widget();
@@ -502,26 +489,9 @@ impl SessionManager {
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         let cwds = self.session_cwds.borrow();
 
-        // Spawn each pane with its own CWD
-        Self::spawn_panes_recursive(&sv.root.borrow(), &cwds, &env_refs);
-    }
-
-    fn spawn_panes_recursive(
-        node: &SplitNode,
-        cwds: &std::collections::HashMap<String, String>,
-        env_vars: &[(&str, &str)],
-    ) {
-        match node {
-            SplitNode::Leaf { id, terminal } => {
-                if terminal.needs_spawn() {
-                    let cwd = cwds.get(id).map(|s| s.as_str());
-                    terminal.spawn_shell(cwd, env_vars);
-                }
-            }
-            SplitNode::Split { first, second, .. } => {
-                Self::spawn_panes_recursive(first, cwds, env_vars);
-                Self::spawn_panes_recursive(second, cwds, env_vars);
-            }
+        for (pane_id, _) in sv.collect_vte_terminals() {
+            let cwd = cwds.get(&pane_id).map(|s| s.as_str());
+            sv.spawn_pane(&pane_id, cwd, &env_refs);
         }
     }
 

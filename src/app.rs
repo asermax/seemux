@@ -326,13 +326,13 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
 
         // Ctrl+Shift+H: split horizontal
         if ctrl && shift && key == Key::H {
-            mgr.borrow_mut().split_active_pane(gtk4::Orientation::Horizontal);
+            SessionManager::split_active_pane(&mgr, gtk4::Orientation::Horizontal);
             return glib::Propagation::Stop;
         }
 
         // Ctrl+Shift+E: split vertical
         if ctrl && shift && key == Key::E {
-            mgr.borrow_mut().split_active_pane(gtk4::Orientation::Vertical);
+            SessionManager::split_active_pane(&mgr, gtk4::Orientation::Vertical);
             return glib::Propagation::Stop;
         }
 
@@ -589,7 +589,7 @@ fn register_terminal_actions(
     let mgr = manager.clone();
     let action = gio::SimpleAction::new("split-h", None);
     action.connect_activate(move |_, _| {
-        mgr.borrow_mut().split_active_pane(gtk4::Orientation::Horizontal);
+        SessionManager::split_active_pane(&mgr, gtk4::Orientation::Horizontal);
     });
     window.add_action(&action);
 
@@ -597,7 +597,7 @@ fn register_terminal_actions(
     let mgr = manager.clone();
     let action = gio::SimpleAction::new("split-v", None);
     action.connect_activate(move |_, _| {
-        mgr.borrow_mut().split_active_pane(gtk4::Orientation::Vertical);
+        SessionManager::split_active_pane(&mgr, gtk4::Orientation::Vertical);
     });
     window.add_action(&action);
 

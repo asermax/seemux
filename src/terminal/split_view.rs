@@ -2,49 +2,32 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use gtk4::prelude::*;
-use gtk4::{Orientation, Paned, Widget};
+use gtk4::{Orientation, Paned, Stack, Widget};
 
 use crate::config::{Config, SavedSplitNode};
 use crate::terminal::VteTerminal;
 
-/// A tree node representing either a single terminal or a split.
-pub enum SplitNode {
-    Leaf {
-        id: String,
-        terminal: VteTerminal,
-    },
+/// Lightweight tree tracking the split layout.
+/// Terminals are stored separately in a flat HashMap, so tree
+/// transformations never need to move heavy objects.
+enum SplitTree {
+    Leaf(String),
     Split {
         orientation: Orientation,
-        first: Box<SplitNode>,
-        second: Box<SplitNode>,
+        first: Box<SplitTree>,
+        second: Box<SplitTree>,
     },
 }
 
-impl SplitNode {
-    /// Unparent all terminal widgets so they can be re-added to a new tree.
-    pub fn unparent_all(&self) {
+impl SplitTree {
+    fn build_widget(&self, panes: &HashMap<String, VteTerminal>) -> Widget {
         match self {
-            SplitNode::Leaf { terminal, .. } => {
-                if terminal.widget().parent().is_some() {
-                    terminal.widget().unparent();
-                }
-            }
-            SplitNode::Split { first, second, .. } => {
-                first.unparent_all();
-                second.unparent_all();
-            }
-        }
-    }
+            SplitTree::Leaf(id) => panes[id].widget().clone(),
 
-    /// Recursively build the GTK widget tree for this node.
-    /// Call `unparent_all()` first if rebuilding after a structural change.
-    pub fn build_widget(&self) -> Widget {
-        match self {
-            SplitNode::Leaf { terminal, .. } => terminal.widget().clone(),
-            SplitNode::Split { orientation, first, second } => {
+            SplitTree::Split { orientation, first, second } => {
                 let paned = Paned::new(*orientation);
-                paned.set_start_child(Some(&first.build_widget()));
-                paned.set_end_child(Some(&second.build_widget()));
+                paned.set_start_child(Some(&first.build_widget(panes)));
+                paned.set_end_child(Some(&second.build_widget(panes)));
                 paned.set_shrink_start_child(false);
                 paned.set_shrink_end_child(false);
                 paned.set_resize_start_child(true);
@@ -54,40 +37,86 @@ impl SplitNode {
         }
     }
 
-    /// Find a terminal by pane ID.
-    pub fn find_terminal(&self, pane_id: &str) -> Option<&VteTerminal> {
+    fn first_pane_id(&self) -> &str {
         match self {
-            SplitNode::Leaf { id, terminal } if id == pane_id => Some(terminal),
-            SplitNode::Split { first, second, .. } => {
-                first.find_terminal(pane_id).or_else(|| second.find_terminal(pane_id))
+            SplitTree::Leaf(id) => id,
+            SplitTree::Split { first, .. } => first.first_pane_id(),
+        }
+    }
+
+    fn contains(&self, target_id: &str) -> bool {
+        match self {
+            SplitTree::Leaf(id) => id == target_id,
+            SplitTree::Split { first, second, .. } => {
+                first.contains(target_id) || second.contains(target_id)
             }
-            _ => None,
         }
     }
 
-    /// Get the first leaf's pane ID.
-    pub fn first_pane_id(&self) -> &str {
+    /// Split the target leaf in place — no ownership transfer needed.
+    fn split(&mut self, target_id: &str, orientation: Orientation, new_pane_id: &str) {
         match self {
-            SplitNode::Leaf { id, .. } => id,
-            SplitNode::Split { first, .. } => first.first_pane_id(),
+            SplitTree::Leaf(id) if id == target_id => {
+                let old_id = std::mem::take(id);
+                *self = SplitTree::Split {
+                    orientation,
+                    first: Box::new(SplitTree::Leaf(old_id)),
+                    second: Box::new(SplitTree::Leaf(new_pane_id.to_string())),
+                };
+            }
+
+            SplitTree::Split { first, second, .. } => {
+                if first.contains(target_id) {
+                    first.split(target_id, orientation, new_pane_id);
+                } else if second.contains(target_id) {
+                    second.split(target_id, orientation, new_pane_id);
+                }
+            }
+
+            _ => {}
         }
     }
 
-    /// Count the number of leaves (panes).
-    pub fn pane_count(&self) -> usize {
-        match self {
-            SplitNode::Leaf { .. } => 1,
-            SplitNode::Split { first, second, .. } => first.pane_count() + second.pane_count(),
+    /// Remove a leaf and promote its sibling. Returns the new focus pane ID.
+    fn remove_leaf(&mut self, target_id: &str) -> Option<String> {
+        let SplitTree::Split { first, second, .. } = self else { return None };
+
+        // First child is the target — promote second
+        if matches!(**first, SplitTree::Leaf(ref id) if id == target_id) {
+            let old = std::mem::replace(self, SplitTree::Leaf(String::new()));
+            let SplitTree::Split { second, .. } = old else { unreachable!() };
+            let new_focus = second.first_pane_id().to_string();
+            *self = *second;
+            return Some(new_focus);
         }
+
+        // Second child is the target — promote first
+        if matches!(**second, SplitTree::Leaf(ref id) if id == target_id) {
+            let old = std::mem::replace(self, SplitTree::Leaf(String::new()));
+            let SplitTree::Split { first, .. } = old else { unreachable!() };
+            let new_focus = first.first_pane_id().to_string();
+            *self = *first;
+            return Some(new_focus);
+        }
+
+        // Recurse into the child containing the target
+        if first.contains(target_id) {
+            return first.remove_leaf(target_id);
+        }
+
+        if second.contains(target_id) {
+            return second.remove_leaf(target_id);
+        }
+
+        None
     }
 
-    /// Convert to serializable form, looking up per-pane CWDs.
-    pub fn to_saved(&self, cwds: &HashMap<String, String>) -> SavedSplitNode {
+    fn to_saved(&self, cwds: &HashMap<String, String>) -> SavedSplitNode {
         match self {
-            SplitNode::Leaf { id, .. } => SavedSplitNode::Leaf {
+            SplitTree::Leaf(id) => SavedSplitNode::Leaf {
                 cwd: cwds.get(id).cloned(),
             },
-            SplitNode::Split { orientation, first, second } => SavedSplitNode::Split {
+            SplitTree::Split { orientation, first, second } => SavedSplitNode::Split {
                 orientation: match orientation {
                     Orientation::Horizontal => "horizontal".to_string(),
                     _ => "vertical".to_string(),
@@ -100,205 +129,122 @@ impl SplitNode {
 }
 
 /// Manages the split tree for a single session.
+///
+/// Terminals stored in a flat HashMap, tree structure tracks layout only.
+/// Split/close modify data in place, then `rebuild_in_stack` updates the GTK widgets.
 pub struct SplitView {
-    pub root: RefCell<SplitNode>,
+    panes: RefCell<HashMap<String, VteTerminal>>,
+    tree: RefCell<SplitTree>,
     focused_pane_id: RefCell<String>,
 }
 
 impl SplitView {
-    /// Collect all (pane_id, vte4::Terminal) pairs for signal wiring.
-    pub fn collect_vte_terminals(&self) -> Vec<(String, vte4::Terminal)> {
-        let mut result = Vec::new();
-        fn collect(node: &SplitNode, out: &mut Vec<(String, vte4::Terminal)>) {
-            match node {
-                SplitNode::Leaf { id, terminal } => {
-                    out.push((id.clone(), terminal.terminal().clone()));
-                }
-                SplitNode::Split { first, second, .. } => {
-                    collect(first, out);
-                    collect(second, out);
-                }
-            }
-        }
-        collect(&self.root.borrow(), &mut result);
-        result
-    }
-
     pub fn new(terminal: VteTerminal, pane_id: String) -> Self {
-        let focused = pane_id.clone();
+        let mut panes = HashMap::new();
+        panes.insert(pane_id.clone(), terminal);
 
         Self {
-            root: RefCell::new(SplitNode::Leaf { id: pane_id, terminal }),
-            focused_pane_id: RefCell::new(focused),
+            panes: RefCell::new(panes),
+            tree: RefCell::new(SplitTree::Leaf(pane_id.clone())),
+            focused_pane_id: RefCell::new(pane_id),
         }
     }
 
-    /// Build the widget tree for display.
+    /// Build the widget tree for initial display.
     pub fn build_widget(&self) -> Widget {
-        self.root.borrow().build_widget()
+        self.tree.borrow().build_widget(&self.panes.borrow())
+    }
+
+    /// Remove old widget tree from stack, rebuild, re-add.
+    pub fn rebuild_in_stack(&self, stack: &Stack, name: &str) {
+        if let Some(old) = stack.child_by_name(name) {
+            // Recursively clear Paned children using the proper API
+            // (direct unparent() leaves dangling pointers in Paned internals)
+            Self::clear_paned_children(&old);
+            stack.remove(&old);
+        }
+
+        let panes = self.panes.borrow();
+        let new_widget = self.tree.borrow().build_widget(&panes);
+        stack.add_named(&new_widget, Some(name));
+        stack.set_visible_child_name(name);
+    }
+
+    /// Recursively detach all children from Paned widgets using set_start_child/set_end_child.
+    fn clear_paned_children(widget: &Widget) {
+        let Some(paned) = widget.downcast_ref::<Paned>() else { return };
+
+        if let Some(start) = paned.start_child() {
+            Self::clear_paned_children(&start);
+        }
+
+        if let Some(end) = paned.end_child() {
+            Self::clear_paned_children(&end);
+        }
+
+        paned.set_start_child(None::<&Widget>);
+        paned.set_end_child(None::<&Widget>);
+    }
+
+    /// Split the focused pane.
+    /// Returns (new_pane_id, new_vte_terminal) for the caller to wire signals.
+    /// Caller must call `rebuild_in_stack` after.
+    pub fn split(&self, orientation: Orientation, config: &Config) -> (String, vte4::Terminal) {
+        let new_pane_id = uuid::Uuid::new_v4().to_string();
+        let focused_id = self.focused_pane_id.borrow().clone();
+
+        let terminal = VteTerminal::new_with_config(config);
+        let vte = terminal.terminal().clone();
+        self.panes.borrow_mut().insert(new_pane_id.clone(), terminal);
+
+        self.tree.borrow_mut().split(&focused_id, orientation, &new_pane_id);
+
+        *self.focused_pane_id.borrow_mut() = new_pane_id.clone();
+        (new_pane_id, vte)
+    }
+
+    /// Close the focused pane. Returns true if the session should be destroyed (last pane).
+    /// Caller must call `rebuild_in_stack` after if this returns false.
+    pub fn close_focused_pane(&self) -> bool {
+        if self.panes.borrow().len() <= 1 {
+            return true;
+        }
+
+        let focused_id = self.focused_pane_id.borrow().clone();
+        self.panes.borrow_mut().remove(&focused_id);
+
+        if let Some(new_focus) = self.tree.borrow_mut().remove_leaf(&focused_id) {
+            *self.focused_pane_id.borrow_mut() = new_focus;
+        }
+
+        false
     }
 
     pub fn set_focused_pane_id(&self, id: &str) {
         *self.focused_pane_id.borrow_mut() = id.to_string();
     }
 
-    /// Get the currently focused terminal.
     pub fn focused_terminal(&self) -> Option<vte4::Terminal> {
-        let root = self.root.borrow();
         let focused_id = self.focused_pane_id.borrow();
-
-        root.find_terminal(&focused_id)
+        self.panes.borrow()
+            .get(focused_id.as_str())
             .map(|vt| vt.terminal().clone())
     }
 
-    /// Split the focused pane. Returns the new pane ID.
-    pub fn split(&self, orientation: Orientation, config: &Config) -> String {
-        let new_pane_id = uuid::Uuid::new_v4().to_string();
-        let focused_id = self.focused_pane_id.borrow().clone();
-
-        let mut root = self.root.borrow_mut();
-        *root = Self::split_node(std::mem::replace(&mut *root, SplitNode::Leaf {
-            id: String::new(),
-            terminal: VteTerminal::new_with_config(config),
-        }), &focused_id, orientation, config, &new_pane_id);
-
-        new_pane_id
+    pub fn has_pane(&self, id: &str) -> bool {
+        self.panes.borrow().contains_key(id)
     }
 
-    fn split_node(
-        node: SplitNode,
-        target_id: &str,
-        orientation: Orientation,
-        config: &Config,
-        new_pane_id: &str,
-    ) -> SplitNode {
-        match node {
-            SplitNode::Leaf { id, terminal } if id == target_id => {
-                let new_terminal = VteTerminal::new_with_config(config);
-
-                SplitNode::Split {
-                    orientation,
-                    first: Box::new(SplitNode::Leaf { id, terminal }),
-                    second: Box::new(SplitNode::Leaf {
-                        id: new_pane_id.to_string(),
-                        terminal: new_terminal,
-                    }),
-                }
-            }
-            SplitNode::Split { orientation: o, first, second } => {
-                SplitNode::Split {
-                    orientation: o,
-                    first: Box::new(Self::split_node(*first, target_id, orientation, config, new_pane_id)),
-                    second: Box::new(Self::split_node(*second, target_id, orientation, config, new_pane_id)),
-                }
-            }
-            other => other,
-        }
+    /// Collect all (pane_id, vte4::Terminal) pairs for signal wiring.
+    pub fn collect_vte_terminals(&self) -> Vec<(String, vte4::Terminal)> {
+        self.panes.borrow().iter()
+            .map(|(id, t)| (id.clone(), t.terminal().clone()))
+            .collect()
     }
-
-    /// Close the focused pane. Returns true if the session should be destroyed (last pane).
-    pub fn close_focused_pane(&self) -> bool {
-        let root = self.root.borrow();
-
-        if root.pane_count() <= 1 {
-            return true;
-        }
-
-        let focused_id = self.focused_pane_id.borrow().clone();
-        drop(root);
-
-        let mut root = self.root.borrow_mut();
-        let old_root = std::mem::replace(&mut *root, SplitNode::Leaf {
-            id: String::new(),
-            terminal: VteTerminal::new_with_config(&Config::default()),
-        });
-
-        let (new_root, new_focus) = Self::remove_leaf(old_root, &focused_id);
-
-        if let Some(new_root) = new_root {
-            *root = new_root;
-            if let Some(focus_id) = new_focus {
-                *self.focused_pane_id.borrow_mut() = focus_id;
-            }
-            false
-        } else {
-            true
-        }
-    }
-
-    /// Returns true if the target pane exists in this subtree.
-    fn contains_pane(node: &SplitNode, target_id: &str) -> bool {
-        match node {
-            SplitNode::Leaf { id, .. } => id == target_id,
-            SplitNode::Split { first, second, .. } => {
-                Self::contains_pane(first, target_id) || Self::contains_pane(second, target_id)
-            }
-        }
-    }
-
-    fn remove_leaf(node: SplitNode, target_id: &str) -> (Option<SplitNode>, Option<String>) {
-        match node {
-            SplitNode::Leaf { id, .. } if id == target_id => {
-                (None, None)
-            }
-            SplitNode::Split { orientation, first, second } => {
-                // Check if first child is the target leaf — promote second
-                if matches!(&*first, SplitNode::Leaf { id, .. } if id == target_id) {
-                    let new_focus = second.first_pane_id().to_string();
-                    return (Some(*second), Some(new_focus));
-                }
-
-                // Check if second child is the target leaf — promote first
-                if matches!(&*second, SplitNode::Leaf { id, .. } if id == target_id) {
-                    let new_focus = first.first_pane_id().to_string();
-                    return (Some(*first), Some(new_focus));
-                }
-
-                // Target is deeper — recurse into the child that contains it
-                if Self::contains_pane(&first, target_id) {
-                    let (new_first, focus) = Self::remove_leaf(*first, target_id);
-
-                    return match new_first {
-                        Some(nf) => (Some(SplitNode::Split {
-                            orientation,
-                            first: Box::new(nf),
-                            second,
-                        }), focus),
-                        None => (Some(*second), focus),
-                    };
-                }
-
-                if Self::contains_pane(&second, target_id) {
-                    let (new_second, focus) = Self::remove_leaf(*second, target_id);
-
-                    return match new_second {
-                        Some(ns) => (Some(SplitNode::Split {
-                            orientation,
-                            first,
-                            second: Box::new(ns),
-                        }), focus),
-                        None => (Some(*first), focus),
-                    };
-                }
-
-                // Target not found in this subtree
-                (Some(SplitNode::Split { orientation, first, second }), None)
-            }
-            other => (Some(other), None),
-        }
-    }
-
-    pub fn pane_count(&self) -> usize {
-        self.root.borrow().pane_count()
-    }
-
-
 
     /// Spawn a shell in a specific pane by ID.
     pub fn spawn_pane(&self, pane_id: &str, cwd: Option<&str>, env_vars: &[(&str, &str)]) {
-        let root = self.root.borrow();
-
-        if let Some(terminal) = root.find_terminal(pane_id) {
+        if let Some(terminal) = self.panes.borrow().get(pane_id) {
             if terminal.needs_spawn() {
                 terminal.spawn_shell(cwd, env_vars);
             }
@@ -307,32 +253,39 @@ impl SplitView {
 
     /// Convert the entire split tree to serializable form.
     pub fn to_saved(&self, cwds: &HashMap<String, String>) -> SavedSplitNode {
-        self.root.borrow().to_saved(cwds)
+        self.tree.borrow().to_saved(cwds)
     }
 
     /// Build a SplitView from a saved tree, creating terminals with per-pane CWDs.
     /// Returns the view and a list of (pane_id, cwd) pairs for spawning shells.
     pub fn from_saved(saved: &SavedSplitNode, config: &Config) -> (Self, Vec<(String, Option<String>)>) {
-        let mut panes = Vec::new();
-        let root = Self::node_from_saved(saved, config, &mut panes);
-        let focused = root.first_pane_id().to_string();
+        let mut panes_map = HashMap::new();
+        let mut panes_list = Vec::new();
+        let tree = Self::tree_from_saved(saved, config, &mut panes_map, &mut panes_list);
+        let focused = tree.first_pane_id().to_string();
 
         let view = Self {
-            root: RefCell::new(root),
+            panes: RefCell::new(panes_map),
+            tree: RefCell::new(tree),
             focused_pane_id: RefCell::new(focused),
         };
 
-        (view, panes)
+        (view, panes_list)
     }
 
-    fn node_from_saved(saved: &SavedSplitNode, config: &Config, panes: &mut Vec<(String, Option<String>)>) -> SplitNode {
+    fn tree_from_saved(
+        saved: &SavedSplitNode,
+        config: &Config,
+        panes: &mut HashMap<String, VteTerminal>,
+        pane_list: &mut Vec<(String, Option<String>)>,
+    ) -> SplitTree {
         match saved {
             SavedSplitNode::Leaf { cwd } => {
                 let pane_id = uuid::Uuid::new_v4().to_string();
                 let terminal = VteTerminal::new_with_config(config);
-                panes.push((pane_id.clone(), cwd.clone()));
-
-                SplitNode::Leaf { id: pane_id, terminal }
+                panes.insert(pane_id.clone(), terminal);
+                pane_list.push((pane_id.clone(), cwd.clone()));
+                SplitTree::Leaf(pane_id)
             }
             SavedSplitNode::Split { orientation, first, second } => {
                 let orient = if orientation == "horizontal" {
@@ -341,10 +294,10 @@ impl SplitView {
                     Orientation::Vertical
                 };
 
-                SplitNode::Split {
+                SplitTree::Split {
                     orientation: orient,
-                    first: Box::new(Self::node_from_saved(first, config, panes)),
-                    second: Box::new(Self::node_from_saved(second, config, panes)),
+                    first: Box::new(Self::tree_from_saved(first, config, panes, pane_list)),
+                    second: Box::new(Self::tree_from_saved(second, config, panes, pane_list)),
                 }
             }
         }
