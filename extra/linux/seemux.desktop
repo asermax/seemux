@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Seemux
+GenericName=Terminal Emulator
+Comment=GTK4 terminal multiplexer for Claude Code
+Exec=seemux
+Icon=seemux
+Terminal=false
+StartupNotify=true
+StartupWMClass=com.asermax.seemux
+Categories=System;TerminalEmulator;Utility;
+Keywords=shell;prompt;command;terminal;multiplexer;claude;
