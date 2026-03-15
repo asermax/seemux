@@ -797,7 +797,6 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         glib::Propagation::Proceed
     });
 
-    // Show the dropdown and focus the terminal
-    dropdown.show();
-    dropdown.focus_terminal();
+    // Present the window off-screen, ready for the first toggle
+    dropdown.present_hidden();
 }

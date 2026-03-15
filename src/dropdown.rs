@@ -144,16 +144,23 @@ impl DropdownWindow {
     }
 
     pub fn show(&self) {
-        // First show: make window visible (subsequent toggles keep it visible off-screen)
+        self.ensure_window_ready();
+        self.animate(true);
+        *self.visible.borrow_mut() = true;
+    }
+
+    /// Present the window off-screen without animating — used to start quake mode hidden.
+    pub fn present_hidden(&self) {
+        self.ensure_window_ready();
+    }
+
+    fn ensure_window_ready(&self) {
         if !self.window.is_visible() {
             self.window.set_opacity(0.0);
             crate::layer_shell::set_top_margin(&self.window, -self.target_height);
             self.window.set_visible(true);
             self.window.present();
         }
-
-        self.animate(true);
-        *self.visible.borrow_mut() = true;
     }
 
     pub fn toggle(&self) {
@@ -165,17 +172,6 @@ impl DropdownWindow {
         } else {
             self.show();
         }
-    }
-
-    /// Focus the active terminal — call after show to grab keyboard input.
-    pub fn focus_terminal(&self) {
-        let mgr = self.manager.clone();
-
-        glib::idle_add_local_once(move || {
-            if let Some(term) = mgr.borrow().active_terminal_vte() {
-                term.grab_focus();
-            }
-        });
     }
 
     fn animate(&self, opening: bool) {
