@@ -141,7 +141,14 @@ impl SessionManager {
         let sid = session_id.to_string();
         vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
             if let Some(title) = term.window_title() {
-                if !is_shell_title(&title) {
+                if is_shell_title(&title) {
+                    // Shell regained control — reset title to folder name
+                    if let Some(cwd) = term.current_directory_uri()
+                        .and_then(|uri| path_from_file_uri(&uri))
+                    {
+                        sidebar.update_title(&sid, folder_name(&cwd));
+                    }
+                } else {
                     sidebar.update_title(&sid, &title);
                 }
             }
