@@ -267,6 +267,22 @@ impl SessionManager {
         }
     }
 
+    pub fn set_claude_session_id(&mut self, session_id: &str, claude_session_id: Option<String>) {
+        if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
+            session.claude_session_id = claude_session_id;
+        }
+    }
+
+    pub fn session_terminal(&self, session_id: &str) -> Option<vte4::Terminal> {
+        self.split_views.get(session_id).and_then(|sv| sv.focused_terminal())
+    }
+
+    pub fn sessions_pending_resume(&self) -> Vec<(String, String)> {
+        self.sessions.iter()
+            .filter_map(|s| s.claude_session_id.as_ref().map(|cid| (s.id.clone(), cid.clone())))
+            .collect()
+    }
+
     pub fn spawn_deferred(&self) {
         for session in &self.sessions {
             self.spawn_restored_panes(&session.id);
@@ -672,6 +688,7 @@ impl SessionManager {
                     title: s.title.clone(),
                     split_tree,
                     group_id: s.group_id.clone(),
+                    claude_session_id: s.claude_session_id.clone(),
                 })
             }).collect(),
             groups,
@@ -687,9 +704,11 @@ impl SessionManager {
         title: &str,
         group_id: &str,
         split_tree: &crate::config::SavedSplitNode,
+        claude_session_id: Option<&str>,
     ) -> String {
         let mut session = crate::session::Session::new(title.to_string());
         session.group_id = group_id.to_string();
+        session.claude_session_id = claude_session_id.map(|s| s.to_string());
         let id = session.id.clone();
 
         let config = self.config.borrow();

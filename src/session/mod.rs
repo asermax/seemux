@@ -10,6 +10,7 @@ pub struct Session {
     pub title: String,
     pub status: SessionStatus,
     pub claude_pid: Option<u32>,
+    pub claude_session_id: Option<String>,
     pub created_at: i64,
     pub cwd: Option<String>,
     pub group_id: String,
@@ -56,6 +57,7 @@ impl Session {
             title,
             status: SessionStatus::Idle,
             claude_pid: None,
+            claude_session_id: None,
             created_at: glib::DateTime::now_local()
                 .map(|dt| dt.to_unix())
                 .unwrap_or(0),
@@ -78,6 +80,7 @@ mod tests {
         assert_eq!(session.title, "Test Tab");
         assert_eq!(session.status, SessionStatus::Idle);
         assert_eq!(session.claude_pid, None);
+        assert_eq!(session.claude_session_id, None);
         assert_eq!(session.cwd, None);
         assert_eq!(session.group_id, DEFAULT_GROUP);
         assert!(!session.id.is_empty());

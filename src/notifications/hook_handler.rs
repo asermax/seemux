@@ -16,6 +16,8 @@ pub struct HookResult {
     pub notification: Option<(String, String, String)>, // (title, subtitle, body)
     pub clear_notifications: bool,
     pub claude_pid: Option<u32>,
+    /// Some(Some(id)) = set, Some(None) = clear, None = no change
+    pub claude_session_id: Option<Option<String>>,
 }
 
 pub fn handle_hook_event(event: HookEvent) -> HookResult {
@@ -25,6 +27,7 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
         notification: None,
         clear_notifications: false,
         claude_pid: None,
+        claude_session_id: None,
     };
 
     match event.event.as_str() {
@@ -35,6 +38,10 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
             if let Some(pid) = event.payload.get("pid").and_then(|v| v.as_u64()) {
                 result.claude_pid = Some(pid as u32);
             }
+
+            result.claude_session_id = event.payload.get("session_id")
+                .and_then(|v| v.as_str())
+                .map(|s| Some(s.to_string()));
         }
 
         "prompt-submit" => {
@@ -85,6 +92,7 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
         "session-end" => {
             result.new_status = Some(SessionStatus::Idle);
             result.claude_pid = Some(0); // signal to clear
+            result.claude_session_id = Some(None); // signal to clear
         }
 
         _ => {}
@@ -185,12 +193,23 @@ mod tests {
     fn handle_session_start() {
         let result = handle_hook_event(make_event(
             "session-start",
-            serde_json::json!({"pid": 12345}),
+            serde_json::json!({"pid": 12345, "session_id": "claude-abc-123"}),
         ));
 
         assert_eq!(result.new_status, Some(SessionStatus::Idle));
         assert!(result.clear_notifications);
         assert_eq!(result.claude_pid, Some(12345));
+        assert_eq!(result.claude_session_id, Some(Some("claude-abc-123".to_string())));
+    }
+
+    #[test]
+    fn handle_session_start_without_session_id() {
+        let result = handle_hook_event(make_event(
+            "session-start",
+            serde_json::json!({"pid": 12345}),
+        ));
+
+        assert_eq!(result.claude_session_id, None);
     }
 
     #[test]
@@ -234,6 +253,7 @@ mod tests {
 
         assert_eq!(result.new_status, Some(SessionStatus::Idle));
         assert_eq!(result.claude_pid, Some(0));
+        assert_eq!(result.claude_session_id, Some(None));
     }
 
     #[test]

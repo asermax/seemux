@@ -160,14 +160,26 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     window.set_child(Some(&overlay));
     window.present();
 
-    // Spawn deferred shells and focus the first terminal
+    // Spawn deferred shells, focus the first terminal, and resume Claude sessions
     let mgr_for_map = manager.clone();
     glib::idle_add_local_once(move || {
+        let pending = mgr_for_map.borrow().sessions_pending_resume();
         mgr_for_map.borrow().spawn_deferred();
 
-        // Focus the active terminal
         if let Some(term) = mgr_for_map.borrow().active_terminal_vte() {
             term.grab_focus();
+        }
+
+        if !pending.is_empty() {
+            let mgr = mgr_for_map.clone();
+
+            glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
+                for (session_id, claude_session_id) in &pending {
+                    if let Some(term) = mgr.borrow().session_terminal(session_id) {
+                        term.feed_child(format!("claude --resume {claude_session_id}\n").as_bytes());
+                    }
+                }
+            });
         }
     });
 }
@@ -267,6 +279,7 @@ fn restore_sessions(
                 &saved.title,
                 group,
                 &saved.split_tree,
+                saved.claude_session_id.as_deref(),
             );
             wire_tab_lifecycle(sidebar, manager, notification_store, &id);
         }
@@ -682,18 +695,19 @@ fn setup_keyboard_shortcuts(
         let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
 
         let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G))
-            || (ctrl && !shift && matches!(key, Key::t | Key::Tab))
+            || (ctrl && !shift && matches!(key, Key::t | Key::Tab | Key::Page_Up | Key::Page_Down))
             || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l | Key::Page_Up | Key::Page_Down))
             || (alt && !ctrl && shift && matches!(key, Key::Page_Up | Key::Page_Down))
             || (alt && ctrl && !shift && matches!(key, Key::Page_Up | Key::Page_Down))
             || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9));
 
-        if !is_our_shortcut {
+        if matches!(key, Key::Alt_L | Key::Alt_R) {
+            sidebar_for_keys.show_tab_indices();
             return glib::Propagation::Proceed;
         }
 
-        if alt {
-            sidebar_for_keys.show_tab_indices();
+        if !is_our_shortcut {
+            return glib::Propagation::Proceed;
         }
 
         // Let the extra handler try first (for window-specific shortcuts like new window/group)
@@ -762,7 +776,9 @@ fn setup_keyboard_shortcuts(
             return glib::Propagation::Stop;
         }
 
-        if alt && !ctrl && !shift && matches!(key, Key::Page_Down | Key::Page_Up) {
+        if !ctrl && !shift && alt && matches!(key, Key::Page_Down | Key::Page_Up)
+            || ctrl && !shift && !alt && matches!(key, Key::Page_Down | Key::Page_Up)
+        {
             if key == Key::Page_Down {
                 mgr.borrow_mut().switch_next();
             } else {
@@ -902,6 +918,10 @@ fn setup_hook_polling(
                 mgr_for_hooks.borrow_mut().set_claude_pid(&result.session_id, pid_val);
             }
 
+            if let Some(claude_sid) = result.claude_session_id {
+                mgr_for_hooks.borrow_mut().set_claude_session_id(&result.session_id, claude_sid);
+            }
+
             if result.clear_notifications {
                 notif_store.borrow_mut().clear_session(&result.session_id);
             }
@@ -938,6 +958,7 @@ fn setup_stale_pid_detection(manager: &Rc<RefCell<SessionManager>>) {
 
             if !alive {
                 mgr_for_pid.borrow_mut().set_claude_pid(&session_id, None);
+                mgr_for_pid.borrow_mut().set_claude_session_id(&session_id, None);
                 mgr_for_pid.borrow_mut().update_session_status(
                     &session_id,
                     crate::session::SessionStatus::Idle,
@@ -1115,10 +1136,23 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     let dropdown_for_shortcut = dropdown.clone();
     crate::global_shortcuts::register_toggle(move || dropdown_for_shortcut.toggle());
 
-    // Spawn shell after layout
+    // Spawn shell after layout and resume Claude sessions
     let mgr_spawn = dropdown.manager.clone();
     glib::idle_add_local_once(move || {
+        let pending = mgr_spawn.borrow().sessions_pending_resume();
         mgr_spawn.borrow().spawn_deferred();
+
+        if !pending.is_empty() {
+            let mgr = mgr_spawn.clone();
+
+            glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
+                for (session_id, claude_session_id) in &pending {
+                    if let Some(term) = mgr.borrow().session_terminal(session_id) {
+                        term.feed_child(format!("claude --resume {claude_session_id}\n").as_bytes());
+                    }
+                }
+            });
+        }
     });
 
     // Present the window off-screen, ready for the first toggle

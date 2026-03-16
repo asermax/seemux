@@ -103,6 +103,8 @@ pub struct SavedSession {
     pub split_tree: SavedSplitNode,
     #[serde(default)]
     pub group_id: String,
+    #[serde(default)]
+    pub claude_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -218,6 +220,7 @@ mod tests {
                     title: "Tab 1".to_string(),
                     split_tree: SavedSplitNode::Leaf { cwd: Some("/home/user".to_string()) },
                     group_id: "default".to_string(),
+                    claude_session_id: Some("abc-123".to_string()),
                 },
                 SavedSession {
                     title: "Tab 2".to_string(),
@@ -227,6 +230,7 @@ mod tests {
                         second: Box::new(SavedSplitNode::Leaf { cwd: None }),
                     },
                     group_id: "group1".to_string(),
+                    claude_session_id: None,
                 },
             ],
             groups: vec![
@@ -242,6 +246,16 @@ mod tests {
         assert_eq!(parsed.sessions[0].title, "Tab 1");
         assert!(matches!(parsed.sessions[0].split_tree, SavedSplitNode::Leaf { .. }));
         assert!(matches!(parsed.sessions[1].split_tree, SavedSplitNode::Split { .. }));
+        assert_eq!(parsed.sessions[0].claude_session_id, Some("abc-123".to_string()));
+        assert_eq!(parsed.sessions[1].claude_session_id, None);
         assert_eq!(parsed.active_session_index, Some(1));
+    }
+
+    #[test]
+    fn session_state_backward_compat_missing_claude_session_id() {
+        let json = r#"{"sessions":[{"title":"Tab","split_tree":{"Leaf":{"cwd":null}},"group_id":"default"}],"groups":[]}"#;
+        let parsed: SessionState = serde_json::from_str(json).unwrap();
+
+        assert_eq!(parsed.sessions[0].claude_session_id, None);
     }
 }
