@@ -21,6 +21,7 @@ pub struct TabRow {
     status_label: Label,
     preview_label: Label,
     badge_label: Label,
+    index_label: Label,
     close_btn: Button,
 }
 
@@ -83,6 +84,12 @@ impl TabRow {
         badge_label.set_visible(false);
         badge_label.set_valign(gtk4::Align::Center);
 
+        // Tab index overlay (shown when Alt is held)
+        let index_label = Label::new(None);
+        index_label.add_css_class("tab-index");
+        index_label.set_visible(false);
+        index_label.set_valign(gtk4::Align::Center);
+
         // Close button
         let close_btn = Button::with_label("\u{00d7}");
         close_btn.add_css_class("tab-close-btn");
@@ -91,6 +98,7 @@ impl TabRow {
         container.append(&active_indicator);
         container.append(&content);
         container.append(&badge_label);
+        container.append(&index_label);
         container.append(&close_btn);
 
         Self {
@@ -103,6 +111,7 @@ impl TabRow {
             status_label,
             preview_label,
             badge_label,
+            index_label,
             close_btn,
         }
     }
@@ -151,6 +160,16 @@ impl TabRow {
             self.badge_label.set_visible(true);
         } else {
             self.badge_label.set_visible(false);
+        }
+    }
+
+    pub fn set_index_visible(&self, index: Option<u32>) {
+        match index {
+            Some(i) if i <= 9 => {
+                self.index_label.set_text(&i.to_string());
+                self.index_label.set_visible(true);
+            }
+            _ => self.index_label.set_visible(false),
         }
     }
 

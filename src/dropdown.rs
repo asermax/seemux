@@ -20,6 +20,9 @@ pub struct DropdownWindow {
     animation_ms: u32,
     /// Incremented on each animation start; stale callbacks see a mismatch and stop.
     animation_generation: Rc<Cell<u32>>,
+    /// Tracks whether the pointer is currently inside the dropdown surface.
+    /// Used to suppress auto-hide when focus is stolen by external dialogs/menus.
+    pub pointer_inside: Rc<Cell<bool>>,
     pub overlay: Overlay,
     pub paned: Paned,
     pub stack: Stack,
@@ -77,14 +80,15 @@ impl DropdownWindow {
         paned.set_resize_start_child(false);
         paned.set_resize_end_child(true);
 
+        let notification_store = Rc::new(RefCell::new(NotificationStore::new()));
+
         let manager = SessionManager::new(
             stack.clone(),
             sidebar.clone(),
             state.socket_path.clone(),
             config.clone(),
+            notification_store.clone(),
         );
-
-        let notification_store = Rc::new(RefCell::new(NotificationStore::new()));
 
         // Border wrapper with overlay for centered dialogs
         let content = GtkBox::new(Orientation::Vertical, 0);
@@ -107,6 +111,7 @@ impl DropdownWindow {
             target_height,
             animation_ms,
             animation_generation: Rc::new(Cell::new(0)),
+            pointer_inside: Rc::new(Cell::new(false)),
             overlay,
             paned,
             stack,

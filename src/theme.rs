@@ -163,6 +163,16 @@ paned > separator:hover {{
     color: {text_muted};
 }}
 
+.tab-index {{
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 16px;
+    min-height: 16px;
+    border-radius: 4px;
+    padding: 0 4px;
+    color: {text_muted};
+}}
+
 .tab-close-btn {{
     opacity: 0;
     padding: 2px;

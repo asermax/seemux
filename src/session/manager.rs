@@ -9,7 +9,7 @@ use gtk4::Stack;
 use vte4::prelude::*;
 
 use crate::config::{Config, SavedSession, SessionState};
-use crate::notifications::NotificationStore;
+use crate::notifications::{Notification, NotificationStore};
 use crate::session::{Session, SessionStatus};
 use crate::sidebar::Sidebar;
 use crate::terminal::{Direction, VteTerminal, SplitView};
@@ -27,6 +27,15 @@ fn folder_name(path: &str) -> &str {
         Some(name) if !name.is_empty() => name,
         _ => path,
     }
+}
+
+/// Detect shell-generated titles like `user@hostname:/path` or `user@hostname:~`.
+fn is_shell_title(title: &str) -> bool {
+    let Some(colon_pos) = title.find(':') else { return false };
+    let before_colon = &title[..colon_pos];
+    let after_colon = &title[colon_pos + 1..];
+
+    before_colon.contains('@') && (after_colon.starts_with('/') || after_colon.starts_with('~'))
 }
 
 /// Replace the `$HOME` prefix with `~` for display.
@@ -49,10 +58,13 @@ pub struct SessionManager {
     stack: Stack,
     sidebar: Rc<Sidebar>,
     config: Rc<RefCell<Config>>,
+    notification_store: Rc<RefCell<NotificationStore>>,
     on_empty: Option<Box<dyn Fn()>>,
     /// Shared CWD tracking — updated by terminal CWD signal, read at save time
     session_cwds: Rc<RefCell<HashMap<String, String>>>,
     socket_path: PathBuf,
+    /// Per-session bell debounce — tracks last bell timestamp (unix seconds)
+    bell_timestamps: Rc<RefCell<HashMap<String, i64>>>,
 }
 
 impl SessionManager {
@@ -61,6 +73,7 @@ impl SessionManager {
         sidebar: Rc<Sidebar>,
         socket_path: PathBuf,
         config: Rc<RefCell<Config>>,
+        notification_store: Rc<RefCell<NotificationStore>>,
     ) -> Rc<RefCell<Self>> {
         let manager = Rc::new(RefCell::new(Self {
             sessions: Vec::new(),
@@ -69,9 +82,11 @@ impl SessionManager {
             stack,
             sidebar,
             config,
+            notification_store,
             on_empty: None,
             session_cwds: Rc::new(RefCell::new(HashMap::new())),
             socket_path,
+            bell_timestamps: Rc::new(RefCell::new(HashMap::new())),
         }));
 
         manager
@@ -110,7 +125,7 @@ impl SessionManager {
         let split_view = SplitView::new(terminal, pane_id);
         let widget = split_view.build_widget();
         self.stack.add_named(&widget, Some(&id));
-        self.sidebar.add_tab(&session);
+        self.sidebar.add_tab(&session, self.active_id.as_deref());
 
         self.split_views.insert(id.clone(), split_view);
         self.sessions.push(session);
@@ -126,7 +141,9 @@ impl SessionManager {
         let sid = session_id.to_string();
         vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
             if let Some(title) = term.window_title() {
-                sidebar.update_title(&sid, &title);
+                if !is_shell_title(&title) {
+                    sidebar.update_title(&sid, &title);
+                }
             }
         });
 
@@ -322,9 +339,10 @@ impl SessionManager {
 
         drop(mgr);
 
-        // Wire child-exited and focus tracking (needs Rc<RefCell<Self>>)
+        // Wire child-exited, focus tracking, and bell (needs Rc<RefCell<Self>>)
         Self::wire_pane_child_exited(self_ref, &active_id, &new_pane_id, &new_vte);
         Self::wire_pane_focus(self_ref, &active_id, &new_pane_id, &new_vte);
+        Self::wire_pane_bell(self_ref, &active_id, &new_vte);
 
         true
     }
@@ -412,10 +430,10 @@ impl SessionManager {
         }
     }
 
-    pub fn switch_next_with_notifications(&mut self, notif_store: &NotificationStore) {
-        let Some(active_id) = &self.active_id else { return };
+    pub fn switch_next_with_notifications(&mut self, notif_store: &NotificationStore) -> bool {
+        let Some(active_id) = &self.active_id else { return false };
         let ordered = self.sidebar.ordered_session_ids();
-        let Some(pos) = ordered.iter().position(|id| id == active_id) else { return };
+        let Some(pos) = ordered.iter().position(|id| id == active_id) else { return false };
 
         let len = ordered.len();
 
@@ -425,15 +443,17 @@ impl SessionManager {
             if notif_store.unread_count(&ordered[idx]) > 0 {
                 let id = ordered[idx].clone();
                 self.switch_to(&id);
-                return;
+                return true;
             }
         }
+
+        false
     }
 
-    pub fn switch_prev_with_notifications(&mut self, notif_store: &NotificationStore) {
-        let Some(active_id) = &self.active_id else { return };
+    pub fn switch_prev_with_notifications(&mut self, notif_store: &NotificationStore) -> bool {
+        let Some(active_id) = &self.active_id else { return false };
         let ordered = self.sidebar.ordered_session_ids();
-        let Some(pos) = ordered.iter().position(|id| id == active_id) else { return };
+        let Some(pos) = ordered.iter().position(|id| id == active_id) else { return false };
 
         let len = ordered.len();
 
@@ -443,9 +463,11 @@ impl SessionManager {
             if notif_store.unread_count(&ordered[idx]) > 0 {
                 let id = ordered[idx].clone();
                 self.switch_to(&id);
-                return;
+                return true;
             }
         }
+
+        false
     }
 
     pub fn move_session_to_position(&mut self, session_id: &str, new_group_id: &str, _position: i32) {
@@ -549,6 +571,44 @@ impl SessionManager {
         vte_term.upcast_ref::<gtk4::Widget>().add_controller(focus_controller);
     }
 
+    /// Wire bell notification on a single terminal pane.
+    fn wire_pane_bell(
+        self_ref: &Rc<RefCell<Self>>,
+        session_id: &str,
+        vte_term: &vte4::Terminal,
+    ) {
+        let mgr = Rc::downgrade(self_ref);
+        let sid = session_id.to_string();
+
+        vte_term.connect_bell(move |_term| {
+            let Some(mgr) = mgr.upgrade() else { return };
+            let Ok(m) = mgr.try_borrow() else { return };
+
+            if m.active_id.as_deref() == Some(sid.as_str()) {
+                return;
+            }
+
+            // Debounce: max 1 bell notification per 2 seconds per session
+            let now = glib::DateTime::now_local()
+                .map(|dt| dt.to_unix())
+                .unwrap_or(0);
+
+            let mut timestamps = m.bell_timestamps.borrow_mut();
+
+            if let Some(&last) = timestamps.get(&sid) {
+                if now - last < 2 {
+                    return;
+                }
+            }
+
+            timestamps.insert(sid.clone(), now);
+            drop(timestamps);
+
+            let notification = Notification::new(&sid, "Terminal", "Bell", "Terminal bell received");
+            m.notification_store.borrow_mut().add_notification(notification);
+        });
+    }
+
     /// Wire focus tracking on ALL terminals in a session's split tree.
     pub fn wire_focus_tracking(self_ref: &Rc<RefCell<Self>>, session_id: &str) {
         let terminals = {
@@ -559,6 +619,19 @@ impl SessionManager {
 
         for (pane_id, vte_term) in terminals {
             Self::wire_pane_focus(self_ref, session_id, &pane_id, &vte_term);
+        }
+    }
+
+    /// Wire bell notifications on ALL terminals in a session's split tree.
+    pub fn wire_bell(self_ref: &Rc<RefCell<Self>>, session_id: &str) {
+        let terminals = {
+            let borrow = self_ref.borrow();
+            let Some(sv) = borrow.split_views.get(session_id) else { return };
+            sv.collect_vte_terminals()
+        };
+
+        for (_, vte_term) in terminals {
+            Self::wire_pane_bell(self_ref, session_id, &vte_term);
         }
     }
 
@@ -623,7 +696,7 @@ impl SessionManager {
 
         let widget = split_view.build_widget();
         self.stack.add_named(&widget, Some(&id));
-        self.sidebar.add_tab(&session);
+        self.sidebar.add_tab(&session, None);
 
         self.split_views.insert(id.clone(), split_view);
         self.sessions.push(session);
@@ -657,5 +730,31 @@ impl SessionManager {
             ("SEEMUX_SOCKET".to_string(), self.socket_path.to_string_lossy().to_string()),
             ("SEEMUX_SESSION_ID".to_string(), session_id.to_string()),
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_shell_title_detects_user_at_host_path() {
+        assert!(is_shell_title("agus@archlinux:/home/agus/projects"));
+        assert!(is_shell_title("root@server:~/workspace"));
+        assert!(is_shell_title("user@host:/"));
+    }
+
+    #[test]
+    fn is_shell_title_ignores_command_names() {
+        assert!(!is_shell_title("vim"));
+        assert!(!is_shell_title("htop"));
+        assert!(!is_shell_title("cargo build"));
+        assert!(!is_shell_title(""));
+    }
+
+    #[test]
+    fn is_shell_title_ignores_titles_without_path() {
+        assert!(!is_shell_title("user@host:"));
+        assert!(!is_shell_title("user@host:something"));
     }
 }

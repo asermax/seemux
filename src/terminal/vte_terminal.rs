@@ -8,9 +8,13 @@ use gtk4::pango;
 use gtk4::prelude::*;
 use vte4::prelude::*;
 use vte4::{Terminal, PtyFlags};
+use gtk4::GestureClick;
 
 use crate::config::Config;
 use crate::theme::{self, ColorScheme};
+
+const PCRE2_MULTILINE: u32 = 0x00000400;
+const URL_REGEX: &str = r"(?:(?:https?|ftp|file|mailto)://|www\.)[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]";
 
 pub struct VteTerminal {
     container: gtk4::Box,
@@ -34,6 +38,8 @@ impl VteTerminal {
 
         Self::apply_colors(&terminal, scheme);
         Self::setup_shift_enter(&terminal);
+        Self::setup_url_matching(&terminal);
+        Self::setup_ctrl_click(&terminal);
 
         let scrollbar = gtk4::Scrollbar::new(
             gtk4::Orientation::Vertical,
@@ -77,6 +83,60 @@ impl VteTerminal {
         });
 
         terminal.add_controller(key_controller);
+    }
+
+    fn setup_url_matching(terminal: &Terminal) {
+        terminal.set_allow_hyperlink(true);
+
+        let regex = vte4::Regex::for_match(URL_REGEX, PCRE2_MULTILINE)
+            .expect("valid URL regex");
+
+        let tag = terminal.match_add_regex(&regex, 0);
+        terminal.match_set_cursor_name(tag, "pointer");
+    }
+
+    fn setup_ctrl_click(terminal: &Terminal) {
+        let gesture = GestureClick::new();
+        gesture.set_button(1);
+
+        let term = terminal.clone();
+        gesture.connect_released(move |gesture, _n_press, x, y| {
+            let state = gesture.current_event_state();
+
+            if !state.contains(gdk::ModifierType::CONTROL_MASK) {
+                return;
+            }
+
+            if let Some(url) = Self::check_url_at(&term, x, y) {
+                gesture.set_state(gtk4::EventSequenceState::Claimed);
+
+                if let Err(e) = gio::AppInfo::launch_default_for_uri(&url, None::<&gio::AppLaunchContext>) {
+                    eprintln!("Failed to open URL: {e}");
+                }
+            }
+        });
+
+        terminal.add_controller(gesture);
+    }
+
+    /// Check for a URL at the given coordinates (in terminal widget space).
+    /// Checks OSC 8 hyperlinks first, then regex matches.
+    pub fn check_url_at(terminal: &Terminal, x: f64, y: f64) -> Option<String> {
+        if let Some(url) = terminal.check_hyperlink_at(x, y) {
+            return Some(url.to_string());
+        }
+
+        let (matched, _tag) = terminal.check_match_at(x, y);
+
+        matched.map(|s| {
+            let s = s.to_string();
+
+            if s.starts_with("www.") {
+                format!("https://{s}")
+            } else {
+                s
+            }
+        })
     }
 
     pub fn needs_spawn(&self) -> bool {

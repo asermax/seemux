@@ -77,6 +77,18 @@ paned > separator:hover {
     color: #45475a;
 }
 
+/* Tab index overlay (Alt key held) */
+
+.tab-index {
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 16px;
+    min-height: 16px;
+    border-radius: 4px;
+    padding: 0 4px;
+    color: #585b70;
+}
+
 /* Close button — hidden until hover */
 
 .tab-close-btn {

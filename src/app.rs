@@ -17,6 +17,7 @@ use crate::notifications::hook_handler;
 use crate::notifications::NotificationStore;
 use crate::session::manager::{self, SessionManager};
 use crate::sidebar::Sidebar;
+use crate::terminal::VteTerminal;
 
 pub fn build_window(app: &Application, state: &Rc<AppState>) {
     let window = ApplicationWindow::builder()
@@ -47,14 +48,15 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     paned.set_resize_start_child(false);
     paned.set_resize_end_child(true);
 
-    let manager = SessionManager::new(stack.clone(), sidebar.clone(), socket_path, config.clone());
+    let notification_store = Rc::new(RefCell::new(NotificationStore::new()));
+
+    let manager = SessionManager::new(
+        stack.clone(), sidebar.clone(), socket_path, config.clone(), notification_store.clone(),
+    );
 
     // Wrap content in overlay for centered dialogs
     let overlay = Overlay::new();
     overlay.set_child(Some(&paned));
-
-    // Notification store
-    let notification_store = Rc::new(RefCell::new(NotificationStore::new()));
 
     // Common setup: actions, context menus, notification wiring, DnD
     setup_common(&window, &manager, &sidebar, &notification_store, &stack);
@@ -136,7 +138,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         None
     }));
 
-    setup_keyboard_shortcuts(&window, &manager, &notification_store, on_new_tab, extra_handler);
+    setup_keyboard_shortcuts(&window, &manager, &sidebar, &notification_store, on_new_tab, extra_handler);
 
     // Save session state and sidebar width on window close
     let mgr_for_close = manager.clone();
@@ -181,7 +183,7 @@ fn setup_common(
 ) {
     register_tab_actions(window, manager, sidebar);
     register_terminal_actions(window, manager);
-    setup_terminal_context_menu(stack);
+    setup_terminal_context_menu(stack, manager);
 
     // Wire notification changes to sidebar badge + preview updates
     let sidebar_for_notif = sidebar.clone();
@@ -228,6 +230,7 @@ fn wire_tab_lifecycle(
     sidebar.setup_context_menu(session_id);
     SessionManager::wire_child_exited(manager, session_id);
     SessionManager::wire_focus_tracking(manager, session_id);
+    SessionManager::wire_bell(manager, session_id);
 }
 
 /// Restore saved groups and sessions from disk, or create a fresh tab if none exist.
@@ -385,30 +388,65 @@ fn register_terminal_actions(
         }
     });
     window.add_action(&action);
+
+    // open-url
+    let action = gio::SimpleAction::new("open-url", Some(glib::VariantTy::STRING));
+    action.connect_activate(|_, param| {
+        let Some(url) = param.and_then(|v| v.get::<String>()) else { return };
+
+        if let Err(e) = gio::AppInfo::launch_default_for_uri(&url, None::<&gio::AppLaunchContext>) {
+            eprintln!("Failed to open URL: {e}");
+        }
+    });
+    window.add_action(&action);
 }
 
-fn setup_terminal_context_menu(stack: &Stack) {
-    let menu = gio::Menu::new();
-    menu.append(Some("Copy"), Some("win.term-copy"));
-    menu.append(Some("Paste"), Some("win.term-paste"));
+fn setup_terminal_context_menu(stack: &Stack, manager: &Rc<RefCell<SessionManager>>) {
+    let mgr = manager.clone();
 
-    let split_section = gio::Menu::new();
-    split_section.append(Some("Split Horizontal"), Some("win.split-h"));
-    split_section.append(Some("Split Vertical"), Some("win.split-v"));
-    menu.append_section(None, &split_section);
-
-    let close_section = gio::Menu::new();
-    close_section.append(Some("Close"), Some("win.term-close"));
-    menu.append_section(None, &close_section);
-
-    let popover = PopoverMenu::from_model(Some(&menu));
+    let popover = PopoverMenu::from_model(None::<&gio::MenuModel>);
     popover.set_parent(stack);
     popover.set_has_arrow(false);
 
     let gesture = GestureClick::new();
     gesture.set_button(3);
+
     gesture.connect_released(move |gesture, _n_press, x, y| {
         gesture.set_state(gtk4::EventSequenceState::Claimed);
+
+        let menu = gio::Menu::new();
+
+        // Check for URL at click position
+        let url = mgr.borrow().active_terminal_vte().and_then(|term| {
+            let stack_widget = gesture.widget()?;
+            let point = stack_widget.compute_point(&term, &gtk4::graphene::Point::new(x as f32, y as f32))?;
+            VteTerminal::check_url_at(&term, point.x() as f64, point.y() as f64)
+        });
+
+        if let Some(ref url) = url {
+            let url_section = gio::Menu::new();
+            let item = gio::MenuItem::new(Some("Open URL"), None);
+            item.set_action_and_target_value(
+                Some("win.open-url"),
+                Some(&url.to_variant()),
+            );
+            url_section.append_item(&item);
+            menu.append_section(None, &url_section);
+        }
+
+        menu.append(Some("Copy"), Some("win.term-copy"));
+        menu.append(Some("Paste"), Some("win.term-paste"));
+
+        let split_section = gio::Menu::new();
+        split_section.append(Some("Split Horizontal"), Some("win.split-h"));
+        split_section.append(Some("Split Vertical"), Some("win.split-v"));
+        menu.append_section(None, &split_section);
+
+        let close_section = gio::Menu::new();
+        close_section.append(Some("Close"), Some("win.term-close"));
+        menu.append_section(None, &close_section);
+
+        popover.set_menu_model(Some(&menu));
         popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
         popover.popup();
     });
@@ -626,6 +664,7 @@ fn show_confirm_overlay<F: Fn() + 'static>(
 fn setup_keyboard_shortcuts(
     window: &ApplicationWindow,
     manager: &Rc<RefCell<SessionManager>>,
+    sidebar: &Rc<Sidebar>,
     notification_store: &Rc<RefCell<NotificationStore>>,
     on_new_tab: Rc<dyn Fn()>,
     extra_handler: Option<Rc<dyn Fn(Key, bool, bool) -> Option<glib::Propagation>>>,
@@ -635,20 +674,26 @@ fn setup_keyboard_shortcuts(
 
     let mgr = manager.clone();
     let notif_for_keys = notification_store.clone();
+    let sidebar_for_keys = sidebar.clone();
 
     key_controller.connect_key_pressed(move |_, key, _keycode, modifiers| {
         let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
         let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
         let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
 
-        let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::Page_Up | Key::Page_Down))
-            || (ctrl && !shift && matches!(key, Key::t | Key::Tab | Key::Page_Up | Key::Page_Down))
-            || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l))
-            || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9))
-            || (shift && alt && !ctrl && matches!(key, Key::Page_Up | Key::Page_Down));
+        let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G))
+            || (ctrl && !shift && matches!(key, Key::t | Key::Tab))
+            || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l | Key::Page_Up | Key::Page_Down))
+            || (alt && !ctrl && shift && matches!(key, Key::Page_Up | Key::Page_Down))
+            || (alt && ctrl && !shift && matches!(key, Key::Page_Up | Key::Page_Down))
+            || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9));
 
         if !is_our_shortcut {
             return glib::Propagation::Proceed;
+        }
+
+        if alt {
+            sidebar_for_keys.show_tab_indices();
         }
 
         // Let the extra handler try first (for window-specific shortcuts like new window/group)
@@ -717,7 +762,7 @@ fn setup_keyboard_shortcuts(
             return glib::Propagation::Stop;
         }
 
-        if ctrl && !shift && matches!(key, Key::Page_Down | Key::Page_Up) {
+        if alt && !ctrl && !shift && matches!(key, Key::Page_Down | Key::Page_Up) {
             if key == Key::Page_Down {
                 mgr.borrow_mut().switch_next();
             } else {
@@ -731,11 +776,25 @@ fn setup_keyboard_shortcuts(
             return glib::Propagation::Stop;
         }
 
-        if ctrl && shift && matches!(key, Key::Page_Down | Key::Page_Up) {
-            if key == Key::Page_Down {
-                mgr.borrow_mut().switch_next_group();
-            } else {
-                mgr.borrow_mut().switch_prev_group();
+        if alt && !ctrl && shift && matches!(key, Key::Page_Down | Key::Page_Up) {
+            // Try notification cycling first; fall back to regular tab cycling
+            let had_notification = {
+                let notifs = notif_for_keys.borrow();
+                let mut mgr_mut = mgr.borrow_mut();
+
+                if key == Key::Page_Down {
+                    mgr_mut.switch_next_with_notifications(&notifs)
+                } else {
+                    mgr_mut.switch_prev_with_notifications(&notifs)
+                }
+            };
+
+            if !had_notification {
+                if key == Key::Page_Down {
+                    mgr.borrow_mut().switch_next();
+                } else {
+                    mgr.borrow_mut().switch_prev();
+                }
             }
 
             if let Some(active) = mgr.borrow().active_id() {
@@ -745,11 +804,11 @@ fn setup_keyboard_shortcuts(
             return glib::Propagation::Stop;
         }
 
-        if shift && alt && !ctrl && matches!(key, Key::Page_Down | Key::Page_Up) {
+        if ctrl && alt && !shift && matches!(key, Key::Page_Down | Key::Page_Up) {
             if key == Key::Page_Down {
-                mgr.borrow_mut().switch_next_with_notifications(&notif_for_keys.borrow());
+                mgr.borrow_mut().switch_next_group();
             } else {
-                mgr.borrow_mut().switch_prev_with_notifications(&notif_for_keys.borrow());
+                mgr.borrow_mut().switch_prev_group();
             }
 
             if let Some(active) = mgr.borrow().active_id() {
@@ -799,6 +858,13 @@ fn setup_keyboard_shortcuts(
         }
 
         glib::Propagation::Proceed
+    });
+
+    let sidebar_for_release = sidebar.clone();
+    key_controller.connect_key_released(move |_, key, _, _| {
+        if matches!(key, Key::Alt_L | Key::Alt_R) {
+            sidebar_for_release.hide_tab_indices();
+        }
     });
 
     window.add_controller(key_controller);
@@ -976,20 +1042,45 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     setup_keyboard_shortcuts(
         dropdown.window(),
         &dropdown.manager,
+        &dropdown.sidebar,
         &dropdown.notification_store,
         on_new_tab,
         extra_handler,
     );
 
+    // Track pointer position to distinguish external dialogs/menus from
+    // intentional focus switches. Layer-shell surfaces at LAYER_TOP receive
+    // pointer enter/leave events regardless of keyboard focus state.
+    let motion = gtk4::EventControllerMotion::new();
+
+    let pointer_flag = dropdown.pointer_inside.clone();
+    motion.connect_enter(move |_, _, _| {
+        pointer_flag.set(true);
+    });
+
+    let pointer_flag = dropdown.pointer_inside.clone();
+    motion.connect_leave(move |_| {
+        pointer_flag.set(false);
+    });
+
+    dropdown.window().add_controller(motion);
+
     // Auto-hide when another window gets focus.
     // Use a short delay to avoid hiding when a popover (context menu)
     // briefly steals focus — the window becomes active again once the
     // popover closes.
+    // If the pointer is inside the dropdown when focus is lost, something
+    // external stole focus (dialog, compositor menu) — don't auto-hide.
     let hide_generation: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(0));
     let dropdown_for_focus = dropdown.clone();
     let hide_gen = hide_generation.clone();
+    let pointer_inside = dropdown.pointer_inside.clone();
     dropdown.window().connect_notify_local(Some("is-active"), move |window, _| {
         if !window.is_active() && *dropdown_for_focus.visible() {
+            if pointer_inside.get() {
+                return;
+            }
+
             let current = hide_gen.get().wrapping_add(1);
             hide_gen.set(current);
 

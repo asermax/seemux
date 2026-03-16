@@ -508,16 +508,23 @@ impl Sidebar {
         });
     }
 
-    pub fn add_tab(&self, session: &Session) {
+    pub fn add_tab(&self, session: &Session, after: Option<&str>) {
         let tab_row = TabRow::new(&session.id, &session.title);
         tab_row.setup_drag_source(self.dragging_id.clone());
         self.setup_row_drop_target(&tab_row);
 
-        if let Some(list) = self.list_for_group(&session.group_id) {
+        let list = self.list_for_group(&session.group_id)
+            .unwrap_or_else(|| self.default_list.clone());
+
+        // Insert after the specified session if it's in the same group, otherwise append
+        let inserted = after
+            .and_then(|id| self.rows.borrow().get(id).map(|(r, g)| (r.widget().clone(), g.clone())))
+            .filter(|(_, group)| *group == session.group_id)
+            .and_then(|(widget, _)| row_index_in_list(&widget, &list))
+            .map(|index| list.insert(tab_row.widget(), index + 1));
+
+        if inserted.is_none() {
             list.append(tab_row.widget());
-        } else {
-            // Fallback to default
-            self.default_list.append(tab_row.widget());
         }
 
         self.rows.borrow_mut().insert(
@@ -586,6 +593,22 @@ impl Sidebar {
         }
     }
 
+    pub fn show_tab_indices(&self) {
+        let ordered = self.ordered_session_ids();
+        let rows = self.rows.borrow();
+
+        for (i, id) in ordered.iter().enumerate() {
+            if let Some((row, _)) = rows.get(id) {
+                row.set_index_visible(if i < 9 { Some((i + 1) as u32) } else { None });
+            }
+        }
+    }
+
+    pub fn hide_tab_indices(&self) {
+        for (row, _) in self.rows.borrow().values() {
+            row.set_index_visible(None);
+        }
+    }
 
     pub fn wire_tab_click<F: Fn(String) + Clone + 'static>(&self, session_id: &str, f: F) {
         if let Some((row, _)) = self.rows.borrow().get(session_id) {
