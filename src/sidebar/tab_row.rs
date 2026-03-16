@@ -168,8 +168,12 @@ impl TabRow {
             Some(i) if i <= 9 => {
                 self.index_label.set_text(&i.to_string());
                 self.index_label.set_visible(true);
+                self.close_btn.set_visible(false);
             }
-            _ => self.index_label.set_visible(false),
+            _ => {
+                self.index_label.set_visible(false);
+                self.close_btn.set_visible(true);
+            }
         }
     }
 
