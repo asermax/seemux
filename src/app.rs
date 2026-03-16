@@ -414,10 +414,13 @@ fn register_terminal_actions(
     });
     window.add_action(&action);
 
-    // edit-file — open a file:// URI in $EDITOR in a new tab
+    // edit-file — open a file:// URI in neovim, reusing the same instance per parent terminal
     let mgr = manager.clone();
     let sid = sidebar.clone();
     let notif = notification_store.clone();
+    let editor_sessions: Rc<RefCell<std::collections::HashMap<String, String>>> =
+        Rc::new(RefCell::new(std::collections::HashMap::new()));
+
     let action = gio::SimpleAction::new("edit-file", Some(glib::VariantTy::STRING));
     action.connect_activate(move |_, param| {
         let Some(url) = param.and_then(|v| v.get::<String>()) else { return };
@@ -429,20 +432,58 @@ fn register_terminal_actions(
             return;
         }
 
-        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+        let Some(parent_id) = mgr.borrow().active_id().map(|s| s.to_string()) else { return };
+
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+            .unwrap_or_else(|_| "/tmp".to_string());
+        let socket = format!("{runtime_dir}/seemux/nvim-{parent_id}.sock");
+
+        // Try to reuse an existing editor for this parent terminal
+        let reused = {
+            let map = editor_sessions.borrow();
+
+            if let Some(editor_id) = map.get(&parent_id) {
+                let exists = mgr.borrow().session_terminal(editor_id).is_some();
+
+                if exists && std::path::Path::new(&socket).exists() {
+                    let _ = std::process::Command::new("nvim")
+                        .args(["--server", &socket, "--remote", &path])
+                        .spawn();
+
+                    mgr.borrow_mut().switch_to(editor_id);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+
+        if reused {
+            return;
+        }
+
+        // Clean up stale mapping
+        editor_sessions.borrow_mut().remove(&parent_id);
+
+        // Get parent terminal's CWD, fall back to file's parent dir
+        let parent_cwd = mgr.borrow().session_terminal(&parent_id)
+            .and_then(|term| term.current_directory_uri())
+            .and_then(|uri| manager::path_from_file_uri(&uri))
+            .or_else(|| filepath.parent().map(|p| p.to_string_lossy().to_string()));
+
         let filename = filepath.file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| path.clone());
 
-        let parent_dir = filepath.parent()
-            .map(|p| p.to_string_lossy().to_string());
-
         let id = mgr.borrow_mut().create_session_with_command(
             &filename,
-            parent_dir.as_deref(),
-            &[&editor, &path],
+            parent_cwd.as_deref(),
+            &["nvim", "--listen", &socket, &path],
         );
 
+        editor_sessions.borrow_mut().insert(parent_id, id.clone());
         wire_tab_lifecycle(&sid, &mgr, &notif, &id);
     });
     window.add_action(&action);
