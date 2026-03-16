@@ -1104,15 +1104,43 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         extra_handler,
     );
 
+    // Track non-modifier keypresses so we can distinguish spurious focus
+    // loss (e.g. wl-copy briefly stealing focus) from intentional switches.
+    let dropdown_for_kp = dropdown.clone();
+    let kp_controller = EventControllerKey::new();
+
+    kp_controller.connect_key_pressed(move |_, key, _, _| {
+        let is_modifier = matches!(key,
+            Key::Shift_L | Key::Shift_R |
+            Key::Control_L | Key::Control_R |
+            Key::Alt_L | Key::Alt_R |
+            Key::Super_L | Key::Super_R |
+            Key::Meta_L | Key::Meta_R
+        );
+
+        if !is_modifier {
+            dropdown_for_kp.record_keypress();
+        }
+
+        glib::Propagation::Proceed
+    });
+
+    dropdown.window().add_controller(kp_controller);
+
     // Auto-hide when another window gets focus.
-    // Use a short delay to avoid hiding when a popover (context menu)
-    // briefly steals focus — the window becomes active again once the
-    // popover closes.
+    // Use a short delay to avoid hiding when a popover (context menu) or
+    // clipboard tool (wl-copy) briefly steals focus.
+    // If there was recent keyboard activity the focus loss is likely
+    // spurious, so we try to recover via present() first.
     let hide_generation: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(0));
     let dropdown_for_focus = dropdown.clone();
     let hide_gen = hide_generation.clone();
     dropdown.window().connect_notify_local(Some("is-active"), move |window, _| {
         if !window.is_active() && *dropdown_for_focus.visible() {
+            if dropdown_for_focus.had_recent_keypress() {
+                window.present();
+            }
+
             let current = hide_gen.get().wrapping_add(1);
             hide_gen.set(current);
 

@@ -20,6 +20,7 @@ pub struct DropdownWindow {
     animation_ms: u32,
     /// Incremented on each animation start; stale callbacks see a mismatch and stop.
     animation_generation: Rc<Cell<u32>>,
+    last_keypress: Rc<Cell<Option<Instant>>>,
     pub overlay: Overlay,
     pub paned: Paned,
     pub stack: Stack,
@@ -108,6 +109,7 @@ impl DropdownWindow {
             target_height,
             animation_ms,
             animation_generation: Rc::new(Cell::new(0)),
+            last_keypress: Rc::new(Cell::new(None)),
             overlay,
             paned,
             stack,
@@ -123,6 +125,16 @@ impl DropdownWindow {
 
     pub fn visible(&self) -> Ref<'_, bool> {
         self.visible.borrow()
+    }
+
+    pub fn record_keypress(&self) {
+        self.last_keypress.set(Some(Instant::now()));
+    }
+
+    pub fn had_recent_keypress(&self) -> bool {
+        self.last_keypress.get()
+            .map(|t| t.elapsed() < std::time::Duration::from_millis(500))
+            .unwrap_or(false)
     }
 
     pub fn show(&self) {
