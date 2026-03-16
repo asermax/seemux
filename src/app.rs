@@ -1188,7 +1188,7 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
             let dd = dropdown_for_focus.clone();
             let gen_check = hide_gen.clone();
             glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
-                if gen_check.get() == current && *dd.visible() {
+                if gen_check.get() == current && *dd.visible() && !dd.window().is_active() {
                     dd.hide();
                 }
             });
