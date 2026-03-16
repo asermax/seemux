@@ -770,7 +770,7 @@ fn setup_keyboard_shortcuts(
             || (alt && ctrl && !shift && matches!(key, Key::Page_Up | Key::Page_Down))
             || ((alt || ctrl) && number_keys);
 
-        if matches!(key, Key::Alt_L | Key::Alt_R) {
+        if matches!(key, Key::Alt_L | Key::Alt_R) && !ctrl && !shift {
             sidebar_for_keys.show_tab_indices();
             return glib::Propagation::Proceed;
         }
