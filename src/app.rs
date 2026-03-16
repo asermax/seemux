@@ -790,11 +790,15 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         None,
     );
 
-    // Quit app on window close
+    // Quit when compositor hides the window (WM close keybinding) —
+    // layer-shell surfaces don't receive close_request, so we watch for
+    // external visibility changes instead.
     let app_for_close = app.clone();
-    dropdown.window().connect_close_request(move |_| {
-        app_for_close.quit();
-        glib::Propagation::Proceed
+    let programmatic_hide = dropdown.programmatic_hide();
+    dropdown.window().connect_notify_local(Some("visible"), move |window, _| {
+        if !window.is_visible() && !programmatic_hide.get() {
+            app_for_close.quit();
+        }
     });
 
     // Present the window off-screen, ready for the first toggle

@@ -19,6 +19,9 @@ pub struct DropdownWindow {
     animation_ms: u32,
     /// Incremented on each animation start; stale callbacks see a mismatch and stop.
     animation_generation: Rc<Cell<u32>>,
+    /// Set to true around our own `set_visible(false)` calls so external watchers
+    /// can distinguish programmatic hides from compositor-initiated ones.
+    programmatic_hide: Rc<Cell<bool>>,
     pub manager: Rc<RefCell<SessionManager>>,
     pub notification_store: Rc<RefCell<NotificationStore>>,
     pub sidebar: Rc<Sidebar>,
@@ -133,6 +136,7 @@ impl DropdownWindow {
             target_height,
             animation_ms,
             animation_generation: Rc::new(Cell::new(0)),
+            programmatic_hide: Rc::new(Cell::new(false)),
             manager,
             notification_store,
             sidebar,
@@ -141,6 +145,10 @@ impl DropdownWindow {
 
     pub fn window(&self) -> &ApplicationWindow {
         &self.window
+    }
+
+    pub fn programmatic_hide(&self) -> Rc<Cell<bool>> {
+        self.programmatic_hide.clone()
     }
 
     pub fn show(&self) {
@@ -181,6 +189,7 @@ impl DropdownWindow {
         let target = self.target_height;
         let duration_us = (self.animation_ms as i64) * 1000;
         let animation_generation = self.animation_generation.clone();
+        let programmatic_hide = self.programmatic_hide.clone();
         let start_time: Rc<Cell<i64>> = Rc::new(Cell::new(0));
         let window = self.window.clone();
 
@@ -220,6 +229,10 @@ impl DropdownWindow {
                 } else {
                     crate::layer_shell::set_top_margin(&window, -target);
                     window.set_opacity(0.0);
+
+                    programmatic_hide.set(true);
+                    window.set_visible(false);
+                    programmatic_hide.set(false);
                 }
                 return glib::ControlFlow::Break;
             }
