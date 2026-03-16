@@ -16,7 +16,7 @@ const EDGE_LEFT: c_int = 0;
 const EDGE_RIGHT: c_int = 1;
 const EDGE_TOP: c_int = 2;
 const EDGE_BOTTOM: c_int = 3;
-const KEYBOARD_ON_DEMAND: c_int = 2;
+const KEYBOARD_EXCLUSIVE: c_int = 1;
 
 #[link(name = "gtk4-layer-shell")]
 unsafe extern "C" {
@@ -49,7 +49,7 @@ pub fn setup_dropdown(window: &ApplicationWindow, width: i32, monitor_width: i32
     unsafe {
         gtk_layer_init_for_window(ptr);
         gtk_layer_set_layer(ptr, LAYER_TOP);
-        gtk_layer_set_keyboard_mode(ptr, KEYBOARD_ON_DEMAND);
+        gtk_layer_set_keyboard_mode(ptr, KEYBOARD_EXCLUSIVE);
         gtk_layer_set_respect_close(ptr, 1);
 
         gtk_layer_set_anchor(ptr, EDGE_TOP, 1);

@@ -1,4 +1,4 @@
-use std::cell::{Cell, Ref, RefCell};
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -121,10 +121,6 @@ impl DropdownWindow {
         &self.window
     }
 
-    pub fn visible(&self) -> Ref<'_, bool> {
-        self.visible.borrow()
-    }
-
     pub fn show(&self) {
         if !self.window.is_visible() {
             self.window.set_opacity(0.0);
@@ -147,6 +143,13 @@ impl DropdownWindow {
         crate::layer_shell::set_top_margin(&self.window, -self.target_height);
         self.window.set_visible(true);
         self.window.present();
+    }
+
+    pub fn hide(&self) {
+        if *self.visible.borrow() {
+            self.animate(false);
+            *self.visible.borrow_mut() = false;
+        }
     }
 
     pub fn toggle(&self) {

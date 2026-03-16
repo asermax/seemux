@@ -12,7 +12,7 @@ use crate::config::Config;
 use crate::theme::{self, ColorScheme};
 
 const PCRE2_MULTILINE: u32 = 0x00000400;
-const URL_REGEX: &str = r"(?:(?:https?|ftp|file|mailto)://|www\.)[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]";
+const URL_REGEX: &str = r"(?:(?:https?|ftp|file|mailto)://|www\.|\.\./|\./)[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]";
 
 pub struct VteTerminal {
     container: gtk4::Box,
@@ -106,6 +106,20 @@ impl VteTerminal {
 
             if s.starts_with("www.") {
                 format!("https://{s}")
+            } else if s.starts_with("./") || s.starts_with("../") {
+                let cwd = terminal.current_directory_uri()
+                    .and_then(|uri| {
+                        let rest = uri.strip_prefix("file://")?;
+                        let slash = rest.find('/')?;
+                        Some(rest[slash..].to_string())
+                    });
+
+                if let Some(cwd) = cwd {
+                    let path = std::path::Path::new(&cwd).join(&s);
+                    format!("file://{}", path.display())
+                } else {
+                    s
+                }
             } else {
                 s
             }

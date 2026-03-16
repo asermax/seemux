@@ -197,7 +197,6 @@ fn setup_common(
     register_tab_actions(window, manager, sidebar);
     register_terminal_actions(window, manager);
     setup_terminal_context_menu(stack, manager);
-    setup_terminal_ctrl_click(stack, manager);
 
     // Wire notification changes to sidebar badge + preview updates
     let sidebar_for_notif = sidebar.clone();
@@ -405,12 +404,17 @@ fn register_terminal_actions(
     window.add_action(&action);
 
     // open-url
+    let win = window.clone();
     let action = gio::SimpleAction::new("open-url", Some(glib::VariantTy::STRING));
-    action.connect_activate(|_, param| {
+    action.connect_activate(move |_, param| {
         let Some(url) = param.and_then(|v| v.get::<String>()) else { return };
 
         if let Err(e) = gio::AppInfo::launch_default_for_uri(&url, None::<&gio::AppLaunchContext>) {
             eprintln!("Failed to open URL: {e}");
+        }
+
+        if let Some(action) = win.lookup_action("hide-dropdown") {
+            action.activate(None);
         }
     });
     window.add_action(&action);
@@ -464,35 +468,6 @@ fn setup_terminal_context_menu(stack: &Stack, manager: &Rc<RefCell<SessionManage
         popover.set_menu_model(Some(&menu));
         popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
         popover.popup();
-    });
-
-    stack.add_controller(gesture);
-}
-
-fn setup_terminal_ctrl_click(stack: &Stack, manager: &Rc<RefCell<SessionManager>>) {
-    let mgr = manager.clone();
-
-    let gesture = GestureClick::new();
-    gesture.set_button(1);
-
-    gesture.connect_released(move |gesture, _n_press, x, y| {
-        if !gesture.current_event_state().contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
-            return;
-        }
-
-        let url = mgr.borrow().active_terminal_vte().and_then(|term| {
-            let stack_widget = gesture.widget()?;
-            let point = stack_widget.compute_point(&term, &gtk4::graphene::Point::new(x as f32, y as f32))?;
-            VteTerminal::check_url_at(&term, point.x() as f64, point.y() as f64)
-        });
-
-        if let Some(url) = url {
-            gesture.set_state(gtk4::EventSequenceState::Claimed);
-
-            if let Err(e) = gio::AppInfo::launch_default_for_uri(&url, None::<&gio::AppLaunchContext>) {
-                eprintln!("Failed to open URL: {e}");
-            }
-        }
     });
 
     stack.add_controller(gesture);
@@ -1039,6 +1014,12 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         &dropdown.stack,
     );
 
+    // Register hide-dropdown action so open-url can dismiss the dropdown
+    let dd = dropdown.clone();
+    let hide_action = gio::SimpleAction::new("hide-dropdown", None);
+    hide_action.connect_activate(move |_, _| { dd.hide(); });
+    dropdown.window().add_action(&hide_action);
+
     // When all sessions are closed, respawn a new one
     let mgr_empty = dropdown.manager.clone();
     let sid_empty = dropdown.sidebar.clone();
@@ -1123,30 +1104,6 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         extra_handler,
     );
 
-    // Auto-hide when another window gets focus.
-    // Use a short delay to avoid hiding when a popover (context menu)
-    // briefly steals focus — the window becomes active again once the
-    // popover closes.
-    let hide_generation: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(0));
-    let dropdown_for_focus = dropdown.clone();
-    let hide_gen = hide_generation.clone();
-    dropdown.window().connect_notify_local(Some("is-active"), move |window, _| {
-        if !window.is_active() && *dropdown_for_focus.visible() {
-            let current = hide_gen.get().wrapping_add(1);
-            hide_gen.set(current);
-
-            let dd = dropdown_for_focus.clone();
-            let gen_check = hide_gen.clone();
-            glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
-                if gen_check.get() == current && *dd.visible() {
-                    dd.toggle();
-                }
-            });
-        } else {
-            // Window became active again — cancel any pending hide
-            hide_gen.set(hide_gen.get().wrapping_add(1));
-        }
-    });
 
     // Save session state on close
     let mgr_for_close = dropdown.manager.clone();
