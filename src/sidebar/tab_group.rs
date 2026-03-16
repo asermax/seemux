@@ -93,6 +93,10 @@ impl TabGroupWidget {
         &self.header
     }
 
+    pub fn is_collapsed(&self) -> bool {
+        self.collapsed.get()
+    }
+
     /// Expand the group if it's collapsed.
     pub fn expand(&self) {
         if self.collapsed.get() {

@@ -594,10 +594,15 @@ impl Sidebar {
     }
 
     pub fn show_tab_indices(&self) {
-        let ordered = self.ordered_session_ids();
+        let visible = self.ordered_visible_session_ids();
         let rows = self.rows.borrow();
 
-        for (i, id) in ordered.iter().enumerate() {
+        // Hide all first to clear stale indices on collapsed-group tabs
+        for (row, _) in rows.values() {
+            row.set_index_visible(None);
+        }
+
+        for (i, id) in visible.iter().enumerate() {
             if let Some((row, _)) = rows.get(id) {
                 row.set_index_visible(if i < 9 { Some((i + 1) as u32) } else { None });
             }
@@ -718,6 +723,23 @@ impl Sidebar {
 
     pub fn group_ids(&self) -> Vec<(String, String)> {
         self.groups.borrow().iter().map(|g| (g.id.clone(), g.name.clone())).collect()
+    }
+
+    /// Return visible session IDs (skipping collapsed groups) in sidebar order.
+    pub fn ordered_visible_session_ids(&self) -> Vec<String> {
+        let mut ids = Vec::new();
+
+        collect_ids_from_list(&self.default_list, &mut ids);
+
+        for entry in self.groups.borrow().iter() {
+            if let Some(gw) = self.group_widgets.borrow().get(&entry.id) {
+                if !gw.is_collapsed() {
+                    collect_ids_from_list(&gw.list_box, &mut ids);
+                }
+            }
+        }
+
+        ids
     }
 
     /// Return all session IDs in visual sidebar order:
