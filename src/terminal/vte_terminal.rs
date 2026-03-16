@@ -139,8 +139,12 @@ impl VteTerminal {
     }
 
     pub fn spawn_shell(&self, working_directory: Option<&str>, extra_env: &[(&str, &str)]) {
-        self.spawned.set(true);
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        self.spawn_command(&[&shell], working_directory, extra_env);
+    }
+
+    pub fn spawn_command(&self, argv: &[&str], working_directory: Option<&str>, extra_env: &[(&str, &str)]) {
+        self.spawned.set(true);
 
         let mut envv: Vec<String> = env::vars()
             .map(|(k, v)| format!("{k}={v}"))
@@ -156,7 +160,7 @@ impl VteTerminal {
         self.terminal.spawn_async(
             PtyFlags::DEFAULT,
             working_directory,
-            &[&shell],
+            argv,
             &envv_refs,
             glib::SpawnFlags::DEFAULT,
             || {},
@@ -164,7 +168,7 @@ impl VteTerminal {
             gio::Cancellable::NONE,
             |result| match result {
                 Ok(_pid) => {}
-                Err(e) => eprintln!("Failed to spawn shell: {e}"),
+                Err(e) => eprintln!("Failed to spawn command: {e}"),
             },
         );
     }

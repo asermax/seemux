@@ -195,7 +195,7 @@ fn setup_common(
     stack: &Stack,
 ) {
     register_tab_actions(window, manager, sidebar);
-    register_terminal_actions(window, manager);
+    register_terminal_actions(window, manager, sidebar, notification_store);
     setup_terminal_context_menu(stack, manager);
 
     // Wire notification changes to sidebar badge + preview updates
@@ -350,6 +350,8 @@ fn register_tab_actions(
 fn register_terminal_actions(
     window: &ApplicationWindow,
     manager: &Rc<RefCell<SessionManager>>,
+    sidebar: &Rc<Sidebar>,
+    notification_store: &Rc<RefCell<NotificationStore>>,
 ) {
     // term-copy
     let mgr = manager.clone();
@@ -404,7 +406,6 @@ fn register_terminal_actions(
     window.add_action(&action);
 
     // open-url
-    let win = window.clone();
     let action = gio::SimpleAction::new("open-url", Some(glib::VariantTy::STRING));
     action.connect_activate(move |_, param| {
         let Some(url) = param.and_then(|v| v.get::<String>()) else { return };
@@ -412,12 +413,50 @@ fn register_terminal_actions(
         if let Err(e) = gio::AppInfo::launch_default_for_uri(&url, None::<&gio::AppLaunchContext>) {
             eprintln!("Failed to open URL: {e}");
         }
-
-        if let Some(action) = win.lookup_action("hide-dropdown") {
-            action.activate(None);
-        }
     });
     window.add_action(&action);
+
+    // edit-file — open a file:// URI in $EDITOR in a new tab
+    let mgr = manager.clone();
+    let sid = sidebar.clone();
+    let notif = notification_store.clone();
+    let action = gio::SimpleAction::new("edit-file", Some(glib::VariantTy::STRING));
+    action.connect_activate(move |_, param| {
+        let Some(url) = param.and_then(|v| v.get::<String>()) else { return };
+        let Some(path) = manager::path_from_file_uri(&url) else { return };
+
+        let filepath = std::path::Path::new(&path);
+
+        if !filepath.is_file() {
+            return;
+        }
+
+        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+        let filename = filepath.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone());
+
+        let parent_dir = filepath.parent()
+            .map(|p| p.to_string_lossy().to_string());
+
+        let id = mgr.borrow_mut().create_session_with_command(
+            &filename,
+            parent_dir.as_deref(),
+            &[&editor, &path],
+        );
+
+        wire_tab_lifecycle(&sid, &mgr, &notif, &id);
+    });
+    window.add_action(&action);
+}
+
+fn is_text_file(path: &std::path::Path) -> bool {
+    let filename = path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let (content_type, _uncertain) = gio::content_type_guess(Some(&filename), None::<&[u8]>);
+    gio::content_type_is_a(&content_type, "text/plain")
 }
 
 fn setup_terminal_context_menu(stack: &Stack, manager: &Rc<RefCell<SessionManager>>) {
@@ -444,12 +483,36 @@ fn setup_terminal_context_menu(stack: &Stack, manager: &Rc<RefCell<SessionManage
 
         if let Some(ref url) = url {
             let url_section = gio::Menu::new();
-            let item = gio::MenuItem::new(Some("Open URL"), None);
-            item.set_action_and_target_value(
-                Some("win.open-url"),
-                Some(&url.to_variant()),
-            );
-            url_section.append_item(&item);
+
+            if url.starts_with("file://") {
+                let is_text = manager::path_from_file_uri(url)
+                    .map(|p| is_text_file(std::path::Path::new(&p)))
+                    .unwrap_or(false);
+
+                if is_text {
+                    let item = gio::MenuItem::new(Some("Open in Editor"), None);
+                    item.set_action_and_target_value(
+                        Some("win.edit-file"),
+                        Some(&url.to_variant()),
+                    );
+                    url_section.append_item(&item);
+                }
+
+                let item = gio::MenuItem::new(Some("Open with external App"), None);
+                item.set_action_and_target_value(
+                    Some("win.open-url"),
+                    Some(&url.to_variant()),
+                );
+                url_section.append_item(&item);
+            } else {
+                let item = gio::MenuItem::new(Some("Open URL"), None);
+                item.set_action_and_target_value(
+                    Some("win.open-url"),
+                    Some(&url.to_variant()),
+                );
+                url_section.append_item(&item);
+            }
+
             menu.append_section(None, &url_section);
         }
 

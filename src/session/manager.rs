@@ -134,6 +134,41 @@ impl SessionManager {
         id
     }
 
+    pub fn create_session_with_command(&mut self, title: &str, cwd: Option<&str>, argv: &[&str]) -> String {
+        let group_id = self.active_group_id()
+            .unwrap_or(crate::session::DEFAULT_GROUP)
+            .to_string();
+
+        let mut session = Session::new(title.to_string());
+        session.group_id = group_id;
+        session.cwd = cwd.map(|s| s.to_string());
+        let id = session.id.clone();
+
+        let env_vars = self.build_env_vars(&id);
+        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+
+        let pane_id = uuid::Uuid::new_v4().to_string();
+        let terminal = VteTerminal::new_with_config(&self.config.borrow());
+        let vte_term = terminal.terminal().clone();
+
+        if self.stack.is_realized() {
+            terminal.spawn_command(argv, cwd, &env_refs);
+        }
+
+        self.wire_vte_signals(&vte_term, &id, &pane_id);
+
+        let split_view = SplitView::new(terminal, pane_id);
+        let widget = split_view.build_widget();
+        self.stack.add_named(&widget, Some(&id));
+        self.sidebar.add_tab(&session, self.active_id.as_deref());
+
+        self.split_views.insert(id.clone(), split_view);
+        self.sessions.push(session);
+        self.switch_to(&id);
+
+        id
+    }
+
     /// Wire VTE signals to update tab title, subtitle, and git branch.
     fn wire_vte_signals(&self, vte_term: &vte4::Terminal, session_id: &str, pane_id: &str) {
         // Window title changes (shows running command name)
