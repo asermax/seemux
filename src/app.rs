@@ -15,7 +15,7 @@ use crate::app_state::AppState;
 use crate::config::SessionState;
 use crate::notifications::hook_handler;
 use crate::notifications::NotificationStore;
-use crate::session::manager::SessionManager;
+use crate::session::manager::{self, SessionManager};
 use crate::sidebar::Sidebar;
 
 pub fn build_window(app: &Application, state: &Rc<AppState>) {
@@ -100,7 +100,20 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         let notif = notification_store.clone();
 
         Rc::new(move || {
-            let id = mgr.borrow_mut().create_session(None, None);
+            let mgr_ref = mgr.borrow();
+
+            let cwd = mgr_ref
+                .active_terminal_vte()
+                .and_then(|term| term.current_directory_uri())
+                .and_then(|uri| manager::path_from_file_uri(&uri));
+
+            let group_id = mgr_ref.active_group_id()
+                .unwrap_or(crate::session::DEFAULT_GROUP)
+                .to_string();
+
+            drop(mgr_ref);
+
+            let id = mgr.borrow_mut().create_session_in_group(None, cwd.as_deref(), &group_id);
             wire_tab_lifecycle(&sidebar, &mgr, &notif, &id);
         })
     };
@@ -629,19 +642,6 @@ fn show_confirm_overlay<F: Fn() + 'static>(
     });
 }
 
-fn send_desktop_notification(title: &str, subtitle: &str, body: &str) {
-    let summary = format!("{title} — {subtitle}");
-
-    if let Err(e) = notify_rust::Notification::new()
-        .summary(&summary)
-        .body(body)
-        .timeout(5000)
-        .show()
-    {
-        eprintln!("Desktop notification failed: {e}");
-    }
-}
-
 fn setup_keyboard_shortcuts(
     window: &ApplicationWindow,
     manager: &Rc<RefCell<SessionManager>>,
@@ -845,22 +845,19 @@ fn setup_hook_polling(
             }
 
             if let Some((title, subtitle, body)) = result.notification {
-                let notification = crate::notifications::Notification::new(
-                    &result.session_id,
-                    &title,
-                    &subtitle,
-                    &body,
-                );
-
                 let is_active = mgr_for_hooks.borrow().active_id()
                     .map(|id| id == result.session_id)
                     .unwrap_or(false);
 
-                if !is_active && matches!(subtitle.as_str(), "Permission" | "Error" | "Waiting" | "Attention") {
-                    send_desktop_notification(&title, &subtitle, &body);
+                if !is_active {
+                    let notification = crate::notifications::Notification::new(
+                        &result.session_id,
+                        &title,
+                        &subtitle,
+                        &body,
+                    );
+                    notif_store.borrow_mut().add_notification(notification);
                 }
-
-                notif_store.borrow_mut().add_notification(notification);
             }
         }
 
@@ -949,7 +946,20 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         let notif = dropdown.notification_store.clone();
 
         Rc::new(move || {
-            let id = mgr.borrow_mut().create_session(None, None);
+            let mgr_ref = mgr.borrow();
+
+            let cwd = mgr_ref
+                .active_terminal_vte()
+                .and_then(|term| term.current_directory_uri())
+                .and_then(|uri| manager::path_from_file_uri(&uri));
+
+            let group_id = mgr_ref.active_group_id()
+                .unwrap_or(crate::session::DEFAULT_GROUP)
+                .to_string();
+
+            drop(mgr_ref);
+
+            let id = mgr.borrow_mut().create_session_in_group(None, cwd.as_deref(), &group_id);
             wire_tab_lifecycle(&sid, &mgr, &notif, &id);
         })
     };

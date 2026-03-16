@@ -13,6 +13,13 @@ use crate::session::{Session, SessionStatus};
 use crate::sidebar::Sidebar;
 use crate::terminal::{Direction, VteTerminal, SplitView};
 
+/// Extract the filesystem path from a `file://[host]/path` URI.
+pub(crate) fn path_from_file_uri(uri: &str) -> Option<String> {
+    let without_scheme = uri.strip_prefix("file://")?;
+    let slash_pos = without_scheme.find('/')?;
+    Some(without_scheme[slash_pos..].to_string())
+}
+
 pub struct SessionManager {
     sessions: Vec<Session>,
     split_views: HashMap<String, SplitView>,
@@ -107,10 +114,7 @@ impl SessionManager {
         let cwds = self.session_cwds.clone();
         vte_term.connect_current_directory_uri_changed(move |term: &vte4::Terminal| {
             let path = term.current_directory_uri()
-                .map(|uri| {
-                    let s = uri.to_string();
-                    s.strip_prefix("file://").unwrap_or(&s).to_string()
-                });
+                .and_then(|uri| path_from_file_uri(&uri));
 
             let Some(cwd) = path else {
                 sidebar.update_branch(&sid, None);
@@ -197,6 +201,12 @@ impl SessionManager {
 
     pub fn active_id(&self) -> Option<&str> {
         self.active_id.as_deref()
+    }
+
+    pub fn active_group_id(&self) -> Option<&str> {
+        self.active_id.as_deref()
+            .and_then(|id| self.sessions.iter().find(|s| s.id == id))
+            .map(|s| s.group_id.as_str())
     }
 
     pub fn active_terminal_vte(&self) -> Option<vte4::Terminal> {

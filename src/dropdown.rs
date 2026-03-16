@@ -1,5 +1,6 @@
 use std::cell::{Cell, Ref, RefCell};
 use std::rc::Rc;
+use std::time::Instant;
 
 use gtk4::prelude::*;
 use gtk4::{
@@ -161,24 +162,24 @@ impl DropdownWindow {
         self.animation_generation.set(generation);
 
         let target = self.target_height;
-        let duration_us = (self.animation_ms as i64) * 1000;
+        let duration_ms = self.animation_ms as f64;
         let animation_generation = self.animation_generation.clone();
-        let start_time: Rc<Cell<i64>> = Rc::new(Cell::new(0));
+        let start_time: Rc<Cell<Option<Instant>>> = Rc::new(Cell::new(None));
         let window = self.window.clone();
 
-        self.window.add_tick_callback(move |_widget, clock| {
+        self.window.add_tick_callback(move |_widget, _clock| {
             if animation_generation.get() != generation {
                 return glib::ControlFlow::Break;
             }
 
-            let now = clock.frame_time();
+            let now = Instant::now();
+            let start = start_time.get().unwrap_or_else(|| {
+                start_time.set(Some(now));
+                now
+            });
 
-            if start_time.get() == 0 {
-                start_time.set(now);
-            }
-
-            let elapsed = now - start_time.get();
-            let progress = (elapsed as f64 / duration_us as f64).clamp(0.0, 1.0);
+            let elapsed_ms = now.duration_since(start).as_secs_f64() * 1000.0;
+            let progress = (elapsed_ms / duration_ms).clamp(0.0, 1.0);
 
             // Ease-out cubic
             let eased = 1.0 - (1.0 - progress).powi(3);

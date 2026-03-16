@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::env;
 
+use gtk4::gdk;
 use gtk4::glib;
 use gtk4::gio;
 use gtk4::pango;
@@ -12,6 +13,7 @@ use crate::config::Config;
 use crate::theme::{self, ColorScheme};
 
 pub struct VteTerminal {
+    container: gtk4::Box,
     terminal: Terminal,
     spawned: Cell<bool>,
 }
@@ -31,20 +33,50 @@ impl VteTerminal {
         terminal.set_font(Some(&font));
 
         Self::apply_colors(&terminal, scheme);
+        Self::setup_shift_enter(&terminal);
 
-        Self { terminal, spawned: Cell::new(false) }
+        let scrollbar = gtk4::Scrollbar::new(
+            gtk4::Orientation::Vertical,
+            terminal.vadjustment().as_ref(),
+        );
+
+        let container = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        container.set_margin_start(2);
+        container.set_margin_end(2);
+        terminal.set_hexpand(true);
+        terminal.set_vexpand(true);
+        container.append(&terminal);
+        container.append(&scrollbar);
+
+        Self { container, terminal, spawned: Cell::new(false) }
     }
 
     fn apply_colors(terminal: &Terminal, scheme: &ColorScheme) {
-        let fg = gtk4::gdk::RGBA::parse(scheme.terminal_fg).expect("valid fg color");
-        let bg = gtk4::gdk::RGBA::parse(scheme.terminal_bg).expect("valid bg color");
+        let fg = gdk::RGBA::parse(scheme.terminal_fg).expect("valid fg color");
+        let bg = gdk::RGBA::parse(scheme.terminal_bg).expect("valid bg color");
 
-        let palette: Vec<gtk4::gdk::RGBA> = scheme.palette.iter()
-            .map(|c| gtk4::gdk::RGBA::parse(*c).expect("valid palette color"))
+        let palette: Vec<gdk::RGBA> = scheme.palette.iter()
+            .map(|c| gdk::RGBA::parse(*c).expect("valid palette color"))
             .collect();
 
-        let palette_refs: Vec<&gtk4::gdk::RGBA> = palette.iter().collect();
+        let palette_refs: Vec<&gdk::RGBA> = palette.iter().collect();
         terminal.set_colors(Some(&fg), Some(&bg), &palette_refs);
+    }
+
+    fn setup_shift_enter(terminal: &Terminal) {
+        let key_controller = gtk4::EventControllerKey::new();
+        let terminal_clone = terminal.clone();
+
+        key_controller.connect_key_pressed(move |_, keyval, _keycode, state| {
+            if keyval == gdk::Key::Return && state.contains(gdk::ModifierType::SHIFT_MASK) {
+                terminal_clone.feed_child(b"\x1b[13;2u");
+                return glib::Propagation::Stop;
+            }
+
+            glib::Propagation::Proceed
+        });
+
+        terminal.add_controller(key_controller);
     }
 
     pub fn needs_spawn(&self) -> bool {
@@ -52,7 +84,7 @@ impl VteTerminal {
     }
 
     pub fn widget(&self) -> &gtk4::Widget {
-        self.terminal.upcast_ref()
+        self.container.upcast_ref()
     }
 
     pub fn terminal(&self) -> &Terminal {
