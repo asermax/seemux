@@ -30,3 +30,5 @@ RUN git clone --depth 1 --branch v1.3.0 \
     && ninja -C /tmp/gtk4-layer-shell/build install \
     && ldconfig \
     && rm -rf /tmp/gtk4-layer-shell
+
+ENV LIBRARY_PATH=/usr/local/lib

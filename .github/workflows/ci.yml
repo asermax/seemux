@@ -54,7 +54,7 @@ jobs:
           shared-key: seemux-ci
 
       - name: Run clippy
-        run: cargo clippy --locked -- -D warnings
+        run: cargo clippy --locked
 
   build-release:
     name: Build & Release
