@@ -1,6 +1,6 @@
 ---
 description: Commits changes with automatic semantic versioning for the seemux app and plugins
-allowed-tools: Read, Edit, Bash(git diff:*), Bash(git status:*), Bash(git add:*), Bash(git commit:*), Bash(jq:*), Bash(mv:*), Bash(sed:*), AskUserQuestion
+allowed-tools: Read, Edit, Bash(git diff:*), Bash(git status:*), Bash(git add:*), Bash(git commit:*), Bash(cargo generate-lockfile*), Bash(jq:*), Bash(mv:*), Bash(sed:*), AskUserQuestion
 ---
 
 # Commit with Version Bump
@@ -249,9 +249,10 @@ Use AskUserQuestion to confirm or adjust. **Important**: Offer version type alte
 
 If version bump approved, update the appropriate file(s):
 
-**For seemux (app)** — update `Cargo.toml`:
+**For seemux (app)** — update `Cargo.toml` and regenerate the lock file:
 ```bash
 sed -i 's/^version = ".*"/version = "X.Y.Z"/' Cargo.toml
+cargo generate-lockfile
 ```
 
 **For seemux-hooks** — update both the plugin.json AND sync the version in marketplace.json:
