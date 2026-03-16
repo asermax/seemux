@@ -59,6 +59,10 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
                 .map(|s| s.to_string());
         }
 
+        "post-tool-use" => {
+            result.new_status = Some(SessionStatus::Running);
+        }
+
         "notification" => {
             let signal = event.payload.get("event_name")
                 .or_else(|| event.payload.get("notification_type"))
@@ -279,6 +283,13 @@ mod tests {
 
         assert_eq!(result.new_status, Some(SessionStatus::Running));
         assert_eq!(result.tool_name, None);
+    }
+
+    #[test]
+    fn handle_post_tool_use() {
+        let result = handle_hook_event(make_event("post-tool-use", serde_json::json!({})));
+
+        assert_eq!(result.new_status, Some(SessionStatus::Running));
     }
 
     #[test]
