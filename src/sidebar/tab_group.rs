@@ -111,7 +111,7 @@ impl TabGroupWidget {
         drag_source.connect_prepare(move |_source, _x, _y| {
             let group_id = container.widget_name().to_string();
             *dragging_prepare.borrow_mut() = group_id.clone();
-            Some(gdk::ContentProvider::for_value(&group_id.to_value()))
+            Some(gdk::ContentProvider::for_value(&group_id.to_variant().to_value()))
         });
 
         let container = self.container.clone();
@@ -131,27 +131,15 @@ impl TabGroupWidget {
         self.header.add_controller(drag_source);
     }
 
-    /// Set up a drop target on the container that captures group drops before
-    /// child widgets see them.  Using `PropagationPhase::Capture` lets the
-    /// container intercept group drags while tab drags pass through to child
-    /// DropTargets (on header/list_box) in the normal bubble phase.
+    /// Set up a drop target for group reordering.  Uses `Variant` content type
+    /// so it never conflicts with tab DropTargets (which use `GString`).
     /// The `on_drop` callback receives `(dragged_group_id, this_group_id)`.
     pub fn setup_drop_target<F: Fn(String, String) + 'static>(
         &self,
         dragging_group_id: Rc<RefCell<String>>,
         on_drop: F,
     ) {
-        let drop_target = gtk4::DropTarget::new(glib::GString::static_type(), gdk::DragAction::MOVE);
-        drop_target.set_propagation_phase(gtk4::PropagationPhase::Capture);
-
-        // Only accept group drags; reject tab drags so children handle them
-        let dragging_enter = dragging_group_id.clone();
-        drop_target.connect_enter(move |_target, _x, _y| {
-            if dragging_enter.borrow().is_empty() {
-                return gdk::DragAction::empty();
-            }
-            gdk::DragAction::MOVE
-        });
+        let drop_target = gtk4::DropTarget::new(glib::Variant::static_type(), gdk::DragAction::MOVE);
 
         let container = self.container.clone();
         let dragging_motion = dragging_group_id.clone();
@@ -192,21 +180,22 @@ impl TabGroupWidget {
         drop_target.connect_drop(move |_target, value, _x, _y| {
             container.remove_css_class("drop-after-group");
 
-            let Ok(group_id) = value.get::<glib::GString>() else { return false };
+            let Ok(variant) = value.get::<glib::Variant>() else { return false };
+            let Some(group_id) = variant.get::<String>() else { return false };
             let target_id = container.widget_name().to_string();
 
-            if group_id.as_str() == target_id {
+            if group_id == target_id {
                 return false;
             }
 
             let is_above_dragged = container.next_sibling()
-                .is_some_and(|next| next.widget_name() == group_id.as_str());
+                .is_some_and(|next| next.widget_name().as_str() == group_id.as_str());
 
             if is_above_dragged {
                 return false;
             }
 
-            on_drop(group_id.to_string(), target_id);
+            on_drop(group_id, target_id);
             true
         });
 

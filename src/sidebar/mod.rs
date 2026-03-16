@@ -147,11 +147,6 @@ impl Sidebar {
         drop_target.connect_enter(move |_target, _x, _y| {
             let dragged = dragging_enter.borrow();
 
-            // Guard: reject group drags so they propagate to the group container's drop target
-            if dragged.is_empty() {
-                return gdk::DragAction::empty();
-            }
-
             let list = if target_group_enter == DEFAULT_GROUP {
                 Some(default_list_enter.clone())
             } else {
@@ -262,13 +257,7 @@ impl Sidebar {
         let drop_target = gtk4::DropTarget::new(glib::GString::static_type(), gdk::DragAction::MOVE);
 
         let list_ref = list.clone();
-        let dragging_enter = self.dragging_id.clone();
         drop_target.connect_enter(move |_target, _x, _y| {
-            // Guard: reject group drags so they propagate to the group container's drop target
-            if dragging_enter.borrow().is_empty() {
-                return gdk::DragAction::empty();
-            }
-
             if list_ref.row_at_index(0).is_none() {
                 list_ref.add_css_class("drop-target-highlight");
             }
@@ -339,7 +328,7 @@ impl Sidebar {
 
     /// Drop target on the "Groups" section header — moves dragged group to first position.
     fn setup_groups_header_drop_target(&self) {
-        let drop_target = gtk4::DropTarget::new(glib::GString::static_type(), gdk::DragAction::MOVE);
+        let drop_target = gtk4::DropTarget::new(glib::Variant::static_type(), gdk::DragAction::MOVE);
 
         let dragging_enter = self.dragging_group_id.clone();
         let group_widgets_enter = self.group_widgets.clone();
@@ -379,8 +368,8 @@ impl Sidebar {
         let group_widgets = self.group_widgets.clone();
 
         drop_target.connect_drop(move |_target, value, _x, _y| {
-            let Ok(group_id) = value.get::<glib::GString>() else { return false };
-            let group_id = group_id.to_string();
+            let Ok(variant) = value.get::<glib::Variant>() else { return false };
+            let Some(group_id) = variant.get::<String>() else { return false };
 
             // Already first group — no-op
             let groups_ref = groups.borrow();
