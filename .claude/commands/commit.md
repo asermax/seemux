@@ -1,6 +1,6 @@
 ---
 description: Commits changes with automatic semantic versioning for the seemux app and plugins
-allowed-tools: Read, Edit, Bash(git diff:*), Bash(git status:*), Bash(git add:*), Bash(git commit:*), Bash(cargo generate-lockfile*), Bash(jq:*), Bash(mv:*), Bash(sed:*), AskUserQuestion
+allowed-tools: Read, Edit, Bash(git diff:*), Bash(git status:*), Bash(git add:*), Bash(git commit:*), Bash(git tag:*), Bash(git push:*), Bash(cargo generate-lockfile*), Bash(jq:*), Bash(mv:*), Bash(sed:*), AskUserQuestion
 ---
 
 # Commit with Version Bump
@@ -294,6 +294,31 @@ EOF
 ### 5. Repeat for Each Group
 
 Continue processing each commit group until all approved groups are committed.
+
+### 6. Tag and Push
+
+After all commits are created:
+
+#### a. Create a git tag from the latest seemux app version
+
+Read the current version from `Cargo.toml` and create an annotated tag:
+
+```bash
+git tag -a "v<version>" -m "v<version>"
+```
+
+For example, if the version is `0.3.0`:
+```bash
+git tag -a "v0.3.0" -m "v0.3.0"
+```
+
+#### b. Push everything (commits + tags)
+
+```bash
+git push --follow-tags
+```
+
+This pushes all commits and the new tag in a single operation, which triggers the CI release workflow.
 
 ## Commit Message Format
 
