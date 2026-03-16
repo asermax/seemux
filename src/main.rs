@@ -4,6 +4,7 @@ mod cli;
 mod config;
 mod dropdown;
 mod git;
+mod global_shortcuts;
 mod layer_shell;
 mod notifications;
 mod session;

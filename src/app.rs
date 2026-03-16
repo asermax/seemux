@@ -142,7 +142,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
             let sid = sid.clone();
             let notif = notif.clone();
 
-            show_new_group_dialog(&win, move |name| {
+            show_new_group_popover(&win, move |name| {
                 let group_id = uuid::Uuid::new_v4().to_string();
                 sid.add_group(&group_id, &name);
 
@@ -427,23 +427,17 @@ fn setup_terminal_context_menu(stack: &Stack) {
     stack.add_controller(gesture);
 }
 
-fn show_new_group_dialog<F: Fn(String) + 'static>(window: &ApplicationWindow, on_create: F) {
-    use gtk4::{Box as GtkBox, Button, Entry, Label, Orientation, Window};
+fn show_new_group_popover<F: Fn(String) + 'static>(window: &ApplicationWindow, on_create: F) {
+    use gtk4::{Box as GtkBox, Button, Entry, Label, Orientation, Popover};
 
-    let dialog = Window::builder()
-        .transient_for(window)
-        .modal(true)
-        .title("New Group")
-        .default_width(300)
-        .default_height(120)
-        .resizable(false)
-        .build();
+    let popover = Popover::new();
+    popover.set_autohide(true);
 
     let vbox = GtkBox::new(Orientation::Vertical, 12);
-    vbox.set_margin_top(16);
-    vbox.set_margin_bottom(16);
-    vbox.set_margin_start(16);
-    vbox.set_margin_end(16);
+    vbox.set_margin_top(12);
+    vbox.set_margin_bottom(12);
+    vbox.set_margin_start(12);
+    vbox.set_margin_end(12);
 
     let label = Label::new(Some("Group name:"));
     label.set_xalign(0.0);
@@ -465,16 +459,20 @@ fn show_new_group_dialog<F: Fn(String) + 'static>(window: &ApplicationWindow, on
     vbox.append(&entry);
     vbox.append(&btn_box);
 
-    dialog.set_child(Some(&vbox));
+    popover.set_child(Some(&vbox));
 
-    let dialog_cancel = dialog.clone();
+    // Attach to the window's content widget so it appears within the layer-shell surface
+    let child = window.child().expect("window must have a child");
+    popover.set_parent(&child);
+
+    let popover_cancel = popover.clone();
     cancel_btn.connect_clicked(move |_| {
-        dialog_cancel.close();
+        popover_cancel.popdown();
     });
 
     let on_create = Rc::new(on_create);
 
-    let dialog_create = dialog.clone();
+    let popover_create = popover.clone();
     let entry_create = entry.clone();
     let on_create_btn = on_create.clone();
     create_btn.connect_clicked(move |_| {
@@ -484,10 +482,10 @@ fn show_new_group_dialog<F: Fn(String) + 'static>(window: &ApplicationWindow, on
             on_create_btn(name);
         }
 
-        dialog_create.close();
+        popover_create.popdown();
     });
 
-    let dialog_enter = dialog.clone();
+    let popover_enter = popover.clone();
     let entry_enter = entry.clone();
     entry.connect_activate(move |_| {
         let name = entry_enter.text().to_string();
@@ -496,10 +494,16 @@ fn show_new_group_dialog<F: Fn(String) + 'static>(window: &ApplicationWindow, on
             on_create(name);
         }
 
-        dialog_enter.close();
+        popover_enter.popdown();
     });
 
-    dialog.present();
+    // Unparent popover when it's closed to avoid leaks
+    let popover_closed = popover.clone();
+    popover.connect_closed(move |_| {
+        popover_closed.unparent();
+    });
+
+    popover.popup();
     entry.grab_focus();
 }
 
@@ -770,7 +774,44 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     setup_hook_polling(state, &dropdown.manager, &dropdown.notification_store, Some(dropdown.clone()));
     setup_stale_pid_detection(&dropdown.manager);
 
-    // Keyboard shortcuts — use dropdown's tab wiring (with close guard)
+    // Shared "create new group" logic — Ctrl+Shift+G and sidebar button
+    let create_group = {
+        let mgr = dropdown.manager.clone();
+        let sid = dropdown.sidebar.clone();
+        let notif = dropdown.notification_store.clone();
+        let window = dropdown.window().clone();
+
+        Rc::new(move || {
+            let mgr = mgr.clone();
+            let sid = sid.clone();
+            let notif = notif.clone();
+
+            show_new_group_popover(&window, move |name| {
+                let group_id = uuid::Uuid::new_v4().to_string();
+                sid.add_group(&group_id, &name);
+
+                let mgr2 = mgr.clone();
+                let sid2 = sid.clone();
+                let notif2 = notif.clone();
+                let gid = group_id.clone();
+                let sid_expand = sid.clone();
+                let gid_expand = group_id.clone();
+                sid.connect_group_new_tab(&group_id, move |_| {
+                    sid_expand.expand_group(&gid_expand);
+                    let id = mgr2.borrow_mut().create_session_in_group(None, None, &gid);
+                    crate::dropdown::wire_tab(&sid2, &mgr2, &notif2, &id);
+                });
+
+                let first_id = mgr.borrow_mut().create_session_in_group(None, None, &group_id);
+                crate::dropdown::wire_tab(&sid, &mgr, &notif, &first_id);
+            });
+        })
+    };
+
+    let create_group_btn = create_group.clone();
+    dropdown.sidebar.connect_new_group(move || create_group_btn());
+
+    // Keyboard shortcuts
     let on_new_tab: Rc<dyn Fn()> = {
         let mgr = dropdown.manager.clone();
         let sid = dropdown.sidebar.clone();
@@ -782,17 +823,29 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         })
     };
 
+    let extra_handler: Option<Rc<dyn Fn(Key, bool, bool) -> Option<glib::Propagation>>> = {
+        let create_group_key = create_group.clone();
+
+        Some(Rc::new(move |key, ctrl, shift| {
+            if ctrl && shift && key == Key::G {
+                create_group_key();
+                return Some(glib::Propagation::Stop);
+            }
+
+            None
+        }))
+    };
+
     setup_keyboard_shortcuts(
         dropdown.window(),
         &dropdown.manager,
         &dropdown.notification_store,
         on_new_tab,
-        None,
+        extra_handler,
     );
 
-    // Quit when compositor hides the window (WM close keybinding) —
-    // layer-shell surfaces don't receive close_request, so we watch for
-    // external visibility changes instead.
+    // Quit if the compositor hides the window externally (some
+    // compositors unmap layer-shell surfaces on close keybindings).
     let app_for_close = app.clone();
     let programmatic_hide = dropdown.programmatic_hide();
     dropdown.window().connect_notify_local(Some("visible"), move |window, _| {
@@ -800,6 +853,17 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
             app_for_close.quit();
         }
     });
+
+    // Also handle close_request for compositors that do send it.
+    let app_for_cr = app.clone();
+    dropdown.window().connect_close_request(move |_| {
+        app_for_cr.quit();
+        glib::Propagation::Proceed
+    });
+
+    // Register global shortcut via XDG Portal (best-effort)
+    let dropdown_for_shortcut = dropdown.clone();
+    crate::global_shortcuts::register_toggle(move || dropdown_for_shortcut.toggle());
 
     // Present the window off-screen, ready for the first toggle
     dropdown.present_hidden();

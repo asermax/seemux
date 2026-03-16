@@ -37,6 +37,7 @@ impl TabRow {
         title_label.add_css_class("tab-title");
         title_label.set_xalign(0.0);
         title_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        title_label.set_tooltip_text(Some(title));
 
         let status_label = Label::new(None);
         status_label.add_css_class("status-pill");
@@ -105,6 +106,7 @@ impl TabRow {
 
     pub fn set_title(&self, title: &str) {
         self.title_label.set_text(title);
+        self.title_label.set_tooltip_text(Some(title));
     }
 
     pub fn set_branch(&self, branch: Option<&str>) {

@@ -155,6 +155,10 @@ impl DropdownWindow {
         self.ensure_window_ready();
         self.animate(true);
         *self.visible.borrow_mut() = true;
+
+        if let Some(term) = self.manager.borrow().active_terminal_vte() {
+            term.grab_focus();
+        }
     }
 
     /// Present the window off-screen without animating — used to start quake mode hidden.
