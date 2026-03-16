@@ -197,6 +197,7 @@ fn setup_common(
     register_tab_actions(window, manager, sidebar);
     register_terminal_actions(window, manager);
     setup_terminal_context_menu(stack, manager);
+    setup_terminal_ctrl_click(stack, manager);
 
     // Wire notification changes to sidebar badge + preview updates
     let sidebar_for_notif = sidebar.clone();
@@ -463,6 +464,35 @@ fn setup_terminal_context_menu(stack: &Stack, manager: &Rc<RefCell<SessionManage
         popover.set_menu_model(Some(&menu));
         popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
         popover.popup();
+    });
+
+    stack.add_controller(gesture);
+}
+
+fn setup_terminal_ctrl_click(stack: &Stack, manager: &Rc<RefCell<SessionManager>>) {
+    let mgr = manager.clone();
+
+    let gesture = GestureClick::new();
+    gesture.set_button(1);
+
+    gesture.connect_released(move |gesture, _n_press, x, y| {
+        if !gesture.current_event_state().contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+            return;
+        }
+
+        let url = mgr.borrow().active_terminal_vte().and_then(|term| {
+            let stack_widget = gesture.widget()?;
+            let point = stack_widget.compute_point(&term, &gtk4::graphene::Point::new(x as f32, y as f32))?;
+            VteTerminal::check_url_at(&term, point.x() as f64, point.y() as f64)
+        });
+
+        if let Some(url) = url {
+            gesture.set_state(gtk4::EventSequenceState::Claimed);
+
+            if let Err(e) = gio::AppInfo::launch_default_for_uri(&url, None::<&gio::AppLaunchContext>) {
+                eprintln!("Failed to open URL: {e}");
+            }
+        }
     });
 
     stack.add_controller(gesture);
@@ -1093,56 +1123,27 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         extra_handler,
     );
 
-    // Track pointer position to distinguish external dialogs from
-    // intentional focus switches. Layer-shell surfaces at LAYER_TOP receive
-    // pointer enter/leave events regardless of keyboard focus state.
-    let motion = gtk4::EventControllerMotion::new();
-
-    let pointer_flag = dropdown.pointer_inside.clone();
-    motion.connect_enter(move |_, _, _| {
-        pointer_flag.set(true);
-    });
-
-    let pointer_flag = dropdown.pointer_inside.clone();
-    motion.connect_leave(move |_| {
-        pointer_flag.set(false);
-    });
-
-    dropdown.window().add_controller(motion);
-
     // Auto-hide when another window gets focus.
     // Use a short delay to avoid hiding when a popover (context menu)
     // briefly steals focus — the window becomes active again once the
     // popover closes.
-    // If the pointer is inside the dropdown when focus is lost, an external
-    // dialog stole focus — suspend (move off-screen) so the dialog becomes
-    // accessible, then resume when focus returns.
     let hide_generation: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(0));
     let dropdown_for_focus = dropdown.clone();
     let hide_gen = hide_generation.clone();
-    let pointer_inside = dropdown.pointer_inside.clone();
     dropdown.window().connect_notify_local(Some("is-active"), move |window, _| {
         if !window.is_active() && *dropdown_for_focus.visible() {
-            if pointer_inside.get() {
-                // External dialog stole focus — move the dropdown off-screen
-                // so the dialog (a normal xdg_toplevel) becomes accessible.
-                dropdown_for_focus.suspend();
-                return;
-            }
-
             let current = hide_gen.get().wrapping_add(1);
             hide_gen.set(current);
 
             let dd = dropdown_for_focus.clone();
             let gen_check = hide_gen.clone();
-            glib::timeout_add_local_once(std::time::Duration::from_millis(150), move || {
+            glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
                 if gen_check.get() == current && *dd.visible() {
                     dd.toggle();
                 }
             });
-        } else if window.is_active() {
-            // Window became active again — resume if suspended, cancel pending hide.
-            dropdown_for_focus.resume();
+        } else {
+            // Window became active again — cancel any pending hide
             hide_gen.set(hide_gen.get().wrapping_add(1));
         }
     });

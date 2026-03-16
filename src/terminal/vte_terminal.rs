@@ -8,8 +8,6 @@ use gtk4::pango;
 use gtk4::prelude::*;
 use vte4::prelude::*;
 use vte4::{Terminal, PtyFlags};
-use gtk4::GestureClick;
-
 use crate::config::Config;
 use crate::theme::{self, ColorScheme};
 
@@ -39,7 +37,6 @@ impl VteTerminal {
         Self::apply_colors(&terminal, scheme);
         Self::setup_shift_enter(&terminal);
         Self::setup_url_matching(&terminal);
-        Self::setup_ctrl_click(&terminal);
 
         let scrollbar = gtk4::Scrollbar::new(
             gtk4::Orientation::Vertical,
@@ -93,30 +90,6 @@ impl VteTerminal {
 
         let tag = terminal.match_add_regex(&regex, 0);
         terminal.match_set_cursor_name(tag, "pointer");
-    }
-
-    fn setup_ctrl_click(terminal: &Terminal) {
-        let gesture = GestureClick::new();
-        gesture.set_button(1);
-
-        let term = terminal.clone();
-        gesture.connect_released(move |gesture, _n_press, x, y| {
-            let state = gesture.current_event_state();
-
-            if !state.contains(gdk::ModifierType::CONTROL_MASK) {
-                return;
-            }
-
-            if let Some(url) = Self::check_url_at(&term, x, y) {
-                gesture.set_state(gtk4::EventSequenceState::Claimed);
-
-                if let Err(e) = gio::AppInfo::launch_default_for_uri(&url, None::<&gio::AppLaunchContext>) {
-                    eprintln!("Failed to open URL: {e}");
-                }
-            }
-        });
-
-        terminal.add_controller(gesture);
     }
 
     /// Check for a URL at the given coordinates (in terminal widget space).
