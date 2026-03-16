@@ -119,6 +119,11 @@ impl TabRow {
         }
     }
 
+    pub fn set_title(&self, title: &str) {
+        self.title_label.set_text(title);
+        self.title_label.set_tooltip_text(Some(title));
+    }
+
     pub fn update_cwd(&self, folder_name: &str, display_path: &str) {
         self.title_label.set_text(folder_name);
         self.title_label.set_tooltip_text(Some(display_path));
@@ -173,7 +178,7 @@ impl TabRow {
         }
 
         match status {
-            SessionStatus::Idle | SessionStatus::Exited => {
+            SessionStatus::Idle | SessionStatus::Exited | SessionStatus::Running => {
                 self.status_label.set_visible(false);
             }
             _ => {
@@ -227,9 +232,9 @@ impl TabRow {
         drop_target.connect_motion(move |_target, _x, _y| {
             let dragged = dragging_motion.borrow();
 
-            // Guard: ignore group drags
+            // Guard: reject group drags so they propagate to the group container's drop target
             if dragged.is_empty() {
-                return gdk::DragAction::MOVE;
+                return gdk::DragAction::empty();
             }
 
             let target_id = container.widget_name();

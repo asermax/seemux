@@ -119,8 +119,18 @@ impl SessionManager {
         id
     }
 
-    /// Wire CWD signals on a vte4::Terminal to update tab title, subtitle, and git branch.
+    /// Wire VTE signals to update tab title, subtitle, and git branch.
     fn wire_vte_signals(&self, vte_term: &vte4::Terminal, session_id: &str, pane_id: &str) {
+        // Window title changes (shows running command name)
+        let sidebar = self.sidebar.clone();
+        let sid = session_id.to_string();
+        vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
+            if let Some(title) = term.window_title() {
+                sidebar.update_title(&sid, &title);
+            }
+        });
+
+        // CWD changes (updates folder name, subtitle path, and git branch)
         let sidebar = self.sidebar.clone();
         let sid = session_id.to_string();
         let pid = pane_id.to_string();

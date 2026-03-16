@@ -147,9 +147,9 @@ impl Sidebar {
         drop_target.connect_enter(move |_target, _x, _y| {
             let dragged = dragging_enter.borrow();
 
-            // Guard: ignore group drags
+            // Guard: reject group drags so they propagate to the group container's drop target
             if dragged.is_empty() {
-                return gdk::DragAction::MOVE;
+                return gdk::DragAction::empty();
             }
 
             let list = if target_group_enter == DEFAULT_GROUP {
@@ -264,9 +264,9 @@ impl Sidebar {
         let list_ref = list.clone();
         let dragging_enter = self.dragging_id.clone();
         drop_target.connect_enter(move |_target, _x, _y| {
-            // Guard: ignore group drags
+            // Guard: reject group drags so they propagate to the group container's drop target
             if dragging_enter.borrow().is_empty() {
-                return gdk::DragAction::MOVE;
+                return gdk::DragAction::empty();
             }
 
             if list_ref.row_at_index(0).is_none() {
@@ -552,6 +552,12 @@ impl Sidebar {
 
         for (id, (row, _)) in rows.iter() {
             row.set_active(id == session_id);
+        }
+    }
+
+    pub fn update_title(&self, session_id: &str, title: &str) {
+        if let Some((row, _)) = self.rows.borrow().get(session_id) {
+            row.set_title(title);
         }
     }
 

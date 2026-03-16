@@ -29,6 +29,7 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
 
     match event.event.as_str() {
         "session-start" => {
+            result.new_status = Some(SessionStatus::Running);
             result.clear_notifications = true;
 
             if let Some(pid) = event.payload.get("pid").and_then(|v| v.as_u64()) {
@@ -187,7 +188,7 @@ mod tests {
             serde_json::json!({"pid": 12345}),
         ));
 
-        assert_eq!(result.new_status, None);
+        assert_eq!(result.new_status, Some(SessionStatus::Running));
         assert!(result.clear_notifications);
         assert_eq!(result.claude_pid, Some(12345));
     }
