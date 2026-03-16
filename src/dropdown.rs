@@ -39,6 +39,8 @@ impl DropdownWindow {
             .decorated(false)
             .build();
 
+        window.add_css_class("dropdown-window");
+
         // Get monitor dimensions
         let display = gtk4::gdk::Display::default().expect("display");
         let monitors = display.monitors();

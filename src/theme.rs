@@ -342,7 +342,12 @@ list row:selected {{
 
 /* Dropdown */
 
+window.dropdown-window {{
+    background-color: transparent;
+}}
+
 .dropdown-border {{
+    background-color: {window_bg};
     border: 2px solid {accent};
     border-top: none;
     border-radius: 0 0 8px 8px;
