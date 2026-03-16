@@ -1069,7 +1069,7 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         extra_handler,
     );
 
-    // Track pointer position to distinguish external dialogs/menus from
+    // Track pointer position to distinguish external dialogs from
     // intentional focus switches. Layer-shell surfaces at LAYER_TOP receive
     // pointer enter/leave events regardless of keyboard focus state.
     let motion = gtk4::EventControllerMotion::new();
@@ -1090,8 +1090,9 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     // Use a short delay to avoid hiding when a popover (context menu)
     // briefly steals focus — the window becomes active again once the
     // popover closes.
-    // If the pointer is inside the dropdown when focus is lost, something
-    // external stole focus (dialog, compositor menu) — don't auto-hide.
+    // If the pointer is inside the dropdown when focus is lost, an external
+    // dialog stole focus — lower the layer so the dialog appears above,
+    // then raise back when focus returns.
     let hide_generation: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(0));
     let dropdown_for_focus = dropdown.clone();
     let hide_gen = hide_generation.clone();
@@ -1099,6 +1100,9 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     dropdown.window().connect_notify_local(Some("is-active"), move |window, _| {
         if !window.is_active() && *dropdown_for_focus.visible() {
             if pointer_inside.get() {
+                // External dialog stole focus — lower the dropdown so the
+                // dialog (a normal window) can appear above it.
+                crate::layer_shell::lower(window);
                 return;
             }
 
@@ -1113,7 +1117,9 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
                 }
             });
         } else {
-            // Window became active again — cancel any pending hide
+            // Window became active again — raise back to LAYER_TOP and
+            // cancel any pending hide.
+            crate::layer_shell::raise(window);
             hide_gen.set(hide_gen.get().wrapping_add(1));
         }
     });

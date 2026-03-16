@@ -21,7 +21,7 @@ pub struct DropdownWindow {
     /// Incremented on each animation start; stale callbacks see a mismatch and stop.
     animation_generation: Rc<Cell<u32>>,
     /// Tracks whether the pointer is currently inside the dropdown surface.
-    /// Used to suppress auto-hide when focus is stolen by external dialogs/menus.
+    /// Used to detect when an external dialog steals focus vs the user clicking away.
     pub pointer_inside: Rc<Cell<bool>>,
     pub overlay: Overlay,
     pub paned: Paned,
