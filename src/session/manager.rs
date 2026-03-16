@@ -9,6 +9,7 @@ use gtk4::Stack;
 use vte4::prelude::*;
 
 use crate::config::{Config, SavedSession, SessionState};
+use crate::notifications::NotificationStore;
 use crate::session::{Session, SessionStatus};
 use crate::sidebar::Sidebar;
 use crate::terminal::{Direction, VteTerminal, SplitView};
@@ -18,6 +19,27 @@ pub(crate) fn path_from_file_uri(uri: &str) -> Option<String> {
     let without_scheme = uri.strip_prefix("file://")?;
     let slash_pos = without_scheme.find('/')?;
     Some(without_scheme[slash_pos..].to_string())
+}
+
+/// Extract the last path component (folder name) from a path.
+fn folder_name(path: &str) -> &str {
+    match path.rsplit('/').next() {
+        Some(name) if !name.is_empty() => name,
+        _ => path,
+    }
+}
+
+/// Replace the `$HOME` prefix with `~` for display.
+fn display_path(path: &str) -> String {
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = home.to_string_lossy();
+
+        if let Some(rest) = path.strip_prefix(home.as_ref()) {
+            return format!("~{rest}");
+        }
+    }
+
+    path.to_string()
 }
 
 pub struct SessionManager {
@@ -97,21 +119,14 @@ impl SessionManager {
         id
     }
 
-    /// Wire title and CWD signals on a vte4::Terminal.
+    /// Wire CWD signals on a vte4::Terminal to update tab title, subtitle, and git branch.
     fn wire_vte_signals(&self, vte_term: &vte4::Terminal, session_id: &str, pane_id: &str) {
-        let sidebar = self.sidebar.clone();
-        let sid = session_id.to_string();
-        vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
-            if let Some(title) = term.window_title() {
-                sidebar.update_title(&sid, &title);
-            }
-        });
-
         let sidebar = self.sidebar.clone();
         let sid = session_id.to_string();
         let pid = pane_id.to_string();
         let last_cwd: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let cwds = self.session_cwds.clone();
+
         vte_term.connect_current_directory_uri_changed(move |term: &vte4::Terminal| {
             let path = term.current_directory_uri()
                 .and_then(|uri| path_from_file_uri(&uri));
@@ -126,6 +141,9 @@ impl SessionManager {
             }
             *last_cwd.borrow_mut() = Some(cwd.clone());
             cwds.borrow_mut().insert(pid.clone(), cwd.clone());
+
+            // Update tab title (folder name) and subtitle (full display path)
+            sidebar.update_cwd(&sid, folder_name(&cwd), &display_path(&cwd));
 
             let sidebar = sidebar.clone();
             let sid = sid.clone();
@@ -149,9 +167,9 @@ impl SessionManager {
                 on_empty();
             }
         } else if self.active_id.as_deref() == Some(session_id) {
-            let next_id = self.sessions.last().map(|s| s.id.clone());
+            let ordered = self.sidebar.ordered_session_ids();
 
-            if let Some(next_id) = next_id {
+            if let Some(next_id) = ordered.last().cloned() {
                 self.switch_to(&next_id);
             }
         }
@@ -289,108 +307,106 @@ impl SessionManager {
     }
 
     pub fn switch_to_index(&mut self, index: usize) {
-        if let Some(session) = self.sessions.get(index) {
-            let id = session.id.clone();
+        let ordered = self.sidebar.ordered_session_ids();
+
+        if let Some(id) = ordered.get(index).cloned() {
             self.switch_to(&id);
         }
     }
 
     pub fn switch_next(&mut self) {
         let Some(active_id) = &self.active_id else { return };
-        let Some(pos) = self.sessions.iter().position(|s| &s.id == active_id) else { return };
+        let ordered = self.sidebar.ordered_session_ids();
+        let Some(pos) = ordered.iter().position(|id| id == active_id) else { return };
 
-        let next = (pos + 1) % self.sessions.len();
-        let id = self.sessions[next].id.clone();
+        let next = (pos + 1) % ordered.len();
+        let id = ordered[next].clone();
         self.switch_to(&id);
     }
 
     pub fn switch_prev(&mut self) {
         let Some(active_id) = &self.active_id else { return };
-        let Some(pos) = self.sessions.iter().position(|s| &s.id == active_id) else { return };
+        let ordered = self.sidebar.ordered_session_ids();
+        let Some(pos) = ordered.iter().position(|id| id == active_id) else { return };
 
-        let prev = if pos == 0 { self.sessions.len() - 1 } else { pos - 1 };
-        let id = self.sessions[prev].id.clone();
+        let prev = if pos == 0 { ordered.len() - 1 } else { pos - 1 };
+        let id = ordered[prev].clone();
         self.switch_to(&id);
     }
 
     pub fn switch_next_group(&mut self) {
         let Some(active_id) = &self.active_id else { return };
-        let Some(current) = self.sessions.iter().find(|s| &s.id == active_id) else { return };
+        let Some(current_group) = self.sidebar.group_id_for_session(active_id) else { return };
 
-        let current_group = &current.group_id;
+        let group_order = self.sidebar.ordered_group_ids();
+        let Some(gpos) = group_order.iter().position(|g| g == &current_group) else { return };
 
-        // Collect unique group IDs in session order
-        let mut group_order: Vec<&str> = Vec::new();
-        for s in &self.sessions {
-            if !group_order.contains(&s.group_id.as_str()) {
-                group_order.push(&s.group_id);
-            }
-        }
+        for offset in 1..group_order.len() {
+            let next_gpos = (gpos + offset) % group_order.len();
 
-        if let Some(gpos) = group_order.iter().position(|g| *g == current_group) {
-            let next_gpos = (gpos + 1) % group_order.len();
-            let target_group = group_order[next_gpos];
-
-            if let Some(first) = self.sessions.iter().find(|s| s.group_id == target_group) {
-                let id = first.id.clone();
+            if let Some(id) = self.sidebar.first_session_id_in_group(&group_order[next_gpos]) {
                 self.switch_to(&id);
+                return;
             }
         }
     }
 
     pub fn switch_prev_group(&mut self) {
         let Some(active_id) = &self.active_id else { return };
-        let Some(current) = self.sessions.iter().find(|s| &s.id == active_id) else { return };
+        let Some(current_group) = self.sidebar.group_id_for_session(active_id) else { return };
 
-        let current_group = &current.group_id;
+        let group_order = self.sidebar.ordered_group_ids();
+        let Some(gpos) = group_order.iter().position(|g| g == &current_group) else { return };
 
-        let mut group_order: Vec<&str> = Vec::new();
-        for s in &self.sessions {
-            if !group_order.contains(&s.group_id.as_str()) {
-                group_order.push(&s.group_id);
-            }
-        }
+        for offset in 1..group_order.len() {
+            let prev_gpos = (gpos + group_order.len() - offset) % group_order.len();
 
-        if let Some(gpos) = group_order.iter().position(|g| *g == current_group) {
-            let prev_gpos = if gpos == 0 { group_order.len() - 1 } else { gpos - 1 };
-            let target_group = group_order[prev_gpos];
-
-            if let Some(first) = self.sessions.iter().find(|s| s.group_id == target_group) {
-                let id = first.id.clone();
+            if let Some(id) = self.sidebar.first_session_id_in_group(&group_order[prev_gpos]) {
                 self.switch_to(&id);
+                return;
             }
         }
     }
 
-    pub fn move_session_to_position(&mut self, session_id: &str, new_group_id: &str, position: i32) {
-        let Some(idx) = self.sessions.iter().position(|s| s.id == session_id) else { return };
-        let mut session = self.sessions.remove(idx);
-        session.group_id = new_group_id.to_string();
+    pub fn switch_next_with_notifications(&mut self, notif_store: &NotificationStore) {
+        let Some(active_id) = &self.active_id else { return };
+        let ordered = self.sidebar.ordered_session_ids();
+        let Some(pos) = ordered.iter().position(|id| id == active_id) else { return };
 
-        if position < 0 {
-            // Append after the last session in the target group
-            let insert_at = self.sessions.iter()
-                .rposition(|s| s.group_id == new_group_id)
-                .map(|i| i + 1)
-                .unwrap_or(self.sessions.len());
+        let len = ordered.len();
 
-            self.sessions.insert(insert_at, session);
-        } else {
-            // Insert before the Nth session in the target group
-            let mut count = 0;
-            let mut insert_at = self.sessions.len();
+        for i in 1..len {
+            let idx = (pos + i) % len;
 
-            for (i, s) in self.sessions.iter().enumerate() {
-                if s.group_id == new_group_id {
-                    if count == position {
-                        insert_at = i;
-                        break;
-                    }
-                    count += 1;
-                }
+            if notif_store.unread_count(&ordered[idx]) > 0 {
+                let id = ordered[idx].clone();
+                self.switch_to(&id);
+                return;
             }
+        }
+    }
 
-            self.sessions.insert(insert_at, session);
+    pub fn switch_prev_with_notifications(&mut self, notif_store: &NotificationStore) {
+        let Some(active_id) = &self.active_id else { return };
+        let ordered = self.sidebar.ordered_session_ids();
+        let Some(pos) = ordered.iter().position(|id| id == active_id) else { return };
+
+        let len = ordered.len();
+
+        for i in 1..len {
+            let idx = (pos + len - i) % len;
+
+            if notif_store.unread_count(&ordered[idx]) > 0 {
+                let id = ordered[idx].clone();
+                self.switch_to(&id);
+                return;
+            }
+        }
+    }
+
+    pub fn move_session_to_position(&mut self, session_id: &str, new_group_id: &str, _position: i32) {
+        if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
+            session.group_id = new_group_id.to_string();
         }
     }
 
@@ -509,23 +525,30 @@ impl SessionManager {
         }).collect();
 
         let cwds = self.session_cwds.borrow();
+        let ordered_ids = self.sidebar.ordered_session_ids();
 
         let active_session_index = self.active_id.as_ref()
-            .and_then(|id| self.sessions.iter().position(|s| &s.id == id));
+            .and_then(|id| ordered_ids.iter().position(|sid| sid == id));
+
+        let sessions_map: std::collections::HashMap<&str, &Session> = self.sessions.iter()
+            .map(|s| (s.id.as_str(), s))
+            .collect();
 
         let state = SessionState {
-            sessions: self.sessions.iter().map(|s| {
+            sessions: ordered_ids.iter().filter_map(|id| {
+                let s = sessions_map.get(id.as_str())?;
+
                 let split_tree = self.split_views.get(&s.id)
                     .map(|sv| sv.to_saved(&cwds))
                     .unwrap_or_else(|| crate::config::SavedSplitNode::Leaf {
                         cwd: cwds.get(&s.id).cloned().or_else(|| s.cwd.clone()),
                     });
 
-                SavedSession {
+                Some(SavedSession {
                     title: s.title.clone(),
                     split_tree,
                     group_id: s.group_id.clone(),
-                }
+                })
             }).collect(),
             groups,
             active_session_index,

@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::gio;
-use gtk4::{Box as GtkBox, Button, Entry, GestureClick, Label, Orientation, PopoverMenu, Widget};
+use gtk4::{Box as GtkBox, Button, GestureClick, Label, Orientation, PopoverMenu, Widget};
 use gtk4::gdk;
 use gtk4::glib;
 
@@ -13,8 +13,10 @@ pub struct TabRow {
     container: GtkBox,
     #[allow(dead_code)]
     active_indicator: GtkBox,
+    #[allow(dead_code)]
     content: GtkBox,
     title_label: Label,
+    subtitle_label: Label,
     branch_label: Label,
     status_label: Label,
     preview_label: Label,
@@ -55,6 +57,13 @@ impl TabRow {
         preview_label.set_max_width_chars(25);
         preview_label.set_visible(false);
 
+        let subtitle_label = Label::new(None);
+        subtitle_label.add_css_class("tab-subtitle");
+        subtitle_label.set_xalign(0.0);
+        subtitle_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        subtitle_label.set_max_width_chars(30);
+        subtitle_label.set_visible(false);
+
         let branch_label = Label::new(None);
         branch_label.add_css_class("tab-branch");
         branch_label.set_xalign(0.0);
@@ -63,6 +72,7 @@ impl TabRow {
         branch_label.set_visible(false);
 
         content.append(&title_label);
+        content.append(&subtitle_label);
         content.append(&branch_label);
         content.append(&status_label);
         content.append(&preview_label);
@@ -88,6 +98,7 @@ impl TabRow {
             active_indicator,
             content,
             title_label,
+            subtitle_label,
             branch_label,
             status_label,
             preview_label,
@@ -108,9 +119,13 @@ impl TabRow {
         }
     }
 
-    pub fn set_title(&self, title: &str) {
-        self.title_label.set_text(title);
-        self.title_label.set_tooltip_text(Some(title));
+    pub fn update_cwd(&self, folder_name: &str, display_path: &str) {
+        self.title_label.set_text(folder_name);
+        self.title_label.set_tooltip_text(Some(display_path));
+
+        self.subtitle_label.set_text(display_path);
+        self.subtitle_label.set_tooltip_text(Some(display_path));
+        self.subtitle_label.set_visible(true);
     }
 
     pub fn set_branch(&self, branch: Option<&str>) {
@@ -211,6 +226,12 @@ impl TabRow {
         let dragging_motion = dragging_id.clone();
         drop_target.connect_motion(move |_target, _x, _y| {
             let dragged = dragging_motion.borrow();
+
+            // Guard: ignore group drags
+            if dragged.is_empty() {
+                return gdk::DragAction::MOVE;
+            }
+
             let target_id = container.widget_name();
 
             // Don't show indicator on self
@@ -270,10 +291,9 @@ impl TabRow {
         self.close_btn.connect_clicked(move |_| f());
     }
 
-    /// Set up right-click context menu with Rename, Close, Close Others.
+    /// Set up right-click context menu with Close, Close Others.
     pub fn setup_context_menu(&self, session_id: &str) {
         let menu = gio::Menu::new();
-        menu.append(Some("Rename"), Some(&format!("win.tab-rename('{session_id}')")));
         menu.append(Some("Close"), Some(&format!("win.tab-close('{session_id}')")));
         menu.append(Some("Close Others"), Some(&format!("win.tab-close-others('{session_id}')")));
 
@@ -293,115 +313,4 @@ impl TabRow {
         self.container.add_controller(gesture);
     }
 
-    /// Start inline rename. Shows an Entry replacing the title label.
-    pub fn start_rename<F: Fn(String) + Clone + 'static>(&self, on_rename: F) {
-        let content = &self.content;
-        let title_label = &self.title_label;
-
-        let current_title = title_label.text().to_string();
-        let original = current_title.clone();
-
-        let entry = Entry::new();
-        entry.set_text(&current_title);
-        entry.set_hexpand(true);
-        entry.add_css_class("tab-rename-entry");
-
-        title_label.set_visible(false);
-        content.prepend(&entry);
-        entry.grab_focus();
-        entry.select_region(0, -1);
-
-        let content_enter = content.clone();
-        let label_enter = title_label.clone();
-        let on_rename_enter = on_rename.clone();
-        let entry_focus = entry.clone();
-
-        entry.connect_activate(move |entry| {
-            let new_title = entry.text().to_string();
-            content_enter.remove(entry);
-            label_enter.set_text(if new_title.is_empty() { &current_title } else { &new_title });
-            label_enter.set_visible(true);
-
-            if !new_title.is_empty() && new_title != current_title {
-                on_rename_enter(new_title);
-            }
-        });
-
-        let content_focus = content.clone();
-        let label_focus = title_label.clone();
-
-        let focus_controller = gtk4::EventControllerFocus::new();
-        focus_controller.connect_leave(move |_| {
-            if entry_focus.parent().is_some() {
-                content_focus.remove(&entry_focus);
-                label_focus.set_text(&original);
-                label_focus.set_visible(true);
-            }
-        });
-
-        entry.add_controller(focus_controller);
-    }
-
-    /// Set up double-click to rename.
-    pub fn connect_rename<F: Fn(String) + Clone + 'static>(&self, on_rename: F) {
-        let content = self.content.clone();
-        let title_label = self.title_label.clone();
-
-        let gesture = GestureClick::new();
-        gesture.set_button(1);
-
-        gesture.connect_released(move |gesture, n_press, _, _| {
-            if n_press != 2 {
-                return;
-            }
-
-            gesture.set_state(gtk4::EventSequenceState::Claimed);
-
-            // Reuse start_rename logic inline (can't call self.start_rename from closure)
-            let current_title = title_label.text().to_string();
-            let original = current_title.clone();
-
-            let entry = Entry::new();
-            entry.set_text(&current_title);
-            entry.set_hexpand(true);
-            entry.add_css_class("tab-rename-entry");
-
-            title_label.set_visible(false);
-            content.prepend(&entry);
-            entry.grab_focus();
-            entry.select_region(0, -1);
-
-            let content_enter = content.clone();
-            let label_enter = title_label.clone();
-            let on_rename_enter = on_rename.clone();
-            let entry_focus = entry.clone();
-
-            entry.connect_activate(move |entry| {
-                let new_title = entry.text().to_string();
-                content_enter.remove(entry);
-                label_enter.set_text(if new_title.is_empty() { &current_title } else { &new_title });
-                label_enter.set_visible(true);
-
-                if !new_title.is_empty() && new_title != current_title {
-                    on_rename_enter(new_title);
-                }
-            });
-
-            let content_focus = content.clone();
-            let label_focus = title_label.clone();
-
-            let focus_controller = gtk4::EventControllerFocus::new();
-            focus_controller.connect_leave(move |_| {
-                if entry_focus.parent().is_some() {
-                    content_focus.remove(&entry_focus);
-                    label_focus.set_text(&original);
-                    label_focus.set_visible(true);
-                }
-            });
-
-            entry.add_controller(focus_controller);
-        });
-
-        self.title_label.add_controller(gesture);
-    }
 }

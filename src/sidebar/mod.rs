@@ -33,6 +33,12 @@ pub struct Sidebar {
     // Shared state: session ID of the currently dragged tab (empty when not dragging)
     dragging_id: Rc<RefCell<String>>,
 
+    // Shared state: group ID of the currently dragged group (empty when not dragging)
+    dragging_group_id: Rc<RefCell<String>>,
+
+    // "Groups" section header — stored so it can be used as a drop target for position 0
+    groups_header: Label,
+
     // Callback when a tab is moved/reordered via drag-and-drop
     on_tab_moved: Rc<RefCell<Option<Box<dyn Fn(String, String, i32)>>>>, // (session_id, group_id, position)
 }
@@ -105,11 +111,14 @@ impl Sidebar {
             new_group_btn,
             rows: Rc::new(RefCell::new(HashMap::new())),
             dragging_id: Rc::new(RefCell::new(String::new())),
+            dragging_group_id: Rc::new(RefCell::new(String::new())),
+            groups_header,
             on_tab_moved,
         };
 
         sidebar.setup_header_drop_target(&sessions_header, DEFAULT_GROUP);
         sidebar.setup_list_fallback_drop_target(&default_list, DEFAULT_GROUP);
+        sidebar.setup_groups_header_drop_target();
         sidebar
     }
 
@@ -136,6 +145,13 @@ impl Sidebar {
         let dragging_enter = self.dragging_id.clone();
 
         drop_target.connect_enter(move |_target, _x, _y| {
+            let dragged = dragging_enter.borrow();
+
+            // Guard: ignore group drags
+            if dragged.is_empty() {
+                return gdk::DragAction::MOVE;
+            }
+
             let list = if target_group_enter == DEFAULT_GROUP {
                 Some(default_list_enter.clone())
             } else {
@@ -143,8 +159,6 @@ impl Sidebar {
             };
 
             if let Some(list) = list {
-                let dragged = dragging_enter.borrow();
-
                 // Find the first non-dragged row to show the indicator on
                 let mut idx = 0;
 
@@ -248,7 +262,13 @@ impl Sidebar {
         let drop_target = gtk4::DropTarget::new(glib::GString::static_type(), gdk::DragAction::MOVE);
 
         let list_ref = list.clone();
+        let dragging_enter = self.dragging_id.clone();
         drop_target.connect_enter(move |_target, _x, _y| {
+            // Guard: ignore group drags
+            if dragging_enter.borrow().is_empty() {
+                return gdk::DragAction::MOVE;
+            }
+
             if list_ref.row_at_index(0).is_none() {
                 list_ref.add_css_class("drop-target-highlight");
             }
@@ -315,6 +335,107 @@ impl Sidebar {
         });
 
         list.add_controller(drop_target);
+    }
+
+    /// Drop target on the "Groups" section header — moves dragged group to first position.
+    fn setup_groups_header_drop_target(&self) {
+        let drop_target = gtk4::DropTarget::new(glib::GString::static_type(), gdk::DragAction::MOVE);
+
+        let dragging_enter = self.dragging_group_id.clone();
+        let group_widgets_enter = self.group_widgets.clone();
+        let groups_enter = self.groups.clone();
+
+        drop_target.connect_enter(move |_target, _x, _y| {
+            let dragged = dragging_enter.borrow();
+
+            if dragged.is_empty() {
+                return gdk::DragAction::MOVE;
+            }
+
+            // Show drop-before on the first non-dragged group
+            for entry in groups_enter.borrow().iter() {
+                if entry.id != *dragged {
+                    if let Some(gw) = group_widgets_enter.borrow().get(&entry.id) {
+                        gw.container.add_css_class("drop-before-group");
+                        break;
+                    }
+                }
+            }
+
+            gdk::DragAction::MOVE
+        });
+
+        let group_widgets_leave = self.group_widgets.clone();
+
+        drop_target.connect_leave(move |_target| {
+            for gw in group_widgets_leave.borrow().values() {
+                gw.container.remove_css_class("drop-before-group");
+            }
+        });
+
+        let content = self.content.clone();
+        let groups_header = self.groups_header.clone();
+        let groups = self.groups.clone();
+        let group_widgets = self.group_widgets.clone();
+
+        drop_target.connect_drop(move |_target, value, _x, _y| {
+            let Ok(group_id) = value.get::<glib::GString>() else { return false };
+            let group_id = group_id.to_string();
+
+            // Already first group — no-op
+            let groups_ref = groups.borrow();
+            if groups_ref.first().is_some_and(|g| g.id == group_id) {
+                return false;
+            }
+            drop(groups_ref);
+
+            // Reorder GTK widget: move after groups_header
+            if let Some(gw) = group_widgets.borrow().get(&group_id) {
+                content.reorder_child_after(gw.widget(), Some(groups_header.upcast_ref::<gtk4::Widget>()));
+            }
+
+            // Reorder groups Vec: move to index 0
+            let mut groups_ref = groups.borrow_mut();
+            if let Some(idx) = groups_ref.iter().position(|g| g.id == group_id) {
+                let entry = groups_ref.remove(idx);
+                groups_ref.insert(0, entry);
+            }
+
+            true
+        });
+
+        self.groups_header.add_controller(drop_target);
+    }
+
+    /// Per-group drop target — determines exact insertion position among groups.
+    fn setup_group_drop_target(&self, group_id: &str) {
+        let content = self.content.clone();
+        let groups = self.groups.clone();
+        let group_widgets = self.group_widgets.clone();
+
+        let gw = self.group_widgets.borrow();
+        let Some(target_widget) = gw.get(group_id) else { return };
+
+        target_widget.setup_drop_target(self.dragging_group_id.clone(), move |dragged_id, target_id| {
+            // Reorder GTK widget: move dragged after target
+            let widgets = group_widgets.borrow();
+            let Some(dragged_widget) = widgets.get(&dragged_id) else { return };
+            let Some(target_widget) = widgets.get(&target_id) else { return };
+
+            content.reorder_child_after(dragged_widget.widget(), Some(target_widget.widget()));
+            drop(widgets);
+
+            // Reorder groups Vec
+            let mut groups_ref = groups.borrow_mut();
+            let Some(dragged_idx) = groups_ref.iter().position(|g| g.id == dragged_id) else { return };
+            let entry = groups_ref.remove(dragged_idx);
+
+            let target_idx = groups_ref.iter().position(|g| g.id == target_id)
+                .map(|i| i + 1)
+                .unwrap_or(groups_ref.len());
+
+            groups_ref.insert(target_idx, entry);
+        });
     }
 
     /// Per-row drop target — determines exact insertion position within a group.
@@ -434,9 +555,9 @@ impl Sidebar {
         }
     }
 
-    pub fn update_title(&self, session_id: &str, title: &str) {
+    pub fn update_cwd(&self, session_id: &str, folder_name: &str, display_path: &str) {
         if let Some((row, _)) = self.rows.borrow().get(session_id) {
-            row.set_title(title);
+            row.update_cwd(folder_name, display_path);
         }
     }
 
@@ -470,18 +591,6 @@ impl Sidebar {
         }
     }
 
-    pub fn trigger_rename<F: Fn(String) + Clone + 'static>(&self, session_id: &str, on_rename: F) {
-        if let Some((row, _)) = self.rows.borrow().get(session_id) {
-            row.start_rename(on_rename);
-        }
-    }
-
-    pub fn wire_rename<F: Fn(String, String) + Clone + 'static>(&self, session_id: &str, f: F) {
-        if let Some((row, _)) = self.rows.borrow().get(session_id) {
-            let id = session_id.to_string();
-            row.connect_rename(move |new_title| f(id.clone(), new_title));
-        }
-    }
 
     pub fn wire_tab_click<F: Fn(String) + Clone + 'static>(&self, session_id: &str, f: F) {
         if let Some((row, _)) = self.rows.borrow().get(session_id) {
@@ -511,8 +620,9 @@ impl Sidebar {
     }
 
     pub fn add_group(&self, id: &str, name: &str) {
-        let group_widget = TabGroupWidget::new(name);
+        let group_widget = TabGroupWidget::new(id, name);
         group_widget.setup_context_menu(id);
+        group_widget.setup_drag_source(self.dragging_group_id.clone());
 
         // Per-row drop targets handle positioning; header handles collapsed/empty groups
         self.setup_list_fallback_drop_target(&group_widget.list_box, id);
@@ -528,6 +638,9 @@ impl Sidebar {
             name: name.to_string(),
         });
         self.group_widgets.borrow_mut().insert(id.to_string(), group_widget);
+
+        // Group drop target must be set up after inserting into group_widgets
+        self.setup_group_drop_target(id);
     }
 
     pub fn remove_group(&self, group_id: &str) {
@@ -587,6 +700,59 @@ impl Sidebar {
 
     pub fn group_ids(&self) -> Vec<(String, String)> {
         self.groups.borrow().iter().map(|g| (g.id.clone(), g.name.clone())).collect()
+    }
+
+    /// Return all session IDs in visual sidebar order:
+    /// default group rows first, then each named group's rows in display order.
+    pub fn ordered_session_ids(&self) -> Vec<String> {
+        let mut ids = Vec::new();
+
+        collect_ids_from_list(&self.default_list, &mut ids);
+
+        for entry in self.groups.borrow().iter() {
+            if let Some(gw) = self.group_widgets.borrow().get(&entry.id) {
+                collect_ids_from_list(&gw.list_box, &mut ids);
+            }
+        }
+
+        ids
+    }
+
+    /// Return group IDs in visual sidebar order: default group first, then named groups.
+    pub fn ordered_group_ids(&self) -> Vec<String> {
+        let mut group_ids = vec![crate::session::DEFAULT_GROUP.to_string()];
+
+        for entry in self.groups.borrow().iter() {
+            group_ids.push(entry.id.clone());
+        }
+
+        group_ids
+    }
+
+    /// Return the first session ID in a group (visual order), or None if empty.
+    pub fn first_session_id_in_group(&self, group_id: &str) -> Option<String> {
+        let list = self.list_for_group(group_id)?;
+
+        list.row_at_index(0)
+            .and_then(|row| row.child())
+            .map(|child| child.widget_name().to_string())
+    }
+
+    /// Return the group ID that a session belongs to.
+    pub fn group_id_for_session(&self, session_id: &str) -> Option<String> {
+        self.rows.borrow().get(session_id).map(|(_, gid)| gid.clone())
+    }
+}
+
+fn collect_ids_from_list(list: &ListBox, ids: &mut Vec<String>) {
+    let mut idx = 0;
+
+    while let Some(row) = list.row_at_index(idx) {
+        if let Some(child) = row.child() {
+            ids.push(child.widget_name().to_string());
+        }
+
+        idx += 1;
     }
 }
 

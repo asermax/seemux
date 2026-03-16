@@ -1,8 +1,10 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::gio;
+use gtk4::gdk;
+use gtk4::glib;
 use gtk4::{Box as GtkBox, Button, GestureClick, Label, ListBox, Orientation, PopoverMenu, SelectionMode, Widget};
 
 /// A named, collapsible group of tabs in the sidebar.
@@ -16,9 +18,10 @@ pub struct TabGroupWidget {
 }
 
 impl TabGroupWidget {
-    pub fn new(name: &str) -> Self {
+    pub fn new(id: &str, name: &str) -> Self {
         let container = GtkBox::new(Orientation::Vertical, 0);
         container.add_css_class("tab-group");
+        container.set_widget_name(id);
 
         let header = GtkBox::new(Orientation::Horizontal, 4);
         header.add_css_class("tab-group-header");
@@ -97,6 +100,104 @@ impl TabGroupWidget {
             self.list_box.set_visible(true);
             self.toggle_label.set_text("\u{25bc}"); // ▼
         }
+    }
+
+    pub fn setup_drag_source(&self, dragging_group_id: Rc<RefCell<String>>) {
+        let drag_source = gtk4::DragSource::new();
+        drag_source.set_actions(gdk::DragAction::MOVE);
+
+        let container = self.container.clone();
+        let dragging_prepare = dragging_group_id.clone();
+        drag_source.connect_prepare(move |_source, _x, _y| {
+            let group_id = container.widget_name().to_string();
+            *dragging_prepare.borrow_mut() = group_id.clone();
+            Some(gdk::ContentProvider::for_value(&group_id.to_value()))
+        });
+
+        let container = self.container.clone();
+        drag_source.connect_drag_begin(move |source, _drag| {
+            let paintable = gtk4::WidgetPaintable::new(Some(&container));
+            source.set_icon(Some(&paintable), 0, 0);
+            container.add_css_class("dragging");
+        });
+
+        let container = self.container.clone();
+        let dragging_end = dragging_group_id.clone();
+        drag_source.connect_drag_end(move |_source, _drag, _delete_data| {
+            container.remove_css_class("dragging");
+            dragging_end.borrow_mut().clear();
+        });
+
+        self.header.add_controller(drag_source);
+    }
+
+    /// Set up a drop target that shows a gap below this group and reports drops.
+    /// The `on_drop` callback receives `(dragged_group_id, this_group_id)`.
+    pub fn setup_drop_target<F: Fn(String, String) + 'static>(
+        &self,
+        dragging_group_id: Rc<RefCell<String>>,
+        on_drop: F,
+    ) {
+        let drop_target = gtk4::DropTarget::new(glib::GString::static_type(), gdk::DragAction::MOVE);
+
+        let container = self.container.clone();
+        let dragging_motion = dragging_group_id.clone();
+        drop_target.connect_motion(move |_target, _x, _y| {
+            let dragged = dragging_motion.borrow();
+
+            if dragged.is_empty() {
+                return gdk::DragAction::MOVE;
+            }
+
+            let target_id = container.widget_name();
+
+            // Don't show indicator on self
+            if dragged.as_str() == target_id.as_str() {
+                return gdk::DragAction::MOVE;
+            }
+
+            // Don't show indicator on the group directly above the dragged group —
+            // dropping after it would leave the dragged group in the same position.
+            let is_above_dragged = container.next_sibling()
+                .is_some_and(|next| next.widget_name().as_str() == dragged.as_str());
+
+            if is_above_dragged {
+                return gdk::DragAction::MOVE;
+            }
+
+            container.add_css_class("drop-after-group");
+            gdk::DragAction::MOVE
+        });
+
+        let container = self.container.clone();
+        drop_target.connect_leave(move |_target| {
+            container.remove_css_class("drop-after-group");
+        });
+
+        let container = self.container.clone();
+        let on_drop = Rc::new(on_drop);
+        drop_target.connect_drop(move |_target, value, _x, _y| {
+            container.remove_css_class("drop-after-group");
+
+            let Ok(group_id) = value.get::<glib::GString>() else { return false };
+            let target_id = container.widget_name().to_string();
+
+            if group_id.as_str() == target_id {
+                return false;
+            }
+
+            let is_above_dragged = container.next_sibling()
+                .is_some_and(|next| next.widget_name() == group_id.as_str());
+
+            if is_above_dragged {
+                return false;
+            }
+
+            on_drop(group_id.to_string(), target_id);
+            true
+        });
+
+        self.container.add_controller(drop_target);
     }
 
     /// Add right-click context menu with "Delete Group" action.

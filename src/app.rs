@@ -225,11 +225,6 @@ fn wire_tab_lifecycle(
         refocus_terminal(&mgr);
     });
 
-    let sidebar_rename = sidebar.clone();
-    sidebar.wire_rename(session_id, move |id, new_title| {
-        sidebar_rename.update_title(&id, &new_title);
-    });
-
     sidebar.setup_context_menu(session_id);
     SessionManager::wire_child_exited(manager, session_id);
     SessionManager::wire_focus_tracking(manager, session_id);
@@ -284,20 +279,6 @@ fn register_tab_actions(
     manager: &Rc<RefCell<SessionManager>>,
     sidebar: &Rc<Sidebar>,
 ) {
-    // tab-rename
-    let sidebar_clone = sidebar.clone();
-    let action = gio::SimpleAction::new("tab-rename", Some(&String::static_variant_type()));
-    action.connect_activate(move |_, param| {
-        let Some(id) = param.and_then(|v| v.get::<String>()) else { return };
-
-        let sidebar_update = sidebar_clone.clone();
-        let id_clone = id.clone();
-        sidebar_clone.trigger_rename(&id, move |new_title| {
-            sidebar_update.update_title(&id_clone, &new_title);
-        });
-    });
-    window.add_action(&action);
-
     // tab-close
     let mgr = manager.clone();
     let action = gio::SimpleAction::new("tab-close", Some(&String::static_variant_type()));
@@ -651,6 +632,7 @@ fn setup_keyboard_shortcuts(
 ) {
     let key_controller = EventControllerKey::new();
     key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    key_controller.set_im_context(None::<&gtk4::IMContext>);
 
     let mgr = manager.clone();
     let notif_for_keys = notification_store.clone();
@@ -663,7 +645,8 @@ fn setup_keyboard_shortcuts(
         let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::Page_Up | Key::Page_Down))
             || (ctrl && !shift && matches!(key, Key::t | Key::Tab | Key::Page_Up | Key::Page_Down))
             || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l))
-            || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9));
+            || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9))
+            || (shift && alt && !ctrl && matches!(key, Key::Page_Up | Key::Page_Down));
 
         if !is_our_shortcut {
             return glib::Propagation::Proceed;
@@ -754,6 +737,20 @@ fn setup_keyboard_shortcuts(
                 mgr.borrow_mut().switch_next_group();
             } else {
                 mgr.borrow_mut().switch_prev_group();
+            }
+
+            if let Some(active) = mgr.borrow().active_id() {
+                notif_for_keys.borrow_mut().mark_read(active);
+            }
+
+            return glib::Propagation::Stop;
+        }
+
+        if shift && alt && !ctrl && matches!(key, Key::Page_Down | Key::Page_Up) {
+            if key == Key::Page_Down {
+                mgr.borrow_mut().switch_next_with_notifications(&notif_for_keys.borrow());
+            } else {
+                mgr.borrow_mut().switch_prev_with_notifications(&notif_for_keys.borrow());
             }
 
             if let Some(active) = mgr.borrow().active_id() {

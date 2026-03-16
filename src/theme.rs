@@ -326,6 +326,20 @@ list row:selected {{
     border-radius: 6px;
 }}
 
+.tab-group.dragging {{
+    opacity: 0.4;
+}}
+
+.tab-group.drop-after-group {{
+    margin-bottom: 24px;
+    transition: margin 150ms ease;
+}}
+
+.tab-group.drop-before-group {{
+    margin-top: 24px;
+    transition: margin 150ms ease;
+}}
+
 /* Dropdown */
 
 .dropdown-border {{
