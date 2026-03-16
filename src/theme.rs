@@ -311,8 +311,14 @@ list row:selected {{
 
 .dropdown-border {{
     border: 2px solid {accent};
-    border-top: none;
-    border-radius: 0 0 8px 8px;
+    border-radius: 8px;
+}}
+
+.overlay-card {{
+    background-color: {sidebar_bg};
+    border: 2px solid {accent};
+    border-radius: 8px;
+    padding: 16px;
 }}
 "#,
         name = s.name,

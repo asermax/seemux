@@ -1,9 +1,9 @@
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Application, ApplicationWindow, Box as GtkBox, Orientation, Paned,
+    Application, ApplicationWindow, Box as GtkBox, Orientation, Overlay, Paned,
     Stack, StackTransitionType, glib,
 };
 
@@ -19,9 +19,9 @@ pub struct DropdownWindow {
     animation_ms: u32,
     /// Incremented on each animation start; stale callbacks see a mismatch and stop.
     animation_generation: Rc<Cell<u32>>,
-    /// Set to true around our own `set_visible(false)` calls so external watchers
-    /// can distinguish programmatic hides from compositor-initiated ones.
-    programmatic_hide: Rc<Cell<bool>>,
+    pub overlay: Overlay,
+    pub paned: Paned,
+    pub stack: Stack,
     pub manager: Rc<RefCell<SessionManager>>,
     pub notification_store: Rc<RefCell<NotificationStore>>,
     pub sidebar: Rc<Sidebar>,
@@ -75,7 +75,7 @@ impl DropdownWindow {
         paned.set_resize_end_child(true);
 
         let manager = SessionManager::new(
-            stack,
+            stack.clone(),
             sidebar.clone(),
             state.socket_path.clone(),
             config.clone(),
@@ -83,52 +83,20 @@ impl DropdownWindow {
 
         let notification_store = Rc::new(RefCell::new(NotificationStore::new()));
 
-        // Create first session
-        let first_id = manager.borrow_mut().create_session(None, None);
-        wire_tab(&sidebar, &manager, &notification_store, &first_id);
-
-        // Wire new tab button
-        let mgr = manager.clone();
-        let sid = sidebar.clone();
-        let notif = notification_store.clone();
-        sidebar.connect_new_tab(move || {
-            let id = mgr.borrow_mut().create_session(None, None);
-            wire_tab(&sid, &mgr, &notif, &id);
-        });
-
-        // When all sessions are closed (via child-exited), respawn a new one
-        let mgr_empty = manager.clone();
-        let sid_empty = sidebar.clone();
-        let notif_empty = notification_store.clone();
-        manager.borrow_mut().set_on_empty(move || {
-            let mgr = mgr_empty.clone();
-            let sid = sid_empty.clone();
-            let notif = notif_empty.clone();
-
-            glib::idle_add_local_once(move || {
-                let id = mgr.borrow_mut().create_session(None, None);
-                wire_tab(&sid, &mgr, &notif, &id);
-                mgr.borrow().spawn_deferred();
-            });
-        });
-
-        // Border wrapper
+        // Border wrapper with overlay for centered dialogs
         let content = GtkBox::new(Orientation::Vertical, 0);
         content.add_css_class("dropdown-border");
         content.set_vexpand(true);
         content.append(&paned);
 
-        window.set_child(Some(&content));
+        let overlay = Overlay::new();
+        overlay.set_child(Some(&content));
+
+        window.set_child(Some(&overlay));
 
         let animation_ms = cfg.dropdown_animation_ms;
 
         drop(cfg);
-
-        // Spawn shell after layout
-        let mgr_spawn = manager.clone();
-        glib::idle_add_local_once(move || {
-            mgr_spawn.borrow().spawn_deferred();
-        });
 
         Self {
             window,
@@ -136,7 +104,9 @@ impl DropdownWindow {
             target_height,
             animation_ms,
             animation_generation: Rc::new(Cell::new(0)),
-            programmatic_hide: Rc::new(Cell::new(false)),
+            overlay,
+            paned,
+            stack,
             manager,
             notification_store,
             sidebar,
@@ -147,12 +117,18 @@ impl DropdownWindow {
         &self.window
     }
 
-    pub fn programmatic_hide(&self) -> Rc<Cell<bool>> {
-        self.programmatic_hide.clone()
+    pub fn visible(&self) -> Ref<'_, bool> {
+        self.visible.borrow()
     }
 
     pub fn show(&self) {
-        self.ensure_window_ready();
+        if !self.window.is_visible() {
+            self.window.set_opacity(0.0);
+            crate::layer_shell::set_top_margin(&self.window, -self.target_height);
+            self.window.set_visible(true);
+            self.window.present();
+        }
+
         self.animate(true);
         *self.visible.borrow_mut() = true;
 
@@ -163,16 +139,10 @@ impl DropdownWindow {
 
     /// Present the window off-screen without animating — used to start quake mode hidden.
     pub fn present_hidden(&self) {
-        self.ensure_window_ready();
-    }
-
-    fn ensure_window_ready(&self) {
-        if !self.window.is_visible() {
-            self.window.set_opacity(0.0);
-            crate::layer_shell::set_top_margin(&self.window, -self.target_height);
-            self.window.set_visible(true);
-            self.window.present();
-        }
+        self.window.set_opacity(0.0);
+        crate::layer_shell::set_top_margin(&self.window, -self.target_height);
+        self.window.set_visible(true);
+        self.window.present();
     }
 
     pub fn toggle(&self) {
@@ -193,7 +163,6 @@ impl DropdownWindow {
         let target = self.target_height;
         let duration_us = (self.animation_ms as i64) * 1000;
         let animation_generation = self.animation_generation.clone();
-        let programmatic_hide = self.programmatic_hide.clone();
         let start_time: Rc<Cell<i64>> = Rc::new(Cell::new(0));
         let window = self.window.clone();
 
@@ -227,48 +196,18 @@ impl DropdownWindow {
 
             if progress >= 1.0 {
                 if opening {
-                    // Ensure final state is exact
                     crate::layer_shell::set_top_margin(&window, 0);
                     window.set_opacity(1.0);
                 } else {
                     crate::layer_shell::set_top_margin(&window, -target);
                     window.set_opacity(0.0);
-
-                    programmatic_hide.set(true);
                     window.set_visible(false);
-                    programmatic_hide.set(false);
                 }
+
                 return glib::ControlFlow::Break;
             }
 
             glib::ControlFlow::Continue
         });
     }
-}
-
-/// Wire tab click, close button (with last-session guard), child-exited, and focus tracking.
-pub fn wire_tab(
-    sidebar: &Rc<Sidebar>,
-    manager: &Rc<RefCell<SessionManager>>,
-    notification_store: &Rc<RefCell<NotificationStore>>,
-    session_id: &str,
-) {
-    let mgr = manager.clone();
-    let notif = notification_store.clone();
-    sidebar.wire_tab_click(session_id, move |id| {
-        if let Ok(mut m) = mgr.try_borrow_mut() {
-            m.switch_to(&id);
-        }
-        notif.borrow_mut().mark_read(&id);
-    });
-
-    let mgr = manager.clone();
-    sidebar.wire_close_button(session_id, move |id| {
-        if mgr.borrow().session_count() > 1 {
-            mgr.borrow_mut().destroy_session(&id);
-        }
-    });
-
-    SessionManager::wire_child_exited(manager, session_id);
-    SessionManager::wire_focus_tracking(manager, session_id);
 }

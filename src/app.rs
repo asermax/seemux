@@ -5,7 +5,7 @@ use gtk4::prelude::*;
 use vte4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, EventControllerKey, GestureClick, Orientation,
-    Paned, PopoverMenu, Stack, StackTransitionType,
+    Overlay, Paned, PopoverMenu, Stack, StackTransitionType,
     gio,
     gdk::Key,
     glib,
@@ -27,7 +27,6 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         .build();
 
     let config = state.config.clone();
-    let saved_state = SessionState::load();
     let socket_path = state.socket_path.clone();
 
     // Layout: sidebar | drag handle | terminal stack (via GtkPaned)
@@ -50,32 +49,15 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
 
     let manager = SessionManager::new(stack.clone(), sidebar.clone(), socket_path, config.clone());
 
-    // Wire drag-and-drop tab movement between groups
-    let mgr_for_dnd = manager.clone();
-    sidebar.set_on_tab_moved(move |session_id, new_group| {
-        mgr_for_dnd.borrow_mut().move_session_to_group(&session_id, &new_group);
-    });
-
-    // Register window actions for context menus
-    register_tab_actions(&window, &manager, &sidebar);
-    register_terminal_actions(&window, &manager);
-    setup_terminal_context_menu(&stack);
+    // Wrap content in overlay for centered dialogs
+    let overlay = Overlay::new();
+    overlay.set_child(Some(&paned));
 
     // Notification store
     let notification_store = Rc::new(RefCell::new(NotificationStore::new()));
 
-    // Wire notification changes to sidebar badge + preview updates
-    let sidebar_for_notif = sidebar.clone();
-    notification_store.borrow_mut().set_on_change(move |session_id, count, latest| {
-        sidebar_for_notif.update_badge(session_id, count);
-
-        let preview = if count > 0 {
-            latest.map(|n| n.body.as_str())
-        } else {
-            None
-        };
-        sidebar_for_notif.update_notification_preview(session_id, preview);
-    });
+    // Common setup: actions, context menus, notification wiring, DnD
+    setup_common(&window, &manager, &sidebar, &notification_store, &stack);
 
     // Quit when all tabs are closed
     let app_clone = app.clone();
@@ -83,43 +65,8 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         app_clone.quit();
     });
 
-    // Restore saved groups first
-    for group in &saved_state.groups {
-        sidebar.add_group(&group.id, &group.name);
-
-        let mgr = manager.clone();
-        let sid = sidebar.clone();
-        let notif = notification_store.clone();
-        let gid = group.id.clone();
-        let sid_expand = sidebar.clone();
-        let gid_expand = group.id.clone();
-        sidebar.connect_group_new_tab(&group.id, move |_| {
-            sid_expand.expand_group(&gid_expand);
-            let id = mgr.borrow_mut().create_session_in_group(None, None, &gid);
-            wire_tab_lifecycle(&sid, &mgr, &notif, &id);
-        });
-    }
-
-    // Restore saved sessions or create a fresh one
-    if saved_state.sessions.is_empty() {
-        let first_id = manager.borrow_mut().create_session(None, None);
-        wire_tab_lifecycle(&sidebar, &manager, &notification_store, &first_id);
-    } else {
-        for saved in &saved_state.sessions {
-            let group = if saved.group_id.is_empty() { crate::session::DEFAULT_GROUP } else { &saved.group_id };
-            let id = manager.borrow_mut().restore_session_with_splits(
-                &saved.title,
-                group,
-                &saved.split_tree,
-            );
-            wire_tab_lifecycle(&sidebar, &manager, &notification_store, &id);
-        }
-
-        // Restore last focused tab
-        if let Some(idx) = saved_state.active_session_index {
-            manager.borrow_mut().switch_to_index(idx);
-        }
-    }
+    // Restore saved sessions/groups or create a fresh tab
+    restore_sessions(&sidebar, &manager, &notification_store);
 
     // Wire default group's "+ Add tab" button
     let mgr_new_tab = manager.clone();
@@ -131,40 +78,10 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     });
 
     // Shared "create new group" logic — used by both sidebar button and Ctrl+Shift+G
-    let create_group = {
-        let mgr = manager.clone();
-        let sid = sidebar.clone();
-        let notif = notification_store.clone();
-        let win = window.clone();
-
-        Rc::new(move || {
-            let mgr = mgr.clone();
-            let sid = sid.clone();
-            let notif = notif.clone();
-
-            show_new_group_popover(&win, move |name| {
-                let group_id = uuid::Uuid::new_v4().to_string();
-                sid.add_group(&group_id, &name);
-
-                // Wire the group's "+" button
-                let mgr2 = mgr.clone();
-                let sid2 = sid.clone();
-                let notif2 = notif.clone();
-                let gid = group_id.clone();
-                let sid_expand = sid.clone();
-                let gid_expand = group_id.clone();
-                sid.connect_group_new_tab(&group_id, move |_| {
-                    sid_expand.expand_group(&gid_expand);
-                    let id = mgr2.borrow_mut().create_session_in_group(None, None, &gid);
-                    wire_tab_lifecycle(&sid2, &mgr2, &notif2, &id);
-                });
-
-                // Create initial tab in the new group
-                let first_id = mgr.borrow_mut().create_session_in_group(None, None, &group_id);
-                wire_tab_lifecycle(&sid, &mgr, &notif, &first_id);
-            });
-        })
-    };
+    let create_group = make_create_group_action(
+        &manager, &sidebar, &notification_store, &overlay,
+        wire_tab_lifecycle,
+    );
 
     // Wire "New Group" sidebar button
     let create_group_btn = create_group.clone();
@@ -208,8 +125,6 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
 
     setup_keyboard_shortcuts(&window, &manager, &notification_store, on_new_tab, extra_handler);
 
-    // Note: auto-read on tab click is handled in wire_tab_lifecycle via wire_tab_click
-
     // Save session state and sidebar width on window close
     let mgr_for_close = manager.clone();
     let paned_for_close = paned.clone();
@@ -227,7 +142,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         glib::Propagation::Proceed
     });
 
-    window.set_child(Some(&paned));
+    window.set_child(Some(&overlay));
     window.present();
 
     // Spawn deferred shells and focus the first terminal
@@ -239,6 +154,39 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         if let Some(term) = mgr_for_map.borrow().active_terminal_vte() {
             term.grab_focus();
         }
+    });
+}
+
+/// Common setup shared by both normal and quake windows: context menu actions,
+/// terminal right-click, notification badge wiring, and DnD tab reordering.
+fn setup_common(
+    window: &ApplicationWindow,
+    manager: &Rc<RefCell<SessionManager>>,
+    sidebar: &Rc<Sidebar>,
+    notification_store: &Rc<RefCell<NotificationStore>>,
+    stack: &Stack,
+) {
+    register_tab_actions(window, manager, sidebar);
+    register_terminal_actions(window, manager);
+    setup_terminal_context_menu(stack);
+
+    // Wire notification changes to sidebar badge + preview updates
+    let sidebar_for_notif = sidebar.clone();
+    notification_store.borrow_mut().set_on_change(move |session_id, count, latest| {
+        sidebar_for_notif.update_badge(session_id, count);
+
+        let preview = if count > 0 {
+            latest.map(|n| n.body.as_str())
+        } else {
+            None
+        };
+        sidebar_for_notif.update_notification_preview(session_id, preview);
+    });
+
+    // Wire drag-and-drop tab movement between groups
+    let mgr_for_dnd = manager.clone();
+    sidebar.set_on_tab_moved(move |session_id, new_group| {
+        mgr_for_dnd.borrow_mut().move_session_to_group(&session_id, &new_group);
     });
 }
 
@@ -271,6 +219,50 @@ fn wire_tab_lifecycle(
     sidebar.setup_context_menu(session_id);
     SessionManager::wire_child_exited(manager, session_id);
     SessionManager::wire_focus_tracking(manager, session_id);
+}
+
+/// Restore saved groups and sessions from disk, or create a fresh tab if none exist.
+fn restore_sessions(
+    sidebar: &Rc<Sidebar>,
+    manager: &Rc<RefCell<SessionManager>>,
+    notification_store: &Rc<RefCell<NotificationStore>>,
+) {
+    let saved_state = SessionState::load();
+
+    for group in &saved_state.groups {
+        sidebar.add_group(&group.id, &group.name);
+
+        let mgr = manager.clone();
+        let sid = sidebar.clone();
+        let notif = notification_store.clone();
+        let gid = group.id.clone();
+        let sid_expand = sidebar.clone();
+        let gid_expand = group.id.clone();
+        sidebar.connect_group_new_tab(&group.id, move |_| {
+            sid_expand.expand_group(&gid_expand);
+            let id = mgr.borrow_mut().create_session_in_group(None, None, &gid);
+            wire_tab_lifecycle(&sid, &mgr, &notif, &id);
+        });
+    }
+
+    if saved_state.sessions.is_empty() {
+        let first_id = manager.borrow_mut().create_session(None, None);
+        wire_tab_lifecycle(sidebar, manager, notification_store, &first_id);
+    } else {
+        for saved in &saved_state.sessions {
+            let group = if saved.group_id.is_empty() { crate::session::DEFAULT_GROUP } else { &saved.group_id };
+            let id = manager.borrow_mut().restore_session_with_splits(
+                &saved.title,
+                group,
+                &saved.split_tree,
+            );
+            wire_tab_lifecycle(sidebar, manager, notification_store, &id);
+        }
+
+        if let Some(idx) = saved_state.active_session_index {
+            manager.borrow_mut().switch_to_index(idx);
+        }
+    }
 }
 
 fn register_tab_actions(
@@ -312,7 +304,6 @@ fn register_tab_actions(
 
     // group-delete
     let sidebar_del = sidebar.clone();
-    let window_del = window.clone();
     let action = gio::SimpleAction::new("group-delete", Some(&String::static_variant_type()));
     action.connect_activate(move |_, param| {
         let Some(group_id) = param.and_then(|v| v.get::<String>()) else { return };
@@ -321,21 +312,19 @@ fn register_tab_actions(
         if tab_count == 0 {
             sidebar_del.remove_group(&group_id);
         } else {
+            // Find the overlay by walking up from the sidebar container
+            let Some(overlay) = sidebar_del.container.ancestor(Overlay::static_type())
+                .and_downcast::<Overlay>() else { return };
+
             let sidebar = sidebar_del.clone();
             let gid = group_id.clone();
-            let dialog = gtk4::AlertDialog::builder()
-                .message("Delete Group")
-                .detail(&format!("This group has {tab_count} tab(s). Tabs will move to the default group."))
-                .buttons(["Cancel", "Delete"])
-                .default_button(1)
-                .cancel_button(0)
-                .build();
 
-            dialog.choose(Some(&window_del), gio::Cancellable::NONE, move |result| {
-                if result == Ok(1) {
-                    sidebar.remove_group(&gid);
-                }
-            });
+            show_confirm_overlay(
+                &overlay,
+                "Delete Group",
+                &format!("This group has {tab_count} tab(s). Tabs will move to the default group."),
+                move || { sidebar.remove_group(&gid); },
+            );
         }
     });
     window.add_action(&action);
@@ -427,17 +416,60 @@ fn setup_terminal_context_menu(stack: &Stack) {
     stack.add_controller(gesture);
 }
 
-fn show_new_group_popover<F: Fn(String) + 'static>(window: &ApplicationWindow, on_create: F) {
-    use gtk4::{Box as GtkBox, Button, Entry, Label, Orientation, Popover};
+/// Build a closure that shows the "new group" overlay and wires the new group's
+/// tab lifecycle. Used by both normal and quake windows.
+fn make_create_group_action(
+    manager: &Rc<RefCell<SessionManager>>,
+    sidebar: &Rc<Sidebar>,
+    notification_store: &Rc<RefCell<NotificationStore>>,
+    overlay: &Overlay,
+    wire_tab: fn(&Rc<Sidebar>, &Rc<RefCell<SessionManager>>, &Rc<RefCell<NotificationStore>>, &str),
+) -> Rc<dyn Fn()> {
+    let mgr = manager.clone();
+    let sid = sidebar.clone();
+    let notif = notification_store.clone();
+    let overlay = overlay.clone();
 
-    let popover = Popover::new();
-    popover.set_autohide(true);
+    Rc::new(move || {
+        let mgr = mgr.clone();
+        let sid = sid.clone();
+        let notif = notif.clone();
 
-    let vbox = GtkBox::new(Orientation::Vertical, 12);
-    vbox.set_margin_top(12);
-    vbox.set_margin_bottom(12);
-    vbox.set_margin_start(12);
-    vbox.set_margin_end(12);
+        show_new_group_overlay(&overlay, move |name| {
+            let group_id = uuid::Uuid::new_v4().to_string();
+            sid.add_group(&group_id, &name);
+
+            let mgr2 = mgr.clone();
+            let sid2 = sid.clone();
+            let notif2 = notif.clone();
+            let gid = group_id.clone();
+            let sid_expand = sid.clone();
+            let gid_expand = group_id.clone();
+            sid.connect_group_new_tab(&group_id, move |_| {
+                sid_expand.expand_group(&gid_expand);
+                let id = mgr2.borrow_mut().create_session_in_group(None, None, &gid);
+                wire_tab(&sid2, &mgr2, &notif2, &id);
+            });
+
+            let first_id = mgr.borrow_mut().create_session_in_group(None, None, &group_id);
+            wire_tab(&sid, &mgr, &notif, &first_id);
+        });
+    })
+}
+
+/// Show a centered "New Group" form as an overlay child.
+fn show_new_group_overlay<F: Fn(String) + 'static>(overlay: &Overlay, on_create: F) {
+    use gtk4::{Box as GtkBox, Button, Entry, Label};
+
+    let card = GtkBox::new(Orientation::Vertical, 12);
+    card.add_css_class("overlay-card");
+    card.set_halign(gtk4::Align::Center);
+    card.set_valign(gtk4::Align::Center);
+    card.set_margin_top(16);
+    card.set_margin_bottom(16);
+    card.set_margin_start(16);
+    card.set_margin_end(16);
+    card.set_width_request(300);
 
     let label = Label::new(Some("Group name:"));
     label.set_xalign(0.0);
@@ -455,24 +487,22 @@ fn show_new_group_popover<F: Fn(String) + 'static>(window: &ApplicationWindow, o
     btn_box.append(&cancel_btn);
     btn_box.append(&create_btn);
 
-    vbox.append(&label);
-    vbox.append(&entry);
-    vbox.append(&btn_box);
+    card.append(&label);
+    card.append(&entry);
+    card.append(&btn_box);
 
-    popover.set_child(Some(&vbox));
-
-    // Attach to the window's content widget so it appears within the layer-shell surface
-    let child = window.child().expect("window must have a child");
-    popover.set_parent(&child);
-
-    let popover_cancel = popover.clone();
-    cancel_btn.connect_clicked(move |_| {
-        popover_cancel.popdown();
-    });
+    overlay.add_overlay(&card);
 
     let on_create = Rc::new(on_create);
 
-    let popover_create = popover.clone();
+    let overlay_cancel = overlay.clone();
+    let card_cancel = card.clone();
+    cancel_btn.connect_clicked(move |_| {
+        overlay_cancel.remove_overlay(&card_cancel);
+    });
+
+    let overlay_create = overlay.clone();
+    let card_create = card.clone();
     let entry_create = entry.clone();
     let on_create_btn = on_create.clone();
     create_btn.connect_clicked(move |_| {
@@ -482,29 +512,91 @@ fn show_new_group_popover<F: Fn(String) + 'static>(window: &ApplicationWindow, o
             on_create_btn(name);
         }
 
-        popover_create.popdown();
+        overlay_create.remove_overlay(&card_create);
     });
 
-    let popover_enter = popover.clone();
-    let entry_enter = entry.clone();
-    entry.connect_activate(move |_| {
-        let name = entry_enter.text().to_string();
+    let overlay_enter = overlay.clone();
+    let card_enter = card.clone();
+    entry.connect_activate(move |entry| {
+        let name = entry.text().to_string();
 
         if !name.is_empty() {
             on_create(name);
         }
 
-        popover_enter.popdown();
+        overlay_enter.remove_overlay(&card_enter);
     });
 
-    // Unparent popover when it's closed to avoid leaks
-    let popover_closed = popover.clone();
-    popover.connect_closed(move |_| {
-        popover_closed.unparent();
+    // Handle Escape to dismiss
+    let key_controller = EventControllerKey::new();
+    let overlay_esc = overlay.clone();
+    let card_esc = card.clone();
+    key_controller.connect_key_pressed(move |_, key, _, _| {
+        if key == Key::Escape {
+            overlay_esc.remove_overlay(&card_esc);
+            return glib::Propagation::Stop;
+        }
+        glib::Propagation::Proceed
     });
+    entry.add_controller(key_controller);
 
-    popover.popup();
     entry.grab_focus();
+}
+
+/// Show a centered confirmation dialog as an overlay child.
+fn show_confirm_overlay<F: Fn() + 'static>(
+    overlay: &Overlay,
+    title: &str,
+    detail: &str,
+    on_confirm: F,
+) {
+    use gtk4::{Box as GtkBox, Button, Label};
+
+    let card = GtkBox::new(Orientation::Vertical, 12);
+    card.add_css_class("overlay-card");
+    card.set_halign(gtk4::Align::Center);
+    card.set_valign(gtk4::Align::Center);
+    card.set_margin_top(16);
+    card.set_margin_bottom(16);
+    card.set_margin_start(16);
+    card.set_margin_end(16);
+    card.set_width_request(300);
+
+    let title_label = Label::new(Some(title));
+    title_label.add_css_class("title-3");
+
+    let detail_label = Label::new(Some(detail));
+    detail_label.set_wrap(true);
+    detail_label.set_xalign(0.0);
+
+    let btn_box = GtkBox::new(Orientation::Horizontal, 8);
+    btn_box.set_halign(gtk4::Align::End);
+
+    let cancel_btn = Button::with_label("Cancel");
+    let confirm_btn = Button::with_label("Delete");
+    confirm_btn.add_css_class("destructive-action");
+
+    btn_box.append(&cancel_btn);
+    btn_box.append(&confirm_btn);
+
+    card.append(&title_label);
+    card.append(&detail_label);
+    card.append(&btn_box);
+
+    overlay.add_overlay(&card);
+
+    let overlay_cancel = overlay.clone();
+    let card_cancel = card.clone();
+    cancel_btn.connect_clicked(move |_| {
+        overlay_cancel.remove_overlay(&card_cancel);
+    });
+
+    let overlay_confirm = overlay.clone();
+    let card_confirm = card.clone();
+    confirm_btn.connect_clicked(move |_| {
+        on_confirm();
+        overlay_confirm.remove_overlay(&card_confirm);
+    });
 }
 
 fn send_desktop_notification(title: &str, subtitle: &str, body: &str) {
@@ -774,39 +866,48 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     setup_hook_polling(state, &dropdown.manager, &dropdown.notification_store, Some(dropdown.clone()));
     setup_stale_pid_detection(&dropdown.manager);
 
+    // Common setup: actions, context menus, notification wiring, DnD
+    setup_common(
+        dropdown.window(),
+        &dropdown.manager,
+        &dropdown.sidebar,
+        &dropdown.notification_store,
+        &dropdown.stack,
+    );
+
+    // When all sessions are closed, respawn a new one
+    let mgr_empty = dropdown.manager.clone();
+    let sid_empty = dropdown.sidebar.clone();
+    let notif_empty = dropdown.notification_store.clone();
+    dropdown.manager.borrow_mut().set_on_empty(move || {
+        let mgr = mgr_empty.clone();
+        let sid = sid_empty.clone();
+        let notif = notif_empty.clone();
+
+        glib::idle_add_local_once(move || {
+            let id = mgr.borrow_mut().create_session(None, None);
+            wire_tab_lifecycle(&sid, &mgr, &notif, &id);
+            mgr.borrow().spawn_deferred();
+        });
+    });
+
+    // Restore saved sessions/groups or create a fresh tab
+    restore_sessions(&dropdown.sidebar, &dropdown.manager, &dropdown.notification_store);
+
+    // Wire default group's "+ Add tab" button
+    let mgr = dropdown.manager.clone();
+    let sid = dropdown.sidebar.clone();
+    let notif = dropdown.notification_store.clone();
+    dropdown.sidebar.connect_new_tab(move || {
+        let id = mgr.borrow_mut().create_session(None, None);
+        wire_tab_lifecycle(&sid, &mgr, &notif, &id);
+    });
+
     // Shared "create new group" logic — Ctrl+Shift+G and sidebar button
-    let create_group = {
-        let mgr = dropdown.manager.clone();
-        let sid = dropdown.sidebar.clone();
-        let notif = dropdown.notification_store.clone();
-        let window = dropdown.window().clone();
-
-        Rc::new(move || {
-            let mgr = mgr.clone();
-            let sid = sid.clone();
-            let notif = notif.clone();
-
-            show_new_group_popover(&window, move |name| {
-                let group_id = uuid::Uuid::new_v4().to_string();
-                sid.add_group(&group_id, &name);
-
-                let mgr2 = mgr.clone();
-                let sid2 = sid.clone();
-                let notif2 = notif.clone();
-                let gid = group_id.clone();
-                let sid_expand = sid.clone();
-                let gid_expand = group_id.clone();
-                sid.connect_group_new_tab(&group_id, move |_| {
-                    sid_expand.expand_group(&gid_expand);
-                    let id = mgr2.borrow_mut().create_session_in_group(None, None, &gid);
-                    crate::dropdown::wire_tab(&sid2, &mgr2, &notif2, &id);
-                });
-
-                let first_id = mgr.borrow_mut().create_session_in_group(None, None, &group_id);
-                crate::dropdown::wire_tab(&sid, &mgr, &notif, &first_id);
-            });
-        })
-    };
+    let create_group = make_create_group_action(
+        &dropdown.manager, &dropdown.sidebar, &dropdown.notification_store, &dropdown.overlay,
+        wire_tab_lifecycle,
+    );
 
     let create_group_btn = create_group.clone();
     dropdown.sidebar.connect_new_group(move || create_group_btn());
@@ -819,7 +920,7 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
 
         Rc::new(move || {
             let id = mgr.borrow_mut().create_session(None, None);
-            crate::dropdown::wire_tab(&sid, &mgr, &notif, &id);
+            wire_tab_lifecycle(&sid, &mgr, &notif, &id);
         })
     };
 
@@ -844,26 +945,54 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         extra_handler,
     );
 
-    // Quit if the compositor hides the window externally (some
-    // compositors unmap layer-shell surfaces on close keybindings).
-    let app_for_close = app.clone();
-    let programmatic_hide = dropdown.programmatic_hide();
-    dropdown.window().connect_notify_local(Some("visible"), move |window, _| {
-        if !window.is_visible() && !programmatic_hide.get() {
-            app_for_close.quit();
+    // Auto-hide when another window gets focus.
+    // Use a short delay to avoid hiding when a popover (context menu)
+    // briefly steals focus — the window becomes active again once the
+    // popover closes.
+    let hide_generation: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(0));
+    let dropdown_for_focus = dropdown.clone();
+    let hide_gen = hide_generation.clone();
+    dropdown.window().connect_notify_local(Some("is-active"), move |window, _| {
+        if !window.is_active() && *dropdown_for_focus.visible() {
+            let current = hide_gen.get().wrapping_add(1);
+            hide_gen.set(current);
+
+            let dd = dropdown_for_focus.clone();
+            let gen_check = hide_gen.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(150), move || {
+                if gen_check.get() == current && *dd.visible() {
+                    dd.toggle();
+                }
+            });
+        } else {
+            // Window became active again — cancel any pending hide
+            hide_gen.set(hide_gen.get().wrapping_add(1));
         }
     });
 
-    // Also handle close_request for compositors that do send it.
-    let app_for_cr = app.clone();
+    // Save session state on close
+    let mgr_for_close = dropdown.manager.clone();
+    let paned_for_close = dropdown.paned.clone();
+    let config_for_close = state.config.clone();
     dropdown.window().connect_close_request(move |_| {
-        app_for_cr.quit();
+        mgr_for_close.borrow().save_state();
+
+        let mut cfg = config_for_close.borrow_mut();
+        cfg.sidebar_width = paned_for_close.position();
+        cfg.save();
+
         glib::Propagation::Proceed
     });
 
     // Register global shortcut via XDG Portal (best-effort)
     let dropdown_for_shortcut = dropdown.clone();
     crate::global_shortcuts::register_toggle(move || dropdown_for_shortcut.toggle());
+
+    // Spawn shell after layout
+    let mgr_spawn = dropdown.manager.clone();
+    glib::idle_add_local_once(move || {
+        mgr_spawn.borrow().spawn_deferred();
+    });
 
     // Present the window off-screen, ready for the first toggle
     dropdown.present_hidden();

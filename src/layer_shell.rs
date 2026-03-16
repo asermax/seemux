@@ -26,6 +26,7 @@ unsafe extern "C" {
     fn gtk_layer_set_keyboard_mode(window: *mut std::ffi::c_void, mode: c_int);
     fn gtk_layer_set_anchor(window: *mut std::ffi::c_void, edge: c_int, anchor: gboolean);
     fn gtk_layer_set_margin(window: *mut std::ffi::c_void, edge: c_int, margin: c_int);
+    fn gtk_layer_set_respect_close(window: *mut std::ffi::c_void, respect: gboolean);
 }
 
 fn window_ptr(window: &ApplicationWindow) -> *mut std::ffi::c_void {
@@ -49,6 +50,7 @@ pub fn setup_dropdown(window: &ApplicationWindow, width: i32, monitor_width: i32
         gtk_layer_init_for_window(ptr);
         gtk_layer_set_layer(ptr, LAYER_TOP);
         gtk_layer_set_keyboard_mode(ptr, KEYBOARD_ON_DEMAND);
+        gtk_layer_set_respect_close(ptr, 1);
 
         gtk_layer_set_anchor(ptr, EDGE_TOP, 1);
         gtk_layer_set_anchor(ptr, EDGE_LEFT, 1);
