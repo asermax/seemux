@@ -744,6 +744,14 @@ impl Sidebar {
             .map(|child| child.widget_name().to_string())
     }
 
+    /// Return session IDs in visual order within a specific group.
+    pub fn ordered_session_ids_in_group(&self, group_id: &str) -> Vec<String> {
+        let Some(list) = self.list_for_group(group_id) else { return Vec::new() };
+        let mut ids = Vec::new();
+        collect_ids_from_list(&list, &mut ids);
+        ids
+    }
+
     /// Return the group ID that a session belongs to.
     pub fn group_id_for_session(&self, session_id: &str) -> Option<String> {
         self.rows.borrow().get(session_id).map(|(_, gid)| gid.clone())

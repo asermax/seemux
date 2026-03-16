@@ -131,7 +131,10 @@ impl TabGroupWidget {
         self.header.add_controller(drag_source);
     }
 
-    /// Set up a drop target that shows a gap below this group and reports drops.
+    /// Set up a drop target on the container that captures group drops before
+    /// child widgets see them.  Using `PropagationPhase::Capture` lets the
+    /// container intercept group drags while tab drags pass through to child
+    /// DropTargets (on header/list_box) in the normal bubble phase.
     /// The `on_drop` callback receives `(dragged_group_id, this_group_id)`.
     pub fn setup_drop_target<F: Fn(String, String) + 'static>(
         &self,
@@ -139,6 +142,16 @@ impl TabGroupWidget {
         on_drop: F,
     ) {
         let drop_target = gtk4::DropTarget::new(glib::GString::static_type(), gdk::DragAction::MOVE);
+        drop_target.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+        // Only accept group drags; reject tab drags so children handle them
+        let dragging_enter = dragging_group_id.clone();
+        drop_target.connect_enter(move |_target, _x, _y| {
+            if dragging_enter.borrow().is_empty() {
+                return gdk::DragAction::empty();
+            }
+            gdk::DragAction::MOVE
+        });
 
         let container = self.container.clone();
         let dragging_motion = dragging_group_id.clone();

@@ -632,7 +632,6 @@ fn setup_keyboard_shortcuts(
 ) {
     let key_controller = EventControllerKey::new();
     key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
-    key_controller.set_im_context(None::<&gtk4::IMContext>);
 
     let mgr = manager.clone();
     let notif_for_keys = notification_store.clone();

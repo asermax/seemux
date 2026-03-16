@@ -178,7 +178,7 @@ impl TabRow {
         }
 
         match status {
-            SessionStatus::Idle | SessionStatus::Exited | SessionStatus::Running => {
+            SessionStatus::Idle | SessionStatus::Exited => {
                 self.status_label.set_visible(false);
             }
             _ => {

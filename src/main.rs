@@ -28,6 +28,14 @@ thread_local! {
 }
 
 fn main() -> glib::ExitCode {
+    // Workaround for GTK 4.20+ regression: dead keys / compose sequences stopped
+    // working on Wayland without an IM framework (IBus/Fcitx). Force GTK's built-in
+    // compose handler as fallback when no IM module is explicitly configured.
+    if std::env::var_os("GTK_IM_MODULE").is_none() {
+        // SAFETY: called before GTK init, no other threads are running yet.
+        unsafe { std::env::set_var("GTK_IM_MODULE", "simple") };
+    }
+
     let mode = cli::handle_args();
 
     let quake = matches!(mode, cli::LaunchMode::Quake);

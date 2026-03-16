@@ -164,6 +164,10 @@ impl SessionManager {
     }
 
     pub fn destroy_session(&mut self, session_id: &str) {
+        // Capture group context before removing from sidebar
+        let group_siblings = self.sidebar.group_id_for_session(session_id)
+            .map(|gid| self.sidebar.ordered_session_ids_in_group(&gid));
+
         if let Some(child) = self.stack.child_by_name(session_id) {
             self.stack.remove(&child);
         }
@@ -177,12 +181,42 @@ impl SessionManager {
                 on_empty();
             }
         } else if self.active_id.as_deref() == Some(session_id) {
-            let ordered = self.sidebar.ordered_session_ids();
-
-            if let Some(next_id) = ordered.last().cloned() {
+            if let Some(next_id) = self.find_focus_after_close(session_id, group_siblings) {
                 self.switch_to(&next_id);
             }
         }
+    }
+
+    /// Find the best tab to focus after closing a session.
+    /// Priority: next in group → previous in group → first in default → first in any group.
+    fn find_focus_after_close(
+        &self,
+        closed_id: &str,
+        group_siblings_before_close: Option<Vec<String>>,
+    ) -> Option<String> {
+        if let Some(ids) = group_siblings_before_close {
+            if let Some(pos) = ids.iter().position(|id| id == closed_id) {
+                if pos + 1 < ids.len() {
+                    return Some(ids[pos + 1].clone());
+                }
+
+                if pos > 0 {
+                    return Some(ids[pos - 1].clone());
+                }
+            }
+        }
+
+        if let Some(id) = self.sidebar.first_session_id_in_group(crate::session::DEFAULT_GROUP) {
+            return Some(id);
+        }
+
+        for gid in self.sidebar.ordered_group_ids() {
+            if let Some(id) = self.sidebar.first_session_id_in_group(&gid) {
+                return Some(id);
+            }
+        }
+
+        None
     }
 
     pub fn close_others(&mut self, keep_id: &str) {
