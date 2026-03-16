@@ -241,9 +241,7 @@ fn wire_tab_lifecycle(
     });
 
     sidebar.setup_context_menu(session_id);
-    SessionManager::wire_child_exited(manager, session_id);
-    SessionManager::wire_focus_tracking(manager, session_id);
-    SessionManager::wire_bell(manager, session_id);
+    SessionManager::wire_pane_signals(manager, session_id);
 }
 
 /// Restore saved groups and sessions from disk, or create a fresh tab if none exist.
@@ -850,11 +848,7 @@ fn setup_keyboard_shortcuts(
         if !ctrl && !shift && alt && matches!(key, Key::Page_Down | Key::Page_Up)
             || ctrl && !shift && !alt && matches!(key, Key::Page_Down | Key::Page_Up)
         {
-            if key == Key::Page_Down {
-                mgr.borrow_mut().switch_next();
-            } else {
-                mgr.borrow_mut().switch_prev();
-            }
+            mgr.borrow_mut().switch_adjacent(key == Key::Page_Down);
 
             if let Some(active) = mgr.borrow().active_id() {
                 notif_for_keys.borrow_mut().mark_read(active);
@@ -865,23 +859,15 @@ fn setup_keyboard_shortcuts(
 
         if alt && !ctrl && shift && matches!(key, Key::Page_Down | Key::Page_Up) {
             // Try notification cycling first; fall back to regular tab cycling
+            let forward = key == Key::Page_Down;
+
             let had_notification = {
                 let notifs = notif_for_keys.borrow();
-                let mut mgr_mut = mgr.borrow_mut();
-
-                if key == Key::Page_Down {
-                    mgr_mut.switch_next_with_notifications(&notifs)
-                } else {
-                    mgr_mut.switch_prev_with_notifications(&notifs)
-                }
+                mgr.borrow_mut().switch_adjacent_with_notifications(&notifs, forward)
             };
 
             if !had_notification {
-                if key == Key::Page_Down {
-                    mgr.borrow_mut().switch_next();
-                } else {
-                    mgr.borrow_mut().switch_prev();
-                }
+                mgr.borrow_mut().switch_adjacent(forward);
             }
 
             if let Some(active) = mgr.borrow().active_id() {
@@ -892,11 +878,7 @@ fn setup_keyboard_shortcuts(
         }
 
         if ctrl && alt && !shift && matches!(key, Key::Page_Down | Key::Page_Up) {
-            if key == Key::Page_Down {
-                mgr.borrow_mut().switch_next_group();
-            } else {
-                mgr.borrow_mut().switch_prev_group();
-            }
+            mgr.borrow_mut().switch_adjacent_group(key == Key::Page_Down);
 
             if let Some(active) = mgr.borrow().active_id() {
                 notif_for_keys.borrow_mut().mark_read(active);
@@ -931,11 +913,7 @@ fn setup_keyboard_shortcuts(
         }
 
         if ctrl && key == Key::Tab {
-            if shift {
-                mgr.borrow_mut().switch_prev();
-            } else {
-                mgr.borrow_mut().switch_next();
-            }
+            mgr.borrow_mut().switch_adjacent(!shift);
 
             if let Some(active) = mgr.borrow().active_id() {
                 notif_for_keys.borrow_mut().mark_read(active);

@@ -14,6 +14,11 @@ use crate::session::{Session, SessionStatus};
 use crate::sidebar::Sidebar;
 use crate::terminal::{Direction, VteTerminal, SplitView};
 
+enum SpawnAction<'a> {
+    Shell,
+    Command(&'a [&'a str]),
+}
+
 /// Extract the filesystem path from a `file://[host]/path` URI.
 pub(crate) fn path_from_file_uri(uri: &str) -> Option<String> {
     let without_scheme = uri.strip_prefix("file://")?;
@@ -49,6 +54,16 @@ fn display_path(path: &str) -> String {
     }
 
     path.to_string()
+}
+
+/// Compute the next or previous index in a circular list.
+fn circular_offset(pos: usize, len: usize, forward: bool) -> usize {
+    circular_offset_by(pos, len, 1, forward)
+}
+
+/// Compute an offset index in a circular list.
+fn circular_offset_by(pos: usize, len: usize, offset: usize, forward: bool) -> usize {
+    if forward { (pos + offset) % len } else { (pos + len - offset) % len }
 }
 
 pub struct SessionManager {
@@ -96,12 +111,52 @@ impl SessionManager {
         self.on_empty = Some(Box::new(f));
     }
 
+    fn find_session_mut(&mut self, session_id: &str) -> Option<&mut Session> {
+        self.sessions.iter_mut().find(|s| s.id == session_id)
+    }
+
+    /// Register a fully-built session + split view into the UI and internal collections.
+    fn register_session(
+        &mut self,
+        session: Session,
+        split_view: SplitView,
+        active_hint: Option<&str>,
+    ) -> String {
+        let id = session.id.clone();
+        let widget = split_view.build_widget();
+
+        self.stack.add_named(&widget, Some(&id));
+        self.sidebar.add_tab(&session, active_hint);
+        self.split_views.insert(id.clone(), split_view);
+        self.sessions.push(session);
+        self.switch_to(&id);
+
+        id
+    }
 
     pub fn create_session(&mut self, title: Option<&str>, cwd: Option<&str>) -> String {
         self.create_session_in_group(title, cwd, crate::session::DEFAULT_GROUP)
     }
 
     pub fn create_session_in_group(&mut self, title: Option<&str>, cwd: Option<&str>, group_id: &str) -> String {
+        self.create_session_inner(title, cwd, group_id, SpawnAction::Shell)
+    }
+
+    pub fn create_session_with_command(&mut self, title: &str, cwd: Option<&str>, argv: &[&str]) -> String {
+        let group_id = self.active_group_id()
+            .unwrap_or(crate::session::DEFAULT_GROUP)
+            .to_string();
+
+        self.create_session_inner(Some(title), cwd, &group_id, SpawnAction::Command(argv))
+    }
+
+    fn create_session_inner(
+        &mut self,
+        title: Option<&str>,
+        cwd: Option<&str>,
+        group_id: &str,
+        spawn: SpawnAction<'_>,
+    ) -> String {
         let index = self.sessions.len() + 1;
         let mut session = Session::new(title.unwrap_or(&format!("Tab {index}")).to_string());
         session.group_id = group_id.to_string();
@@ -116,57 +171,18 @@ impl SessionManager {
         let vte_term = terminal.terminal().clone();
 
         if self.stack.is_realized() {
-            terminal.spawn_shell(cwd, &env_refs);
-        }
-
-        // Wire title and CWD signals
-        self.wire_vte_signals(&vte_term, &id, &pane_id);
-
-        let split_view = SplitView::new(terminal, pane_id);
-        let widget = split_view.build_widget();
-        self.stack.add_named(&widget, Some(&id));
-        self.sidebar.add_tab(&session, self.active_id.as_deref());
-
-        self.split_views.insert(id.clone(), split_view);
-        self.sessions.push(session);
-        self.switch_to(&id);
-
-        id
-    }
-
-    pub fn create_session_with_command(&mut self, title: &str, cwd: Option<&str>, argv: &[&str]) -> String {
-        let group_id = self.active_group_id()
-            .unwrap_or(crate::session::DEFAULT_GROUP)
-            .to_string();
-
-        let mut session = Session::new(title.to_string());
-        session.group_id = group_id;
-        session.cwd = cwd.map(|s| s.to_string());
-        let id = session.id.clone();
-
-        let env_vars = self.build_env_vars(&id);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-
-        let pane_id = uuid::Uuid::new_v4().to_string();
-        let terminal = VteTerminal::new_with_config(&self.config.borrow());
-        let vte_term = terminal.terminal().clone();
-
-        if self.stack.is_realized() {
-            terminal.spawn_command(argv, cwd, &env_refs);
+            match spawn {
+                SpawnAction::Shell => terminal.spawn_shell(cwd, &env_refs),
+                SpawnAction::Command(argv) => terminal.spawn_command(argv, cwd, &env_refs),
+            }
         }
 
         self.wire_vte_signals(&vte_term, &id, &pane_id);
 
+        let active_hint = self.active_id.as_deref().map(|s| s.to_string());
         let split_view = SplitView::new(terminal, pane_id);
-        let widget = split_view.build_widget();
-        self.stack.add_named(&widget, Some(&id));
-        self.sidebar.add_tab(&session, self.active_id.as_deref());
 
-        self.split_views.insert(id.clone(), split_view);
-        self.sessions.push(session);
-        self.switch_to(&id);
-
-        id
+        self.register_session(session, split_view, active_hint.as_deref())
     }
 
     /// Wire VTE signals to update tab title, subtitle, and git branch.
@@ -226,6 +242,17 @@ impl SessionManager {
         // Capture group context before removing from sidebar
         let group_siblings = self.sidebar.group_id_for_session(session_id)
             .map(|gid| self.sidebar.ordered_session_ids_in_group(&gid));
+
+        // Clean up pane CWDs before removing the split view
+        if let Some(sv) = self.split_views.get(session_id) {
+            let mut cwds = self.session_cwds.borrow_mut();
+
+            for (pane_id, _) in sv.collect_vte_terminals() {
+                cwds.remove(&pane_id);
+            }
+        }
+
+        self.bell_timestamps.borrow_mut().remove(session_id);
 
         if let Some(child) = self.stack.child_by_name(session_id) {
             self.stack.remove(&child);
@@ -290,20 +317,20 @@ impl SessionManager {
     }
 
     pub fn update_session_status(&mut self, session_id: &str, status: SessionStatus, status_label: Option<&str>) {
-        if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
+        if let Some(session) = self.find_session_mut(session_id) {
             session.status = status.clone();
             self.sidebar.update_status(session_id, &status, status_label);
         }
     }
 
     pub fn set_claude_pid(&mut self, session_id: &str, pid: Option<u32>) {
-        if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
+        if let Some(session) = self.find_session_mut(session_id) {
             session.claude_pid = pid;
         }
     }
 
     pub fn set_claude_session_id(&mut self, session_id: &str, claude_session_id: Option<String>) {
-        if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
+        if let Some(session) = self.find_session_mut(session_id) {
             session.claude_session_id = claude_session_id;
         }
     }
@@ -438,27 +465,17 @@ impl SessionManager {
         }
     }
 
-    pub fn switch_next(&mut self) {
+    pub fn switch_adjacent(&mut self, forward: bool) {
         let Some(active_id) = &self.active_id else { return };
         let ordered = self.sidebar.ordered_session_ids();
         let Some(pos) = ordered.iter().position(|id| id == active_id) else { return };
 
-        let next = (pos + 1) % ordered.len();
-        let id = ordered[next].clone();
+        let target = circular_offset(pos, ordered.len(), forward);
+        let id = ordered[target].clone();
         self.switch_to(&id);
     }
 
-    pub fn switch_prev(&mut self) {
-        let Some(active_id) = &self.active_id else { return };
-        let ordered = self.sidebar.ordered_session_ids();
-        let Some(pos) = ordered.iter().position(|id| id == active_id) else { return };
-
-        let prev = if pos == 0 { ordered.len() - 1 } else { pos - 1 };
-        let id = ordered[prev].clone();
-        self.switch_to(&id);
-    }
-
-    pub fn switch_next_group(&mut self) {
+    pub fn switch_adjacent_group(&mut self, forward: bool) {
         let Some(active_id) = &self.active_id else { return };
         let Some(current_group) = self.sidebar.group_id_for_session(active_id) else { return };
 
@@ -466,33 +483,16 @@ impl SessionManager {
         let Some(gpos) = group_order.iter().position(|g| g == &current_group) else { return };
 
         for offset in 1..group_order.len() {
-            let next_gpos = (gpos + offset) % group_order.len();
+            let target = circular_offset_by(gpos, group_order.len(), offset, forward);
 
-            if let Some(id) = self.sidebar.first_session_id_in_group(&group_order[next_gpos]) {
+            if let Some(id) = self.sidebar.first_session_id_in_group(&group_order[target]) {
                 self.switch_to(&id);
                 return;
             }
         }
     }
 
-    pub fn switch_prev_group(&mut self) {
-        let Some(active_id) = &self.active_id else { return };
-        let Some(current_group) = self.sidebar.group_id_for_session(active_id) else { return };
-
-        let group_order = self.sidebar.ordered_group_ids();
-        let Some(gpos) = group_order.iter().position(|g| g == &current_group) else { return };
-
-        for offset in 1..group_order.len() {
-            let prev_gpos = (gpos + group_order.len() - offset) % group_order.len();
-
-            if let Some(id) = self.sidebar.first_session_id_in_group(&group_order[prev_gpos]) {
-                self.switch_to(&id);
-                return;
-            }
-        }
-    }
-
-    pub fn switch_next_with_notifications(&mut self, notif_store: &NotificationStore) -> bool {
+    pub fn switch_adjacent_with_notifications(&mut self, notif_store: &NotificationStore, forward: bool) -> bool {
         let Some(active_id) = &self.active_id else { return false };
         let ordered = self.sidebar.ordered_session_ids();
         let Some(pos) = ordered.iter().position(|id| id == active_id) else { return false };
@@ -500,27 +500,7 @@ impl SessionManager {
         let len = ordered.len();
 
         for i in 1..len {
-            let idx = (pos + i) % len;
-
-            if notif_store.unread_count(&ordered[idx]) > 0 {
-                let id = ordered[idx].clone();
-                self.switch_to(&id);
-                return true;
-            }
-        }
-
-        false
-    }
-
-    pub fn switch_prev_with_notifications(&mut self, notif_store: &NotificationStore) -> bool {
-        let Some(active_id) = &self.active_id else { return false };
-        let ordered = self.sidebar.ordered_session_ids();
-        let Some(pos) = ordered.iter().position(|id| id == active_id) else { return false };
-
-        let len = ordered.len();
-
-        for i in 1..len {
-            let idx = (pos + len - i) % len;
+            let idx = circular_offset_by(pos, len, i, forward);
 
             if notif_store.unread_count(&ordered[idx]) > 0 {
                 let id = ordered[idx].clone();
@@ -533,7 +513,7 @@ impl SessionManager {
     }
 
     pub fn move_session_to_position(&mut self, session_id: &str, new_group_id: &str, _position: i32) {
-        if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
+        if let Some(session) = self.find_session_mut(session_id) {
             session.group_id = new_group_id.to_string();
         }
     }
@@ -553,6 +533,8 @@ impl SessionManager {
             sv.set_focused_pane_id(pane_id);
             sv.close_focused_pane()
         };
+
+        self.session_cwds.borrow_mut().remove(pane_id);
 
         if should_destroy {
             self.destroy_session(session_id);
@@ -597,16 +579,19 @@ impl SessionManager {
         });
     }
 
-    /// Wire child-exited on ALL terminals in a session's split tree.
-    pub fn wire_child_exited(self_ref: &Rc<RefCell<Self>>, session_id: &str) {
+    /// Wire all signal handlers (child-exited, focus tracking, bell) on ALL terminals
+    /// in a session's split tree.
+    pub fn wire_pane_signals(self_ref: &Rc<RefCell<Self>>, session_id: &str) {
         let terminals = {
             let borrow = self_ref.borrow();
             let Some(sv) = borrow.split_views.get(session_id) else { return };
             sv.collect_vte_terminals()
         };
 
-        for (pane_id, vte_term) in terminals {
-            Self::wire_pane_child_exited(self_ref, session_id, &pane_id, &vte_term);
+        for (pane_id, vte_term) in &terminals {
+            Self::wire_pane_child_exited(self_ref, session_id, pane_id, vte_term);
+            Self::wire_pane_focus(self_ref, session_id, pane_id, vte_term);
+            Self::wire_pane_bell(self_ref, session_id, vte_term);
         }
     }
 
@@ -671,32 +656,6 @@ impl SessionManager {
         });
     }
 
-    /// Wire focus tracking on ALL terminals in a session's split tree.
-    pub fn wire_focus_tracking(self_ref: &Rc<RefCell<Self>>, session_id: &str) {
-        let terminals = {
-            let borrow = self_ref.borrow();
-            let Some(sv) = borrow.split_views.get(session_id) else { return };
-            sv.collect_vte_terminals()
-        };
-
-        for (pane_id, vte_term) in terminals {
-            Self::wire_pane_focus(self_ref, session_id, &pane_id, &vte_term);
-        }
-    }
-
-    /// Wire bell notifications on ALL terminals in a session's split tree.
-    pub fn wire_bell(self_ref: &Rc<RefCell<Self>>, session_id: &str) {
-        let terminals = {
-            let borrow = self_ref.borrow();
-            let Some(sv) = borrow.split_views.get(session_id) else { return };
-            sv.collect_vte_terminals()
-        };
-
-        for (_, vte_term) in terminals {
-            Self::wire_pane_bell(self_ref, session_id, &vte_term);
-        }
-    }
-
     /// Save current session state for restoration on next launch.
     pub fn save_state(&self) {
         let groups = self.sidebar.group_ids().iter().map(|(id, name)| {
@@ -759,18 +718,14 @@ impl SessionManager {
             self.wire_vte_signals(&vte_term, &id, &pane_id);
         }
 
-        let widget = split_view.build_widget();
-        self.stack.add_named(&widget, Some(&id));
-        self.sidebar.add_tab(&session, None);
-
-        self.split_views.insert(id.clone(), split_view);
-        self.sessions.push(session);
-        self.switch_to(&id);
+        self.register_session(session, split_view, None);
 
         // Store pane CWDs for deferred spawning
+        let mut cwds = self.session_cwds.borrow_mut();
+
         for (pane_id, cwd) in &panes {
             if let Some(c) = cwd {
-                self.session_cwds.borrow_mut().insert(pane_id.clone(), c.clone());
+                cwds.insert(pane_id.clone(), c.clone());
             }
         }
 
