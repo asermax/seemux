@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -119,6 +119,10 @@ impl DropdownWindow {
 
     pub fn window(&self) -> &ApplicationWindow {
         &self.window
+    }
+
+    pub fn visible(&self) -> Ref<'_, bool> {
+        self.visible.borrow()
     }
 
     pub fn show(&self) {

@@ -1104,6 +1104,30 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         extra_handler,
     );
 
+    // Auto-hide when another window gets focus.
+    // Use a short delay to avoid hiding when a popover (context menu)
+    // briefly steals focus — the window becomes active again once the
+    // popover closes.
+    let hide_generation: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(0));
+    let dropdown_for_focus = dropdown.clone();
+    let hide_gen = hide_generation.clone();
+    dropdown.window().connect_notify_local(Some("is-active"), move |window, _| {
+        if !window.is_active() && *dropdown_for_focus.visible() {
+            let current = hide_gen.get().wrapping_add(1);
+            hide_gen.set(current);
+
+            let dd = dropdown_for_focus.clone();
+            let gen_check = hide_gen.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
+                if gen_check.get() == current && *dd.visible() {
+                    dd.hide();
+                }
+            });
+        } else {
+            // Window became active again — cancel any pending hide
+            hide_gen.set(hide_gen.get().wrapping_add(1));
+        }
+    });
 
     // Save session state on close
     let mgr_for_close = dropdown.manager.clone();
