@@ -769,6 +769,21 @@ impl Sidebar {
         group_ids
     }
 
+    /// Return visible group IDs (skipping collapsed groups) in sidebar order.
+    pub fn ordered_visible_group_ids(&self) -> Vec<String> {
+        let mut group_ids = vec![crate::session::DEFAULT_GROUP.to_string()];
+
+        for entry in self.groups.borrow().iter() {
+            if let Some(gw) = self.group_widgets.borrow().get(&entry.id) {
+                if !gw.is_collapsed() {
+                    group_ids.push(entry.id.clone());
+                }
+            }
+        }
+
+        group_ids
+    }
+
     /// Return the first session ID in a group (visual order), or None if empty.
     pub fn first_session_id_in_group(&self, group_id: &str) -> Option<String> {
         let list = self.list_for_group(group_id)?;

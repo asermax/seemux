@@ -467,7 +467,7 @@ impl SessionManager {
 
     pub fn switch_adjacent(&mut self, forward: bool) {
         let Some(active_id) = &self.active_id else { return };
-        let ordered = self.sidebar.ordered_session_ids();
+        let ordered = self.sidebar.ordered_visible_session_ids();
         let Some(pos) = ordered.iter().position(|id| id == active_id) else { return };
 
         let target = circular_offset(pos, ordered.len(), forward);
@@ -479,7 +479,7 @@ impl SessionManager {
         let Some(active_id) = &self.active_id else { return };
         let Some(current_group) = self.sidebar.group_id_for_session(active_id) else { return };
 
-        let group_order = self.sidebar.ordered_group_ids();
+        let group_order = self.sidebar.ordered_visible_group_ids();
         let Some(gpos) = group_order.iter().position(|g| g == &current_group) else { return };
 
         for offset in 1..group_order.len() {
@@ -504,6 +504,11 @@ impl SessionManager {
 
             if notif_store.unread_count(&ordered[idx]) > 0 {
                 let id = ordered[idx].clone();
+
+                if let Some(gid) = self.sidebar.group_id_for_session(&id) {
+                    self.sidebar.expand_group(&gid);
+                }
+
                 self.switch_to(&id);
                 return true;
             }
