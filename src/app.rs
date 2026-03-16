@@ -209,6 +209,7 @@ fn wire_tab_lifecycle(
     let mgr = manager.clone();
     sidebar.wire_close_button(session_id, move |id| {
         mgr.borrow_mut().destroy_session(&id);
+        refocus_terminal(&mgr);
     });
 
     let sidebar_rename = sidebar.clone();
@@ -290,6 +291,7 @@ fn register_tab_actions(
     action.connect_activate(move |_, param| {
         let Some(id) = param.and_then(|v| v.get::<String>()) else { return };
         mgr.borrow_mut().destroy_session(&id);
+        refocus_terminal(&mgr);
     });
     window.add_action(&action);
 
@@ -299,11 +301,13 @@ fn register_tab_actions(
     action.connect_activate(move |_, param| {
         let Some(id) = param.and_then(|v| v.get::<String>()) else { return };
         mgr.borrow_mut().close_others(&id);
+        refocus_terminal(&mgr);
     });
     window.add_action(&action);
 
     // group-delete
     let sidebar_del = sidebar.clone();
+    let mgr_del = manager.clone();
     let action = gio::SimpleAction::new("group-delete", Some(&String::static_variant_type()));
     action.connect_activate(move |_, param| {
         let Some(group_id) = param.and_then(|v| v.get::<String>()) else { return };
@@ -311,6 +315,7 @@ fn register_tab_actions(
 
         if tab_count == 0 {
             sidebar_del.remove_group(&group_id);
+            refocus_terminal(&mgr_del);
         } else {
             // Find the overlay by walking up from the sidebar container
             let Some(overlay) = sidebar_del.container.ancestor(Overlay::static_type())
@@ -321,6 +326,7 @@ fn register_tab_actions(
 
             show_confirm_overlay(
                 &overlay,
+                &mgr_del,
                 "Delete Group",
                 &format!("This group has {tab_count} tab(s). Tabs will move to the default group."),
                 move || { sidebar.remove_group(&gid); },
@@ -435,7 +441,8 @@ fn make_create_group_action(
         let sid = sid.clone();
         let notif = notif.clone();
 
-        show_new_group_overlay(&overlay, move |name| {
+        let mgr_for_overlay = mgr.clone();
+        show_new_group_overlay(&overlay, &mgr_for_overlay, move |name| {
             let group_id = uuid::Uuid::new_v4().to_string();
             sid.add_group(&group_id, &name);
 
@@ -457,8 +464,18 @@ fn make_create_group_action(
     })
 }
 
+fn refocus_terminal(manager: &Rc<RefCell<SessionManager>>) {
+    if let Some(term) = manager.borrow().active_terminal_vte() {
+        term.grab_focus();
+    }
+}
+
 /// Show a centered "New Group" form as an overlay child.
-fn show_new_group_overlay<F: Fn(String) + 'static>(overlay: &Overlay, on_create: F) {
+fn show_new_group_overlay<F: Fn(String) + 'static>(
+    overlay: &Overlay,
+    manager: &Rc<RefCell<SessionManager>>,
+    on_create: F,
+) {
     use gtk4::{Box as GtkBox, Button, Entry, Label};
 
     let card = GtkBox::new(Orientation::Vertical, 12);
@@ -497,14 +514,17 @@ fn show_new_group_overlay<F: Fn(String) + 'static>(overlay: &Overlay, on_create:
 
     let overlay_cancel = overlay.clone();
     let card_cancel = card.clone();
+    let mgr_cancel = manager.clone();
     cancel_btn.connect_clicked(move |_| {
         overlay_cancel.remove_overlay(&card_cancel);
+        refocus_terminal(&mgr_cancel);
     });
 
     let overlay_create = overlay.clone();
     let card_create = card.clone();
     let entry_create = entry.clone();
     let on_create_btn = on_create.clone();
+    let mgr_create = manager.clone();
     create_btn.connect_clicked(move |_| {
         let name = entry_create.text().to_string();
 
@@ -513,10 +533,12 @@ fn show_new_group_overlay<F: Fn(String) + 'static>(overlay: &Overlay, on_create:
         }
 
         overlay_create.remove_overlay(&card_create);
+        refocus_terminal(&mgr_create);
     });
 
     let overlay_enter = overlay.clone();
     let card_enter = card.clone();
+    let mgr_enter = manager.clone();
     entry.connect_activate(move |entry| {
         let name = entry.text().to_string();
 
@@ -525,15 +547,18 @@ fn show_new_group_overlay<F: Fn(String) + 'static>(overlay: &Overlay, on_create:
         }
 
         overlay_enter.remove_overlay(&card_enter);
+        refocus_terminal(&mgr_enter);
     });
 
     // Handle Escape to dismiss
     let key_controller = EventControllerKey::new();
     let overlay_esc = overlay.clone();
     let card_esc = card.clone();
+    let mgr_esc = manager.clone();
     key_controller.connect_key_pressed(move |_, key, _, _| {
         if key == Key::Escape {
             overlay_esc.remove_overlay(&card_esc);
+            refocus_terminal(&mgr_esc);
             return glib::Propagation::Stop;
         }
         glib::Propagation::Proceed
@@ -546,6 +571,7 @@ fn show_new_group_overlay<F: Fn(String) + 'static>(overlay: &Overlay, on_create:
 /// Show a centered confirmation dialog as an overlay child.
 fn show_confirm_overlay<F: Fn() + 'static>(
     overlay: &Overlay,
+    manager: &Rc<RefCell<SessionManager>>,
     title: &str,
     detail: &str,
     on_confirm: F,
@@ -587,15 +613,19 @@ fn show_confirm_overlay<F: Fn() + 'static>(
 
     let overlay_cancel = overlay.clone();
     let card_cancel = card.clone();
+    let mgr_cancel = manager.clone();
     cancel_btn.connect_clicked(move |_| {
         overlay_cancel.remove_overlay(&card_cancel);
+        refocus_terminal(&mgr_cancel);
     });
 
     let overlay_confirm = overlay.clone();
     let card_confirm = card.clone();
+    let mgr_confirm = manager.clone();
     confirm_btn.connect_clicked(move |_| {
         on_confirm();
         overlay_confirm.remove_overlay(&card_confirm);
+        refocus_terminal(&mgr_confirm);
     });
 }
 

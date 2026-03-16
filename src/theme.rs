@@ -311,7 +311,8 @@ list row:selected {{
 
 .dropdown-border {{
     border: 2px solid {accent};
-    border-radius: 8px;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
 }}
 
 .overlay-card {{
