@@ -18,6 +18,8 @@ pub struct HookResult {
     pub claude_pid: Option<u32>,
     /// Some(Some(id)) = set, Some(None) = clear, None = no change
     pub claude_session_id: Option<Option<String>>,
+    /// Tool name from pre-tool-use events (e.g. "Bash", "Write")
+    pub tool_name: Option<String>,
 }
 
 pub fn handle_hook_event(event: HookEvent) -> HookResult {
@@ -28,6 +30,7 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
         clear_notifications: false,
         claude_pid: None,
         claude_session_id: None,
+        tool_name: None,
     };
 
     match event.event.as_str() {
@@ -51,6 +54,9 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
 
         "pre-tool-use" => {
             result.new_status = Some(SessionStatus::Running);
+            result.tool_name = event.payload.get("tool_name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
         }
 
         "notification" => {
@@ -254,6 +260,25 @@ mod tests {
         assert_eq!(result.new_status, Some(SessionStatus::Idle));
         assert_eq!(result.claude_pid, Some(0));
         assert_eq!(result.claude_session_id, Some(None));
+    }
+
+    #[test]
+    fn handle_pre_tool_use_extracts_tool_name() {
+        let result = handle_hook_event(make_event(
+            "pre-tool-use",
+            serde_json::json!({"tool_name": "Bash", "tool_input": {"command": "npm test"}}),
+        ));
+
+        assert_eq!(result.new_status, Some(SessionStatus::Running));
+        assert_eq!(result.tool_name, Some("Bash".to_string()));
+    }
+
+    #[test]
+    fn handle_pre_tool_use_without_tool_name() {
+        let result = handle_hook_event(make_event("pre-tool-use", serde_json::json!({})));
+
+        assert_eq!(result.new_status, Some(SessionStatus::Running));
+        assert_eq!(result.tool_name, None);
     }
 
     #[test]

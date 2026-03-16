@@ -15,6 +15,7 @@ use crate::app_state::AppState;
 use crate::config::SessionState;
 use crate::notifications::hook_handler;
 use crate::notifications::NotificationStore;
+use crate::session::SessionStatus;
 use crate::session::manager::{self, SessionManager};
 use crate::sidebar::Sidebar;
 use crate::terminal::VteTerminal;
@@ -694,12 +695,14 @@ fn setup_keyboard_shortcuts(
         let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
         let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
 
+        let number_keys = matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9);
+
         let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G))
             || (ctrl && !shift && matches!(key, Key::t | Key::Tab | Key::Page_Up | Key::Page_Down))
             || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l | Key::Page_Up | Key::Page_Down))
             || (alt && !ctrl && shift && matches!(key, Key::Page_Up | Key::Page_Down))
             || (alt && ctrl && !shift && matches!(key, Key::Page_Up | Key::Page_Down))
-            || (alt && matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9));
+            || ((alt || ctrl) && number_keys);
 
         if matches!(key, Key::Alt_L | Key::Alt_R) {
             sidebar_for_keys.show_tab_indices();
@@ -834,7 +837,7 @@ fn setup_keyboard_shortcuts(
             return glib::Propagation::Stop;
         }
 
-        if alt {
+        if alt || (ctrl && number_keys) {
             let tab_index = match key {
                 Key::_1 => Some(0),
                 Key::_2 => Some(1),
@@ -899,6 +902,12 @@ fn setup_hook_polling(
     glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
         let Some(ref rx) = hook_rx else { return glib::ControlFlow::Continue };
 
+        // Track the last tool name per session for permission pill labels
+        thread_local! {
+            static LAST_TOOL: RefCell<std::collections::HashMap<String, String>> =
+                RefCell::new(std::collections::HashMap::new());
+        }
+
         while let Ok(event) = rx.try_recv() {
             if event.event == "toggle-dropdown" {
                 if let Some(dd) = dropdown.as_ref() {
@@ -909,8 +918,22 @@ fn setup_hook_polling(
 
             let result = hook_handler::handle_hook_event(event);
 
+            // Track the last tool name for permission labels
+            if let Some(ref tool) = result.tool_name {
+                LAST_TOOL.with(|m| m.borrow_mut().insert(result.session_id.clone(), tool.clone()));
+            }
+
             if let Some(status) = result.new_status {
-                mgr_for_hooks.borrow_mut().update_session_status(&result.session_id, status);
+                // Build a custom label for NeedsInput when we know the tool name
+                let label_override = if status == SessionStatus::NeedsInput {
+                    LAST_TOOL.with(|m| m.borrow().get(&result.session_id).map(|t| format!("Permission: {t}")))
+                } else {
+                    None
+                };
+
+                mgr_for_hooks.borrow_mut().update_session_status(
+                    &result.session_id, status, label_override.as_deref(),
+                );
             }
 
             if let Some(pid) = result.claude_pid {
@@ -962,6 +985,7 @@ fn setup_stale_pid_detection(manager: &Rc<RefCell<SessionManager>>) {
                 mgr_for_pid.borrow_mut().update_session_status(
                     &session_id,
                     crate::session::SessionStatus::Idle,
+                    None,
                 );
             }
         }
@@ -1091,8 +1115,8 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     // briefly steals focus — the window becomes active again once the
     // popover closes.
     // If the pointer is inside the dropdown when focus is lost, an external
-    // dialog stole focus — lower the layer so the dialog appears above,
-    // then raise back when focus returns.
+    // dialog stole focus — suspend (move off-screen) so the dialog becomes
+    // accessible, then resume when focus returns.
     let hide_generation: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(0));
     let dropdown_for_focus = dropdown.clone();
     let hide_gen = hide_generation.clone();
@@ -1100,9 +1124,9 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     dropdown.window().connect_notify_local(Some("is-active"), move |window, _| {
         if !window.is_active() && *dropdown_for_focus.visible() {
             if pointer_inside.get() {
-                // External dialog stole focus — lower the dropdown so the
-                // dialog (a normal window) can appear above it.
-                crate::layer_shell::lower(window);
+                // External dialog stole focus — move the dropdown off-screen
+                // so the dialog (a normal xdg_toplevel) becomes accessible.
+                dropdown_for_focus.suspend();
                 return;
             }
 
@@ -1116,10 +1140,9 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
                     dd.toggle();
                 }
             });
-        } else {
-            // Window became active again — raise back to LAYER_TOP and
-            // cancel any pending hide.
-            crate::layer_shell::raise(window);
+        } else if window.is_active() {
+            // Window became active again — resume if suspended, cancel pending hide.
+            dropdown_for_focus.resume();
             hide_gen.set(hide_gen.get().wrapping_add(1));
         }
     });

@@ -569,9 +569,9 @@ impl Sidebar {
         }
     }
 
-    pub fn update_status(&self, session_id: &str, status: &crate::session::SessionStatus) {
+    pub fn update_status(&self, session_id: &str, status: &crate::session::SessionStatus, label_override: Option<&str>) {
         if let Some((row, _)) = self.rows.borrow().get(session_id) {
-            row.set_status(status);
+            row.set_status(status, label_override);
         }
     }
 

@@ -185,7 +185,7 @@ impl TabRow {
         }
     }
 
-    pub fn set_status(&self, status: &SessionStatus) {
+    pub fn set_status(&self, status: &SessionStatus, label_override: Option<&str>) {
         for class in &[
             "status-pill--idle",
             "status-pill--running",
@@ -201,7 +201,7 @@ impl TabRow {
                 self.status_label.set_visible(false);
             }
             _ => {
-                self.status_label.set_text(status.label());
+                self.status_label.set_text(label_override.unwrap_or(status.label()));
                 self.status_label.add_css_class(status.css_class());
                 self.status_label.set_visible(true);
             }

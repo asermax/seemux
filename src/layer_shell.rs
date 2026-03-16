@@ -11,7 +11,6 @@ use gtk4::ApplicationWindow;
 #[allow(non_camel_case_types)]
 type gboolean = c_int;
 
-const LAYER_BOTTOM: c_int = 1;
 const LAYER_TOP: c_int = 2;
 const EDGE_LEFT: c_int = 0;
 const EDGE_RIGHT: c_int = 1;
@@ -75,24 +74,3 @@ pub fn set_top_margin(window: &ApplicationWindow, margin: i32) {
     }
 }
 
-/// Lower the surface below normal windows so external dialogs can appear above.
-pub fn lower(window: &ApplicationWindow) {
-    if !is_supported() {
-        return;
-    }
-
-    unsafe {
-        gtk_layer_set_layer(window_ptr(window), LAYER_BOTTOM);
-    }
-}
-
-/// Raise the surface back above normal windows.
-pub fn raise(window: &ApplicationWindow) {
-    if !is_supported() {
-        return;
-    }
-
-    unsafe {
-        gtk_layer_set_layer(window_ptr(window), LAYER_TOP);
-    }
-}

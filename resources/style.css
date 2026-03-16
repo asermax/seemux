@@ -166,12 +166,6 @@ paned > separator:hover {
 }
 
 
-/* Context menu — prevent scrolling inside popover menus */
-
-popover.menu scrolledwindow {
-    max-height: none;
-}
-
 /* ListBox — remove default GTK selection styling */
 
 list row {

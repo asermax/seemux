@@ -23,6 +23,9 @@ pub struct DropdownWindow {
     /// Tracks whether the pointer is currently inside the dropdown surface.
     /// Used to detect when an external dialog steals focus vs the user clicking away.
     pub pointer_inside: Rc<Cell<bool>>,
+    /// True when the dropdown was moved off-screen to let an external dialog appear.
+    /// Auto-restores when focus returns or the user toggles.
+    suspended: Cell<bool>,
     pub overlay: Overlay,
     pub paned: Paned,
     pub stack: Stack,
@@ -112,6 +115,7 @@ impl DropdownWindow {
             animation_ms,
             animation_generation: Rc::new(Cell::new(0)),
             pointer_inside: Rc::new(Cell::new(false)),
+            suspended: Cell::new(false),
             overlay,
             paned,
             stack,
@@ -130,6 +134,8 @@ impl DropdownWindow {
     }
 
     pub fn show(&self) {
+        self.suspended.set(false);
+
         if !self.window.is_visible() {
             self.window.set_opacity(0.0);
             crate::layer_shell::set_top_margin(&self.window, -self.target_height);
@@ -154,6 +160,11 @@ impl DropdownWindow {
     }
 
     pub fn toggle(&self) {
+        if self.suspended.get() {
+            self.resume();
+            return;
+        }
+
         let is_visible = *self.visible.borrow();
 
         if is_visible {
@@ -161,6 +172,35 @@ impl DropdownWindow {
             *self.visible.borrow_mut() = false;
         } else {
             self.show();
+        }
+    }
+
+    /// Move the dropdown off-screen so external dialogs become accessible.
+    /// The window stays visible and at LAYER_TOP to keep receiving GTK events.
+    pub fn suspend(&self) {
+        if self.suspended.get() {
+            return;
+        }
+
+        self.animation_generation.set(self.animation_generation.get().wrapping_add(1));
+
+        crate::layer_shell::set_top_margin(&self.window, -self.target_height);
+        self.window.set_opacity(0.0);
+
+        self.suspended.set(true);
+    }
+
+    /// Bring a suspended dropdown back on-screen with animation.
+    pub fn resume(&self) {
+        if !self.suspended.get() {
+            return;
+        }
+
+        self.suspended.set(false);
+        self.animate(true);
+
+        if let Some(term) = self.manager.borrow().active_terminal_vte() {
+            term.grab_focus();
         }
     }
 

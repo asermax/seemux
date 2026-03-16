@@ -369,6 +369,22 @@ window.dropdown-window {{
     border-radius: 8px;
     padding: 16px;
 }}
+
+/* Context menu */
+
+popover.menu scrolledwindow {{
+    max-height: 10000px;
+}}
+
+popover.menu contents {{
+    min-width: 180px;
+    padding: 4px;
+}}
+
+popover.menu modelbutton {{
+    min-height: 28px;
+    padding: 4px 8px;
+}}
 "#,
         name = s.name,
         window_bg = s.window_bg,

@@ -254,10 +254,10 @@ impl SessionManager {
         }
     }
 
-    pub fn update_session_status(&mut self, session_id: &str, status: SessionStatus) {
+    pub fn update_session_status(&mut self, session_id: &str, status: SessionStatus, status_label: Option<&str>) {
         if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
             session.status = status.clone();
-            self.sidebar.update_status(session_id, &status);
+            self.sidebar.update_status(session_id, &status, status_label);
         }
     }
 
