@@ -352,9 +352,35 @@ impl SessionManager {
         }
     }
 
-    pub fn move_session_to_group(&mut self, session_id: &str, new_group_id: &str) {
-        if let Some(session) = self.sessions.iter_mut().find(|s| s.id == session_id) {
-            session.group_id = new_group_id.to_string();
+    pub fn move_session_to_position(&mut self, session_id: &str, new_group_id: &str, position: i32) {
+        let Some(idx) = self.sessions.iter().position(|s| s.id == session_id) else { return };
+        let mut session = self.sessions.remove(idx);
+        session.group_id = new_group_id.to_string();
+
+        if position < 0 {
+            // Append after the last session in the target group
+            let insert_at = self.sessions.iter()
+                .rposition(|s| s.group_id == new_group_id)
+                .map(|i| i + 1)
+                .unwrap_or(self.sessions.len());
+
+            self.sessions.insert(insert_at, session);
+        } else {
+            // Insert before the Nth session in the target group
+            let mut count = 0;
+            let mut insert_at = self.sessions.len();
+
+            for (i, s) in self.sessions.iter().enumerate() {
+                if s.group_id == new_group_id {
+                    if count == position {
+                        insert_at = i;
+                        break;
+                    }
+                    count += 1;
+                }
+            }
+
+            self.sessions.insert(insert_at, session);
         }
     }
 

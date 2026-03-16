@@ -1,7 +1,11 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use gtk4::prelude::*;
 use gtk4::gio;
 use gtk4::{Box as GtkBox, Button, Entry, GestureClick, Label, Orientation, PopoverMenu, Widget};
 use gtk4::gdk;
+use gtk4::glib;
 
 use crate::session::SessionStatus;
 
@@ -165,13 +169,15 @@ impl TabRow {
         }
     }
 
-    pub fn setup_drag_source(&self) {
+    pub fn setup_drag_source(&self, dragging_id: Rc<RefCell<String>>) {
         let drag_source = gtk4::DragSource::new();
         drag_source.set_actions(gdk::DragAction::MOVE);
 
         let container = self.container.clone();
+        let dragging_prepare = dragging_id.clone();
         drag_source.connect_prepare(move |_source, _x, _y| {
             let session_id = container.widget_name().to_string();
+            *dragging_prepare.borrow_mut() = session_id.clone();
             Some(gdk::ContentProvider::for_value(&session_id.to_value()))
         });
 
@@ -183,11 +189,81 @@ impl TabRow {
         });
 
         let container = self.container.clone();
+        let dragging_end = dragging_id.clone();
         drag_source.connect_drag_end(move |_source, _drag, _delete_data| {
             container.remove_css_class("dragging");
+            dragging_end.borrow_mut().clear();
         });
 
         self.container.add_controller(drag_source);
+    }
+
+    /// Set up a drop target that shows a gap below this row and reports drops.
+    /// The `on_drop` callback receives `(dragged_session_id, this_session_id)`.
+    pub fn setup_drop_target<F: Fn(String, String) + 'static>(
+        &self,
+        dragging_id: Rc<RefCell<String>>,
+        on_drop: F,
+    ) {
+        let drop_target = gtk4::DropTarget::new(glib::GString::static_type(), gdk::DragAction::MOVE);
+
+        let container = self.container.clone();
+        let dragging_motion = dragging_id.clone();
+        drop_target.connect_motion(move |_target, _x, _y| {
+            let dragged = dragging_motion.borrow();
+            let target_id = container.widget_name();
+
+            // Don't show indicator on self
+            if dragged.as_str() == target_id.as_str() {
+                return gdk::DragAction::MOVE;
+            }
+
+            // Don't show indicator on the row directly above the dragged item —
+            // dropping after it would leave the dragged item in the same position.
+            let is_above_dragged = container.parent()
+                .and_then(|p| p.next_sibling())
+                .and_then(|next| next.first_child())
+                .is_some_and(|child| child.widget_name().as_str() == dragged.as_str());
+
+            if is_above_dragged {
+                return gdk::DragAction::MOVE;
+            }
+
+            container.add_css_class("drop-after");
+            gdk::DragAction::MOVE
+        });
+
+        let container = self.container.clone();
+        drop_target.connect_leave(move |_target| {
+            container.remove_css_class("drop-after");
+        });
+
+        let container = self.container.clone();
+        let on_drop = std::rc::Rc::new(on_drop);
+        drop_target.connect_drop(move |_target, value, _x, _y| {
+            container.remove_css_class("drop-after");
+
+            let Ok(session_id) = value.get::<glib::GString>() else { return false };
+            let target_id = container.widget_name().to_string();
+
+            if session_id.as_str() == target_id {
+                return false;
+            }
+
+            let is_above_dragged = container.parent()
+                .and_then(|p| p.next_sibling())
+                .and_then(|next| next.first_child())
+                .is_some_and(|child| child.widget_name() == session_id.as_str());
+
+            if is_above_dragged {
+                return false;
+            }
+
+            on_drop(session_id.to_string(), target_id);
+            true
+        });
+
+        self.container.add_controller(drop_target);
     }
 
     pub fn connect_close<F: Fn() + 'static>(&self, f: F) {

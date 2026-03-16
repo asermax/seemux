@@ -183,10 +183,10 @@ fn setup_common(
         sidebar_for_notif.update_notification_preview(session_id, preview);
     });
 
-    // Wire drag-and-drop tab movement between groups
+    // Wire drag-and-drop tab movement/reordering
     let mgr_for_dnd = manager.clone();
-    sidebar.set_on_tab_moved(move |session_id, new_group| {
-        mgr_for_dnd.borrow_mut().move_session_to_group(&session_id, &new_group);
+    sidebar.set_on_tab_moved(move |session_id, new_group, position| {
+        mgr_for_dnd.borrow_mut().move_session_to_position(&session_id, &new_group, position);
     });
 }
 

@@ -116,10 +116,20 @@ paned > separator:hover {{
     padding: 8px 12px;
     border-radius: 6px;
     margin: 2px 6px;
-    transition: background-color 150ms ease;
+    transition: background-color 150ms ease, margin 150ms ease;
 }}
 
-.tab-row:hover {{
+.tab-row.drop-before {{
+    margin-top: 36px;
+    background-color: transparent;
+}}
+
+.tab-row.drop-after {{
+    margin-bottom: 36px;
+    background-color: transparent;
+}}
+
+.tab-row:hover:not(.drop-before):not(.drop-after) {{
     background-color: {surface_hover};
 }}
 
@@ -294,6 +304,15 @@ list row:selected {{
 .sidebar-action-btn:hover {{
     color: {text_secondary};
     background-color: {surface_hover};
+}}
+
+.sidebar-section-title {{
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: {text_muted};
+    padding: 8px 12px 4px;
+    letter-spacing: 1px;
 }}
 
 /* Drag and drop */

@@ -41,6 +41,13 @@ impl TabGroupWidget {
 
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::None);
+        list_box.set_size_request(-1, 36);
+
+        let placeholder = Label::new(Some("No tabs yet"));
+        placeholder.add_css_class("dim-label");
+        placeholder.set_margin_top(8);
+        placeholder.set_margin_bottom(8);
+        list_box.set_placeholder(Some(&placeholder));
 
         container.append(&header);
         container.append(&list_box);
