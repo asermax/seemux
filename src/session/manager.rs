@@ -341,14 +341,18 @@ impl SessionManager {
         let Some(active_id) = mgr.active_id.clone() else { return false };
         let Some(sv) = mgr.split_views.get(&active_id) else { return false };
 
+        // Get the focused terminal's CWD before splitting (split changes focus)
+        let cwd = sv.focused_terminal()
+            .and_then(|t| t.current_directory_uri())
+            .and_then(|uri| path_from_file_uri(&uri));
+
         let config = mgr.config.borrow();
         let (new_pane_id, new_vte) = sv.split(orientation, &config);
         drop(config);
 
-        // Spawn shell in the new pane
         let env_vars = mgr.build_env_vars(&active_id);
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-        sv.spawn_pane(&new_pane_id, None, &env_refs);
+        sv.spawn_pane(&new_pane_id, cwd.as_deref(), &env_refs);
 
         // Rebuild widget tree in the stack
         sv.rebuild_in_stack(&mgr.stack, &active_id);
