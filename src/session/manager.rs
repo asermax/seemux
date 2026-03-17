@@ -839,11 +839,6 @@ impl SessionManager {
             let bin_dir = seemux_dir.join("bin");
             let existing_path = std::env::var("PATH").unwrap_or_default();
 
-            vars.push(("TMUX".to_string(), format!(
-                "{},{},0",
-                self.socket_path.display(),
-                std::process::id(),
-            )));
             vars.push(("PATH".to_string(), format!("{}:{existing_path}", bin_dir.display())));
         }
 

@@ -82,13 +82,16 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked
 
-      - name: Strip and rename binary
+      - name: Strip and rename binaries
         run: |
-          strip target/release/seemux
+          strip target/release/seemux target/release/seemux-tmux-shim
           cp target/release/seemux seemux-linux-x86_64
+          cp target/release/seemux-tmux-shim seemux-tmux-shim-linux-x86_64
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: seemux-linux-x86_64
+          files: |
+            seemux-linux-x86_64
+            seemux-tmux-shim-linux-x86_64
