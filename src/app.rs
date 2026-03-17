@@ -198,7 +198,7 @@ fn setup_common(
     register_terminal_actions(window, manager, sidebar, notification_store);
     setup_terminal_context_menu(stack, manager);
 
-    // Wire notification changes to sidebar badge + preview updates
+    // Wire notification changes to sidebar badge + preview updates + peek
     let sidebar_for_notif = sidebar.clone();
     notification_store.borrow_mut().set_on_change(move |session_id, count, latest| {
         sidebar_for_notif.update_badge(session_id, count);
@@ -209,6 +209,12 @@ fn setup_common(
             None
         };
         sidebar_for_notif.update_notification_preview(session_id, preview);
+
+        if count > 0 {
+            sidebar_for_notif.peek_tab(session_id);
+        } else {
+            sidebar_for_notif.unpeek_tab(session_id);
+        }
     });
 
     // Wire drag-and-drop tab movement/reordering

@@ -535,10 +535,16 @@ impl Sidebar {
 
     pub fn remove_tab(&self, session_id: &str) {
         if let Some((row, group_id)) = self.rows.borrow_mut().remove(session_id) {
+            let was_peeking = row.is_peeking();
+
             if let Some(parent) = row.widget().parent() {
                 if let Some(list) = self.list_for_group(&group_id) {
                     list.remove(&parent);
                 }
+            }
+
+            if was_peeking {
+                self.reconcile_group_peek(&group_id);
             }
         }
     }
@@ -546,8 +552,32 @@ impl Sidebar {
     pub fn set_active(&self, session_id: &str) {
         let rows = self.rows.borrow();
 
-        for (id, (row, _)) in rows.iter() {
+        // Find previously active row: if it was peeking, clear its peek
+        let mut groups_to_reconcile = Vec::new();
+
+        for (id, (row, group_id)) in rows.iter() {
+            if row.is_active() && id != session_id && row.is_peeking() {
+                row.set_peeking(false);
+                groups_to_reconcile.push(group_id.clone());
+            }
+
             row.set_active(id == session_id);
+        }
+
+        // If the new active tab is in a collapsed group, peek it
+        if let Some((row, group_id)) = rows.get(session_id) {
+            if *group_id != DEFAULT_GROUP
+                && self.group_widgets.borrow().get(group_id.as_str()).is_some_and(|gw| gw.is_collapsed())
+            {
+                row.set_peeking(true);
+                groups_to_reconcile.push(group_id.clone());
+            }
+        }
+
+        drop(rows);
+
+        for gid in groups_to_reconcile {
+            self.reconcile_group_peek(&gid);
         }
     }
 
@@ -647,6 +677,19 @@ impl Sidebar {
         group_widget.setup_context_menu(id);
         group_widget.setup_drag_source(self.dragging_group_id.clone());
 
+        // Clear peek flags when the group is manually expanded
+        let rows_for_toggle = self.rows.clone();
+        let gid_for_toggle = id.to_string();
+        group_widget.set_on_toggle(move |collapsed| {
+            if !collapsed {
+                for (row, gid) in rows_for_toggle.borrow().values() {
+                    if *gid == gid_for_toggle && row.is_peeking() {
+                        row.set_peeking(false);
+                    }
+                }
+            }
+        });
+
         // Per-row drop targets handle positioning; header handles collapsed/empty groups
         self.setup_list_fallback_drop_target(&group_widget.list_box, id);
         self.setup_header_drop_target(group_widget.header_widget(), id);
@@ -713,6 +756,84 @@ impl Sidebar {
         }
     }
 
+    /// Make a single tab "peek" out of its collapsed group.
+    pub fn peek_tab(&self, session_id: &str) {
+        let rows = self.rows.borrow();
+        let Some((row, group_id)) = rows.get(session_id) else { return };
+
+        if *group_id == DEFAULT_GROUP {
+            return;
+        }
+
+        let group_id = group_id.clone();
+
+        if !self.group_widgets.borrow().get(&group_id).is_some_and(|gw| gw.is_collapsed()) {
+            return;
+        }
+
+        row.set_peeking(true);
+        drop(rows);
+        self.reconcile_group_peek(&group_id);
+    }
+
+    /// Remove peek state from a tab (skips the active tab, whose peek is managed by `set_active`).
+    pub fn unpeek_tab(&self, session_id: &str) {
+        let rows = self.rows.borrow();
+        let Some((row, group_id)) = rows.get(session_id) else { return };
+
+        if !row.is_peeking() || row.is_active() {
+            return;
+        }
+
+        let group_id = group_id.clone();
+        row.set_peeking(false);
+        drop(rows);
+        self.reconcile_group_peek(&group_id);
+    }
+
+    /// Reconcile a collapsed group's list_box visibility based on peek state of its rows.
+    fn reconcile_group_peek(&self, group_id: &str) {
+        if group_id == DEFAULT_GROUP {
+            return;
+        }
+
+        let group_widgets = self.group_widgets.borrow();
+        let Some(gw) = group_widgets.get(group_id) else { return };
+
+        if !gw.is_collapsed() {
+            return;
+        }
+
+        // Single pass: set per-row visibility and track whether any row is peeking
+        let rows = self.rows.borrow();
+        let mut has_peeking = false;
+        let mut idx = 0;
+
+        while let Some(list_row) = gw.list_box.row_at_index(idx) {
+            if let Some(child) = list_row.child() {
+                let sid = child.widget_name().to_string();
+                let is_peeking = rows.get(&sid).is_some_and(|(r, _)| r.is_peeking());
+
+                if is_peeking {
+                    has_peeking = true;
+                }
+
+                list_row.set_visible(is_peeking);
+            }
+
+            idx += 1;
+        }
+
+        drop(rows);
+
+        if has_peeking {
+            gw.list_box.set_visible(true);
+        } else {
+            gw.restore_all_row_visibility();
+            gw.list_box.set_visible(false);
+        }
+    }
+
     pub fn connect_group_new_tab<F: Fn(String) + Clone + 'static>(&self, group_id: &str, f: F) {
         if let Some(gw) = self.group_widgets.borrow().get(group_id) {
             let gid = group_id.to_string();
@@ -736,16 +857,21 @@ impl Sidebar {
         }).collect()
     }
 
-    /// Return visible session IDs (skipping collapsed groups) in sidebar order.
+    /// Return visible session IDs (skipping collapsed groups, but including peeked tabs) in sidebar order.
     pub fn ordered_visible_session_ids(&self) -> Vec<String> {
         let mut ids = Vec::new();
 
         collect_ids_from_list(&self.default_list, &mut ids);
 
+        let rows = self.rows.borrow();
+
         for entry in self.groups.borrow().iter() {
             if let Some(gw) = self.group_widgets.borrow().get(&entry.id) {
                 if !gw.is_collapsed() {
                     collect_ids_from_list(&gw.list_box, &mut ids);
+                } else {
+                    // Include peeking tabs from collapsed groups
+                    collect_peeking_ids_from_list(&gw.list_box, &rows, &mut ids);
                 }
             }
         }
@@ -824,6 +950,27 @@ fn collect_ids_from_list(list: &ListBox, ids: &mut Vec<String>) {
     while let Some(row) = list.row_at_index(idx) {
         if let Some(child) = row.child() {
             ids.push(child.widget_name().to_string());
+        }
+
+        idx += 1;
+    }
+}
+
+/// Collect session IDs of peeking tabs from a ListBox.
+fn collect_peeking_ids_from_list(
+    list: &ListBox,
+    rows: &HashMap<String, (TabRow, String)>,
+    ids: &mut Vec<String>,
+) {
+    let mut idx = 0;
+
+    while let Some(row) = list.row_at_index(idx) {
+        if let Some(child) = row.child() {
+            let sid = child.widget_name().to_string();
+
+            if rows.get(&sid).is_some_and(|(r, _)| r.is_peeking()) {
+                ids.push(sid);
+            }
         }
 
         idx += 1;

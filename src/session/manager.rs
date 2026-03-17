@@ -504,11 +504,6 @@ impl SessionManager {
 
             if notif_store.unread_count(&ordered[idx]) > 0 {
                 let id = ordered[idx].clone();
-
-                if let Some(gid) = self.sidebar.group_id_for_session(&id) {
-                    self.sidebar.expand_group(&gid);
-                }
-
                 self.switch_to(&id);
                 return true;
             }

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
@@ -23,6 +23,7 @@ pub struct TabRow {
     badge_label: Label,
     index_label: Label,
     close_btn: Button,
+    peeking: Cell<bool>,
 }
 
 impl TabRow {
@@ -113,6 +114,7 @@ impl TabRow {
             badge_label,
             index_label,
             close_btn,
+            peeking: Cell::new(false),
         }
     }
 
@@ -126,6 +128,18 @@ impl TabRow {
         } else {
             self.container.remove_css_class("active");
         }
+    }
+
+    pub fn is_peeking(&self) -> bool {
+        self.peeking.get()
+    }
+
+    pub fn set_peeking(&self, val: bool) {
+        self.peeking.set(val);
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.container.has_css_class("active")
     }
 
     pub fn set_title(&self, title: &str) {

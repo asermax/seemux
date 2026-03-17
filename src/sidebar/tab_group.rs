@@ -15,6 +15,7 @@ pub struct TabGroupWidget {
     pub list_box: ListBox,
     collapsed: Rc<Cell<bool>>,
     toggle_label: Label,
+    on_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
 }
 
 impl TabGroupWidget {
@@ -56,11 +57,13 @@ impl TabGroupWidget {
         container.append(&list_box);
 
         let collapsed = Rc::new(Cell::new(false));
+        let on_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
 
         // Left-click on header toggles collapse
         let list_box_toggle = list_box.clone();
         let toggle_label_ref = toggle_label.clone();
         let collapsed_ref = collapsed.clone();
+        let on_toggle_ref = on_toggle.clone();
 
         let gesture = GestureClick::new();
         gesture.set_button(1);
@@ -69,8 +72,22 @@ impl TabGroupWidget {
 
             let new_state = !collapsed_ref.get();
             collapsed_ref.set(new_state);
+
+            if !new_state {
+                // Expanding: restore all row visibility (peek may have hidden some)
+                let mut idx = 0;
+                while let Some(row) = list_box_toggle.row_at_index(idx) {
+                    row.set_visible(true);
+                    idx += 1;
+                }
+            }
+
             list_box_toggle.set_visible(!new_state);
             toggle_label_ref.set_text(if new_state { "\u{25b6}" } else { "\u{25bc}" });
+
+            if let Some(ref callback) = *on_toggle_ref.borrow() {
+                callback(new_state);
+            }
         });
 
         header.add_controller(gesture);
@@ -82,6 +99,7 @@ impl TabGroupWidget {
             list_box,
             collapsed,
             toggle_label,
+            on_toggle,
         }
     }
 
@@ -101,8 +119,13 @@ impl TabGroupWidget {
     pub fn expand(&self) {
         if self.collapsed.get() {
             self.collapsed.set(false);
+            self.restore_all_row_visibility();
             self.list_box.set_visible(true);
             self.toggle_label.set_text("\u{25bc}"); // ▼
+
+            if let Some(ref callback) = *self.on_toggle.borrow() {
+                callback(false);
+            }
         }
     }
 
@@ -112,7 +135,24 @@ impl TabGroupWidget {
             self.collapsed.set(true);
             self.list_box.set_visible(false);
             self.toggle_label.set_text("\u{25b6}"); // ▶
+
+            if let Some(ref callback) = *self.on_toggle.borrow() {
+                callback(true);
+            }
         }
+    }
+
+    /// Make all rows in the group visible (undoes per-row hiding from peek).
+    pub fn restore_all_row_visibility(&self) {
+        let mut idx = 0;
+        while let Some(row) = self.list_box.row_at_index(idx) {
+            row.set_visible(true);
+            idx += 1;
+        }
+    }
+
+    pub fn set_on_toggle<F: Fn(bool) + 'static>(&self, f: F) {
+        *self.on_toggle.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn setup_drag_source(&self, dragging_group_id: Rc<RefCell<String>>) {
