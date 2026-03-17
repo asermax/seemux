@@ -836,6 +836,7 @@ impl SessionManager {
                 std::process::id(),
             )));
             vars.push(("PATH".to_string(), format!("{}:{existing_path}", bin_dir.display())));
+            vars.push(("COLORTERM".to_string(), "truecolor".to_string()));
         }
 
         vars
