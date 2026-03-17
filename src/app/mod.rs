@@ -86,7 +86,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     // Create dropdown window (shown via `seemux toggle` CLI command)
     let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, state));
 
-    hooks::setup_hook_polling(state, &manager, &notification_store, Some(dropdown));
+    hooks::setup_hook_polling(state, &manager, &notification_store, &sidebar, Some(dropdown));
     hooks::setup_stale_pid_detection(&manager);
 
     // Keyboard shortcuts
@@ -133,7 +133,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
 pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, state));
 
-    hooks::setup_hook_polling(state, &dropdown.manager, &dropdown.notification_store, Some(dropdown.clone()));
+    hooks::setup_hook_polling(state, &dropdown.manager, &dropdown.notification_store, &dropdown.sidebar, Some(dropdown.clone()));
     hooks::setup_stale_pid_detection(&dropdown.manager);
 
     // Common setup: actions, context menus, notification wiring, DnD
@@ -318,7 +318,7 @@ fn setup_common(
     });
 }
 
-fn wire_tab_lifecycle(
+pub(crate) fn wire_tab_lifecycle(
     sidebar: &Rc<Sidebar>,
     manager: &Rc<RefCell<SessionManager>>,
     notification_store: &Rc<RefCell<NotificationStore>>,
@@ -353,23 +353,11 @@ fn restore_sessions(
     let saved_state = SessionState::load();
 
     for group in &saved_state.groups {
-        sidebar.add_group(&group.id, &group.name);
+        register_group(&group.id, &group.name, sidebar, manager, notification_store);
 
         if group.collapsed {
             sidebar.collapse_group(&group.id);
         }
-
-        let mgr = manager.clone();
-        let sid = sidebar.clone();
-        let notif = notification_store.clone();
-        let gid = group.id.clone();
-        let sid_expand = sidebar.clone();
-        let gid_expand = group.id.clone();
-        sidebar.connect_group_new_tab(&group.id, move |_| {
-            sid_expand.expand_group(&gid_expand);
-            let id = mgr.borrow_mut().create_session_in_group(None, None, &gid);
-            wire_tab_lifecycle(&sid, &mgr, &notif, &id);
-        });
     }
 
     if saved_state.sessions.is_empty() {
@@ -458,20 +446,7 @@ fn make_create_group_action(
 
         let mgr_for_overlay = mgr.clone();
         dialogs::show_new_group_overlay(&overlay, &mgr_for_overlay, move |name| {
-            let group_id = uuid::Uuid::new_v4().to_string();
-            sid.add_group(&group_id, &name);
-
-            let mgr2 = mgr.clone();
-            let sid2 = sid.clone();
-            let notif2 = notif.clone();
-            let gid = group_id.clone();
-            let sid_expand = sid.clone();
-            let gid_expand = group_id.clone();
-            sid.connect_group_new_tab(&group_id, move |_| {
-                sid_expand.expand_group(&gid_expand);
-                let id = mgr2.borrow_mut().create_session_in_group(None, None, &gid);
-                wire_tab_lifecycle(&sid2, &mgr2, &notif2, &id);
-            });
+            let group_id = create_group_programmatic(&name, &sid, &mgr, &notif);
 
             let first_id = mgr.borrow_mut().create_session_in_group(None, None, &group_id);
             wire_tab_lifecycle(&sid, &mgr, &notif, &first_id);
@@ -483,6 +458,43 @@ pub(crate) fn refocus_terminal(manager: &Rc<RefCell<SessionManager>>) {
     if let Some(term) = manager.borrow().active_terminal_vte() {
         term.grab_focus();
     }
+}
+
+/// Create a named group programmatically (without the overlay dialog).
+/// Wires the group's "new tab" button and returns the group ID.
+pub(crate) fn create_group_programmatic(
+    name: &str,
+    sidebar: &Rc<Sidebar>,
+    manager: &Rc<RefCell<SessionManager>>,
+    notification_store: &Rc<RefCell<NotificationStore>>,
+) -> String {
+    let group_id = uuid::Uuid::new_v4().to_string();
+    register_group(&group_id, name, sidebar, manager, notification_store);
+    group_id
+}
+
+/// Register a group with a known ID and wire its "new tab" button.
+/// Used by both programmatic creation and session restoration.
+fn register_group(
+    group_id: &str,
+    name: &str,
+    sidebar: &Rc<Sidebar>,
+    manager: &Rc<RefCell<SessionManager>>,
+    notification_store: &Rc<RefCell<NotificationStore>>,
+) {
+    sidebar.add_group(group_id, name);
+
+    let mgr = manager.clone();
+    let sid = sidebar.clone();
+    let notif = notification_store.clone();
+    let gid = group_id.to_string();
+    let sid_expand = sidebar.clone();
+    let gid_expand = group_id.to_string();
+    sidebar.connect_group_new_tab(group_id, move |_| {
+        sid_expand.expand_group(&gid_expand);
+        let id = mgr.borrow_mut().create_session_in_group(None, None, &gid);
+        wire_tab_lifecycle(&sid, &mgr, &notif, &id);
+    });
 }
 
 /// Save session state and sidebar width to disk.

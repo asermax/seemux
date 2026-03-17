@@ -945,6 +945,13 @@ impl Sidebar {
     pub fn group_id_for_session(&self, session_id: &str) -> Option<String> {
         self.rows.borrow().get(session_id).map(|(_, gid)| gid.clone())
     }
+
+    /// Find a named group by its display name. Returns the group ID if found.
+    pub fn find_group_by_name(&self, name: &str) -> Option<String> {
+        self.groups.borrow().iter()
+            .find(|g| g.name == name)
+            .map(|g| g.id.clone())
+    }
 }
 
 fn collect_ids_from_list(list: &ListBox, ids: &mut Vec<String>) {

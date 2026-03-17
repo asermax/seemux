@@ -1,7 +1,11 @@
 [package]
 name = "seemux"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2024"
+
+[[bin]]
+name = "seemux-tmux-shim"
+path = "src/bin/seemux_tmux_shim.rs"
 
 [build-dependencies]
 glib-build-tools = "0.21"

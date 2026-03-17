@@ -26,10 +26,7 @@ pub fn handle_args() -> LaunchMode {
 }
 
 fn send_socket_command(command: &str) {
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-        .unwrap_or_else(|_| format!("/tmp/seemux-{}", unsafe { libc::getuid() }));
-
-    let socket_path = format!("{runtime_dir}/seemux/seemux.sock");
+    let socket_path = crate::runtime::runtime_dir().join("seemux.sock");
 
     match UnixStream::connect(&socket_path) {
         Ok(mut stream) => {
@@ -40,7 +37,7 @@ fn send_socket_command(command: &str) {
             }
         }
         Err(e) => {
-            eprintln!("Could not connect to seemux socket at {socket_path}: {e}");
+            eprintln!("Could not connect to seemux socket at {}: {e}", socket_path.display());
             eprintln!("Is seemux running?");
         }
     }
