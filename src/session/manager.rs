@@ -21,9 +21,8 @@ enum SpawnAction<'a> {
 
 /// Extract the filesystem path from a `file://[host]/path` URI.
 pub(crate) fn path_from_file_uri(uri: &str) -> Option<String> {
-    let without_scheme = uri.strip_prefix("file://")?;
-    let slash_pos = without_scheme.find('/')?;
-    Some(without_scheme[slash_pos..].to_string())
+    let (path, _host) = glib::filename_from_uri(uri).ok()?;
+    Some(path.to_string_lossy().to_string())
 }
 
 /// Extract the last path component (folder name) from a path.
