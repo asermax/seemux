@@ -598,15 +598,21 @@ impl Sidebar {
         }
     }
 
-    pub fn update_status(&self, session_id: &str, status: &crate::session::SessionStatus, label_override: Option<&str>) {
+    pub fn update_status(&self, session_id: &str, status: &crate::session::SessionStatus) {
         if let Some((row, _)) = self.rows.borrow().get(session_id) {
-            row.set_status(status, label_override);
+            row.set_status(status);
         }
     }
 
     pub fn update_branch(&self, session_id: &str, branch: Option<&str>) {
         if let Some((row, _)) = self.rows.borrow().get(session_id) {
             row.set_branch(branch);
+        }
+    }
+
+    pub fn update_pr(&self, session_id: &str, pr: Option<(&str, &str)>) {
+        if let Some((row, _)) = self.rows.borrow().get(session_id) {
+            row.set_pr(pr);
         }
     }
 

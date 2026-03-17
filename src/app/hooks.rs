@@ -22,12 +22,6 @@ pub(crate) fn setup_hook_polling(
     glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
         let Some(ref rx) = hook_rx else { return glib::ControlFlow::Continue };
 
-        // Track the last tool name per session for permission pill labels
-        thread_local! {
-            static LAST_TOOL: RefCell<std::collections::HashMap<String, String>> =
-                RefCell::new(std::collections::HashMap::new());
-        }
-
         while let Ok(event) = rx.try_recv() {
             if event.event == "toggle-dropdown" {
                 if let Some(dd) = dropdown.as_ref() {
@@ -38,21 +32,9 @@ pub(crate) fn setup_hook_polling(
 
             let result = hook_handler::handle_hook_event(event);
 
-            // Track the last tool name for permission labels
-            if let Some(ref tool) = result.tool_name {
-                LAST_TOOL.with(|m| m.borrow_mut().insert(result.session_id.clone(), tool.clone()));
-            }
-
             if let Some(status) = result.new_status {
-                // Build a custom label for NeedsInput when we know the tool name
-                let label_override = if status == SessionStatus::NeedsInput {
-                    LAST_TOOL.with(|m| m.borrow().get(&result.session_id).map(|t| format!("Permission: {t}")))
-                } else {
-                    None
-                };
-
                 mgr_for_hooks.borrow_mut().update_session_status(
-                    &result.session_id, status, label_override.as_deref(),
+                    &result.session_id, status,
                 );
             }
 
@@ -66,11 +48,10 @@ pub(crate) fn setup_hook_polling(
             }
 
             if result.clear_notifications {
-                LAST_TOOL.with(|m| m.borrow_mut().remove(&result.session_id));
                 notif_store.borrow_mut().clear_session(&result.session_id);
             }
 
-            if let Some((title, subtitle, body)) = result.notification {
+            if let Some((subtitle, body)) = result.notification {
                 let is_active = mgr_for_hooks.borrow().active_id()
                     .map(|id| id == result.session_id)
                     .unwrap_or(false);
@@ -78,7 +59,6 @@ pub(crate) fn setup_hook_polling(
                 if !is_active {
                     let notification = crate::notifications::Notification::new(
                         &result.session_id,
-                        &title,
                         &subtitle,
                         &body,
                     );
@@ -104,11 +84,7 @@ pub(crate) fn setup_stale_pid_detection(manager: &Rc<RefCell<SessionManager>>) {
                 let mut mgr = mgr_for_pid.borrow_mut();
                 mgr.set_claude_pid(&session_id, None);
                 mgr.set_claude_session_id(&session_id, None);
-                mgr.update_session_status(
-                    &session_id,
-                    SessionStatus::Idle,
-                    None,
-                );
+                mgr.update_session_status(&session_id, SessionStatus::Idle);
             }
         }
 

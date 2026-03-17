@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -32,6 +32,42 @@ fn folder_name(path: &str) -> &str {
         Some(name) if !name.is_empty() => name,
         _ => path,
     }
+}
+
+/// Detect whether a window title indicates a git or gh command.
+fn is_git_command_title(title: &str) -> bool {
+    title.starts_with("git ") || title.starts_with("gh ")
+}
+
+/// Asynchronously detect the git branch and PR for a directory, updating the sidebar.
+fn detect_branch_and_pr(cwd: &str, sidebar: &Rc<Sidebar>, session_id: &str) {
+    let sidebar = sidebar.clone();
+    let sid = session_id.to_string();
+
+    crate::git::detect_branch_async(cwd, {
+        let cwd = cwd.to_string();
+
+        move |branch| {
+            sidebar.update_branch(&sid, branch.as_deref());
+
+            if branch.is_some() {
+                let sidebar = sidebar.clone();
+                let sid = sid.clone();
+
+                crate::git::detect_pr_async(&cwd, move |pr_info| {
+                    let pr = pr_info.as_ref()
+                        .map(|info| (info.number.to_string(), info.url.clone()));
+
+                    sidebar.update_pr(
+                        &sid,
+                        pr.as_ref().map(|(n, u)| (n.as_str(), u.as_str())),
+                    );
+                });
+            } else {
+                sidebar.update_pr(&sid, None);
+            }
+        }
+    });
 }
 
 /// Detect shell-generated titles like `user@hostname:/path` or `user@hostname:~`.
@@ -185,27 +221,56 @@ impl SessionManager {
         self.register_session(session, split_view, active_hint.as_deref())
     }
 
-    /// Wire VTE signals to update tab title, subtitle, and git branch.
+    /// Wire VTE signals to update tab title, subtitle, git branch, and PR.
     fn wire_vte_signals(&self, vte_term: &vte4::Terminal, session_id: &str, pane_id: &str) {
+        // Shared state for git command detection across title + CWD handlers
+        let last_was_git_cmd: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+        let pending_redetect: Rc<Cell<Option<glib::SourceId>>> = Rc::new(Cell::new(None));
+
         // Window title changes (shows running command name)
         let sidebar = self.sidebar.clone();
         let sid = session_id.to_string();
+        let last_was_git_cmd_ref = last_was_git_cmd.clone();
+        let pending_redetect_ref = pending_redetect.clone();
+
         vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
-            if let Some(title) = term.window_title() {
-                if is_shell_title(&title) {
-                    // Shell regained control — reset title to folder name
-                    if let Some(cwd) = term.current_directory_uri()
-                        .and_then(|uri| path_from_file_uri(&uri))
-                    {
-                        sidebar.update_title(&sid, folder_name(&cwd));
+            let Some(title) = term.window_title() else { return };
+
+            let was_git_command = last_was_git_cmd_ref.replace(is_git_command_title(&title));
+
+            if is_shell_title(&title) {
+                // Shell regained control — reset title to folder name
+                if let Some(cwd) = term.current_directory_uri()
+                    .and_then(|uri| path_from_file_uri(&uri))
+                {
+                    sidebar.update_title(&sid, folder_name(&cwd));
+
+                    // If the previous title was a git/gh command, re-detect branch + PR
+                    if was_git_command {
+                        // Cancel any pending re-detection
+                        if let Some(source_id) = pending_redetect_ref.take() {
+                            source_id.remove();
+                        }
+
+                        let sidebar = sidebar.clone();
+                        let sid = sid.clone();
+
+                        let source_id = glib::timeout_add_local_once(
+                            std::time::Duration::from_secs(2),
+                            move || {
+                                detect_branch_and_pr(&cwd, &sidebar, &sid);
+                            },
+                        );
+
+                        pending_redetect_ref.set(Some(source_id));
                     }
-                } else {
-                    sidebar.update_title(&sid, &title);
                 }
+            } else {
+                sidebar.update_title(&sid, &title);
             }
         });
 
-        // CWD changes (updates folder name, subtitle path, and git branch)
+        // CWD changes (updates folder name, subtitle path, git branch, and PR)
         let sidebar = self.sidebar.clone();
         let sid = session_id.to_string();
         let pid = pane_id.to_string();
@@ -218,6 +283,7 @@ impl SessionManager {
 
             let Some(cwd) = path else {
                 sidebar.update_branch(&sid, None);
+                sidebar.update_pr(&sid, None);
                 return;
             };
 
@@ -230,11 +296,14 @@ impl SessionManager {
             // Update tab title (folder name) and subtitle (full display path)
             sidebar.update_cwd(&sid, folder_name(&cwd), &display_path(&cwd));
 
+            // Cancel any pending git-command re-detection since CWD change supersedes it
+            if let Some(source_id) = pending_redetect.take() {
+                source_id.remove();
+            }
+
             let sidebar = sidebar.clone();
             let sid = sid.clone();
-            crate::git::detect_branch_async(&cwd, move |branch| {
-                sidebar.update_branch(&sid, branch.as_deref());
-            });
+            detect_branch_and_pr(&cwd, &sidebar, &sid);
         });
     }
 
@@ -314,10 +383,10 @@ impl SessionManager {
         }
     }
 
-    pub fn update_session_status(&mut self, session_id: &str, status: SessionStatus, status_label: Option<&str>) {
+    pub fn update_session_status(&mut self, session_id: &str, status: SessionStatus) {
         if let Some(session) = self.find_session_mut(session_id) {
             session.status = status.clone();
-            self.sidebar.update_status(session_id, &status, status_label);
+            self.sidebar.update_status(session_id, &status);
         }
     }
 
@@ -645,7 +714,7 @@ impl SessionManager {
             timestamps.insert(sid.clone(), now);
             drop(timestamps);
 
-            let notification = Notification::new(&sid, "Terminal", "Bell", "Terminal bell received");
+            let notification = Notification::new(&sid, "Bell", "Terminal bell received");
             m.notification_store.borrow_mut().add_notification(notification);
         });
     }

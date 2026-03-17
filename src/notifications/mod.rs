@@ -3,37 +3,25 @@ pub mod hook_server;
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Notification {
-    pub id: String,
     pub session_id: String,
-    pub title: String,
+    #[allow(dead_code)] // classification label: Permission, Error, Completed, etc.
     pub subtitle: String,
     pub body: String,
-    pub created_at: i64,
-    pub is_read: bool,
 }
 
 impl Notification {
-    pub fn new(session_id: &str, title: &str, subtitle: &str, body: &str) -> Self {
+    pub fn new(session_id: &str, subtitle: &str, body: &str) -> Self {
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
             session_id: session_id.to_string(),
-            title: title.to_string(),
             subtitle: subtitle.to_string(),
             body: body.to_string(),
-            created_at: gtk4::glib::DateTime::now_local()
-                .map(|dt| dt.to_unix())
-                .unwrap_or(0),
-            is_read: false,
         }
     }
 }
 
 pub struct NotificationStore {
-    notifications: Vec<Notification>,
     unread_count_by_session: HashMap<String, u32>,
     latest_by_session: HashMap<String, Notification>,
     #[allow(clippy::type_complexity)]
@@ -43,7 +31,6 @@ pub struct NotificationStore {
 impl NotificationStore {
     pub fn new() -> Self {
         Self {
-            notifications: Vec::new(),
             unread_count_by_session: HashMap::new(),
             latest_by_session: HashMap::new(),
             on_change: None,
@@ -58,25 +45,17 @@ impl NotificationStore {
         let session_id = notification.session_id.clone();
 
         *self.unread_count_by_session.entry(session_id.clone()).or_insert(0) += 1;
-        self.latest_by_session.insert(session_id.clone(), notification.clone());
-        self.notifications.push(notification);
+        self.latest_by_session.insert(session_id.clone(), notification);
 
         self.notify_change(&session_id);
     }
 
     pub fn mark_read(&mut self, session_id: &str) {
-        for n in &mut self.notifications {
-            if n.session_id == session_id {
-                n.is_read = true;
-            }
-        }
-
         self.unread_count_by_session.insert(session_id.to_string(), 0);
         self.notify_change(session_id);
     }
 
     pub fn clear_session(&mut self, session_id: &str) {
-        self.notifications.retain(|n| n.session_id != session_id);
         self.unread_count_by_session.remove(session_id);
         self.latest_by_session.remove(session_id);
         self.notify_change(session_id);
@@ -100,15 +79,7 @@ mod tests {
     use super::*;
 
     fn make_notif(session_id: &str, subtitle: &str) -> Notification {
-        Notification {
-            id: uuid::Uuid::new_v4().to_string(),
-            session_id: session_id.to_string(),
-            title: "Claude Code".to_string(),
-            subtitle: subtitle.to_string(),
-            body: "test body".to_string(),
-            created_at: 0,
-            is_read: false,
-        }
+        Notification::new(session_id, subtitle, "test body")
     }
 
     #[test]
@@ -140,7 +111,8 @@ mod tests {
 
         assert_eq!(store.unread_count("s1"), 0);
         assert_eq!(store.unread_count("s2"), 1);
-        assert_eq!(store.notifications.len(), 1);
+        assert!(store.latest_by_session.get("s1").is_none());
+        assert!(store.latest_by_session.get("s2").is_some());
     }
 
     #[test]

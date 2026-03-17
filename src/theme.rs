@@ -163,6 +163,15 @@ paned > separator:hover {{
     color: {text_muted};
 }}
 
+.tab-pr {{
+    font-size: 10px;
+    color: {text_muted};
+}}
+
+.tab-pr a {{
+    color: {accent};
+}}
+
 .tab-index {{
     font-size: 10px;
     font-weight: 700;

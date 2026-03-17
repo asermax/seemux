@@ -18,6 +18,7 @@ pub struct TabRow {
     title_label: Label,
     subtitle_label: Label,
     branch_label: Label,
+    pr_label: Label,
     status_label: Label,
     preview_label: Label,
     badge_label: Label,
@@ -73,9 +74,18 @@ impl TabRow {
         branch_label.set_max_width_chars(20);
         branch_label.set_visible(false);
 
+        let pr_label = Label::new(None);
+        pr_label.add_css_class("tab-pr");
+        pr_label.set_use_markup(true);
+        pr_label.set_visible(false);
+
+        let branch_row = GtkBox::new(Orientation::Horizontal, 4);
+        branch_row.append(&branch_label);
+        branch_row.append(&pr_label);
+
         content.append(&title_label);
         content.append(&subtitle_label);
-        content.append(&branch_label);
+        content.append(&branch_row);
         content.append(&status_label);
         content.append(&preview_label);
 
@@ -109,6 +119,7 @@ impl TabRow {
             title_label,
             subtitle_label,
             branch_label,
+            pr_label,
             status_label,
             preview_label,
             badge_label,
@@ -170,6 +181,22 @@ impl TabRow {
             }
             _ => {
                 self.branch_label.set_visible(false);
+                self.pr_label.set_visible(false);
+            }
+        }
+    }
+
+    pub fn set_pr(&self, pr: Option<(&str, &str)>) {
+        match pr {
+            Some((number, url)) => {
+                let escaped_url = glib::markup_escape_text(url);
+                self.pr_label.set_markup(
+                    &format!("\u{2014} <a href=\"{escaped_url}\">PR#{number}</a>"),
+                );
+                self.pr_label.set_visible(true);
+            }
+            None => {
+                self.pr_label.set_visible(false);
             }
         }
     }
@@ -209,7 +236,7 @@ impl TabRow {
         }
     }
 
-    pub fn set_status(&self, status: &SessionStatus, label_override: Option<&str>) {
+    pub fn set_status(&self, status: &SessionStatus) {
         for class in &[
             "status-pill--idle",
             "status-pill--running",
@@ -225,7 +252,7 @@ impl TabRow {
                 self.status_label.set_visible(false);
             }
             _ => {
-                self.status_label.set_text(label_override.unwrap_or(status.label()));
+                self.status_label.set_text(status.label());
                 self.status_label.add_css_class(status.css_class());
                 self.status_label.set_visible(true);
             }

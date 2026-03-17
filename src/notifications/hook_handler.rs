@@ -13,13 +13,11 @@ pub struct HookEvent {
 pub struct HookResult {
     pub session_id: String,
     pub new_status: Option<SessionStatus>,
-    pub notification: Option<(String, String, String)>, // (title, subtitle, body)
+    pub notification: Option<(String, String)>, // (subtitle, body)
     pub clear_notifications: bool,
     pub claude_pid: Option<u32>,
     /// Some(Some(id)) = set, Some(None) = clear, None = no change
     pub claude_session_id: Option<Option<String>>,
-    /// Tool name from pre-tool-use events (e.g. "Bash", "Write")
-    pub tool_name: Option<String>,
 }
 
 pub fn handle_hook_event(event: HookEvent) -> HookResult {
@@ -30,7 +28,6 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
         clear_notifications: false,
         claude_pid: None,
         claude_session_id: None,
-        tool_name: None,
     };
 
     match event.event.as_str() {
@@ -54,9 +51,6 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
 
         "pre-tool-use" => {
             result.new_status = Some(SessionStatus::Running);
-            result.tool_name = event.payload.get("tool_name")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
         }
 
         "post-tool-use" => {
@@ -79,7 +73,7 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
                 .unwrap_or("");
 
             let (subtitle, body) = classify_notification(signal, message);
-            result.notification = Some(("Claude Code".to_string(), subtitle, body));
+            result.notification = Some((subtitle, body));
             result.new_status = Some(SessionStatus::NeedsInput);
         }
 
@@ -91,11 +85,7 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
             // Truncate to a reasonable preview length
             let preview: String = message.chars().take(100).collect();
 
-            result.notification = Some((
-                "Claude Code".to_string(),
-                "Completed".to_string(),
-                preview,
-            ));
+            result.notification = Some(("Completed".to_string(), preview));
             result.new_status = Some(SessionStatus::Idle);
         }
 
@@ -238,8 +228,7 @@ mod tests {
         ));
 
         assert_eq!(result.new_status, Some(SessionStatus::NeedsInput));
-        let (title, subtitle, body) = result.notification.unwrap();
-        assert_eq!(title, "Claude Code");
+        let (subtitle, body) = result.notification.unwrap();
         assert_eq!(subtitle, "Permission");
         assert_eq!(body, "Allow file write?");
     }
@@ -252,7 +241,7 @@ mod tests {
         ));
 
         assert_eq!(result.new_status, Some(SessionStatus::Idle));
-        let (_, subtitle, body) = result.notification.unwrap();
+        let (subtitle, body) = result.notification.unwrap();
         assert_eq!(subtitle, "Completed");
         assert_eq!(body, "Done refactoring");
     }
@@ -267,22 +256,13 @@ mod tests {
     }
 
     #[test]
-    fn handle_pre_tool_use_extracts_tool_name() {
+    fn handle_pre_tool_use() {
         let result = handle_hook_event(make_event(
             "pre-tool-use",
             serde_json::json!({"tool_name": "Bash", "tool_input": {"command": "npm test"}}),
         ));
 
         assert_eq!(result.new_status, Some(SessionStatus::Running));
-        assert_eq!(result.tool_name, Some("Bash".to_string()));
-    }
-
-    #[test]
-    fn handle_pre_tool_use_without_tool_name() {
-        let result = handle_hook_event(make_event("pre-tool-use", serde_json::json!({})));
-
-        assert_eq!(result.new_status, Some(SessionStatus::Running));
-        assert_eq!(result.tool_name, None);
     }
 
     #[test]
