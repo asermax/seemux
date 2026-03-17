@@ -36,6 +36,7 @@ pub struct NotificationStore {
     notifications: Vec<Notification>,
     unread_count_by_session: HashMap<String, u32>,
     latest_by_session: HashMap<String, Notification>,
+    #[allow(clippy::type_complexity)]
     on_change: Option<Box<dyn Fn(&str, u32, Option<&Notification>)>>,
 }
 
