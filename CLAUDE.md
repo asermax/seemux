@@ -17,6 +17,7 @@ cargo build                # Debug build
 cargo build --release      # Release build
 cargo test                 # Run all tests
 cargo test <test_name>     # Run a single test
+cargo clippy               # Run lints
 cargo run                  # Run the app
 cargo run -- toggle        # Trigger dropdown toggle via CLI
 ```
