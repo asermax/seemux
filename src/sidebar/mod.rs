@@ -682,12 +682,27 @@ impl Sidebar {
         group_widget.setup_context_menu(id);
         group_widget.setup_drag_source(self.dragging_group_id.clone());
 
-        // Clear peek flags when the group is manually expanded
+        // Handle peek state when toggling group collapse
         let rows_for_toggle = self.rows.clone();
         let gid_for_toggle = id.to_string();
+        let group_widgets_for_toggle = self.group_widgets.clone();
         group_widget.set_on_toggle(move |collapsed| {
-            if !collapsed {
-                for (row, gid) in rows_for_toggle.borrow().values() {
+            let rows = rows_for_toggle.borrow();
+
+            if collapsed {
+                // Collapsing: peek the active tab so it stays visible
+                for (row, gid) in rows.values() {
+                    if *gid == gid_for_toggle && row.is_active() {
+                        row.set_peeking(true);
+                        break;
+                    }
+                }
+
+                let group_widgets = group_widgets_for_toggle.borrow();
+                reconcile_peek_for_group(&gid_for_toggle, &rows, &group_widgets);
+            } else {
+                // Expanding: clear peek flags
+                for (row, gid) in rows.values() {
                     if *gid == gid_for_toggle && row.is_peeking() {
                         row.set_peeking(false);
                     }
@@ -805,41 +820,9 @@ impl Sidebar {
             return;
         }
 
-        let group_widgets = self.group_widgets.borrow();
-        let Some(gw) = group_widgets.get(group_id) else { return };
-
-        if !gw.is_collapsed() {
-            return;
-        }
-
-        // Single pass: set per-row visibility and track whether any row is peeking
         let rows = self.rows.borrow();
-        let mut has_peeking = false;
-        let mut idx = 0;
-
-        while let Some(list_row) = gw.list_box.row_at_index(idx) {
-            if let Some(child) = list_row.child() {
-                let sid = child.widget_name().to_string();
-                let is_peeking = rows.get(&sid).is_some_and(|(r, _)| r.is_peeking());
-
-                if is_peeking {
-                    has_peeking = true;
-                }
-
-                list_row.set_visible(is_peeking);
-            }
-
-            idx += 1;
-        }
-
-        drop(rows);
-
-        if has_peeking {
-            gw.list_box.set_visible(true);
-        } else {
-            gw.restore_all_row_visibility();
-            gw.list_box.set_visible(false);
-        }
+        let group_widgets = self.group_widgets.borrow();
+        reconcile_peek_for_group(group_id, &rows, &group_widgets);
     }
 
     pub fn connect_group_new_tab<F: Fn(String) + Clone + 'static>(&self, group_id: &str, f: F) {
@@ -955,6 +938,46 @@ impl Sidebar {
         self.groups.borrow().iter()
             .find(|g| g.name == name)
             .map(|g| g.id.clone())
+    }
+}
+
+/// Reconcile a collapsed group's list_box visibility based on peek state of its rows.
+/// Shared between `Sidebar::reconcile_group_peek` and the group toggle callback.
+fn reconcile_peek_for_group(
+    group_id: &str,
+    rows: &HashMap<String, (TabRow, String)>,
+    group_widgets: &HashMap<String, TabGroupWidget>,
+) {
+    let Some(gw) = group_widgets.get(group_id) else { return };
+
+    if !gw.is_collapsed() {
+        return;
+    }
+
+    // Single pass: set per-row visibility and track whether any row is peeking
+    let mut has_peeking = false;
+    let mut idx = 0;
+
+    while let Some(list_row) = gw.list_box.row_at_index(idx) {
+        if let Some(child) = list_row.child() {
+            let sid = child.widget_name().to_string();
+            let is_peeking = rows.get(&sid).is_some_and(|(r, _)| r.is_peeking());
+
+            if is_peeking {
+                has_peeking = true;
+            }
+
+            list_row.set_visible(is_peeking);
+        }
+
+        idx += 1;
+    }
+
+    if has_peeking {
+        gw.list_box.set_visible(true);
+    } else {
+        gw.restore_all_row_visibility();
+        gw.list_box.set_visible(false);
     }
 }
 
