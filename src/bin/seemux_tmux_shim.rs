@@ -73,6 +73,7 @@ fn handle_tmux_command(
         "resize-pane" => Ok(String::new()),
         "kill-pane" => cmd_kill_pane(sub_args, socket_path, pane_map_path),
         "has-session" => Ok(String::new()),
+        "seemux-env" => cmd_seemux_env(sub_args, socket_path),
         _ => {
             eprintln!("seemux-tmux-shim: unhandled command: tmux {}", args.join(" "));
             Ok(String::new())
@@ -444,9 +445,58 @@ fn exec_real_tmux(args: &[String]) -> ExitCode {
     }
 }
 
+// --- Environment toggle ---
+
+fn cmd_seemux_env(args: &[String], socket_path: &Path) -> Result<String, String> {
+    let mode = args.first().map(|s| s.as_str()).unwrap_or("on");
+
+    match mode {
+        "on" => Ok(format!(
+            "export TMUX='{},{},0';",
+            socket_path.display(),
+            std::process::id(),
+        )),
+        "off" => Ok("unset TMUX;".to_string()),
+        other => Err(format!("unknown seemux-env mode: {other} (expected 'on' or 'off')")),
+    }
+}
+
 fn runtime_dir() -> PathBuf {
     let dir = std::env::var("XDG_RUNTIME_DIR")
         .unwrap_or_else(|_| format!("/tmp/seemux-{}", unsafe { libc::getuid() }));
 
     PathBuf::from(dir).join("seemux")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seemux_env_on_outputs_export() {
+        let path = Path::new("/tmp/test.sock");
+        let result = cmd_seemux_env(&[], path).unwrap();
+        assert!(result.starts_with("export TMUX='/tmp/test.sock,"));
+        assert!(result.ends_with(",0';"));
+    }
+
+    #[test]
+    fn seemux_env_explicit_on_outputs_export() {
+        let path = Path::new("/tmp/test.sock");
+        let result = cmd_seemux_env(&["on".to_string()], path).unwrap();
+        assert!(result.starts_with("export TMUX='/tmp/test.sock,"));
+        assert!(result.ends_with(",0';"));
+    }
+
+    #[test]
+    fn seemux_env_off_outputs_unset() {
+        let path = Path::new("/tmp/test.sock");
+        assert_eq!(cmd_seemux_env(&["off".to_string()], path).unwrap(), "unset TMUX;");
+    }
+
+    #[test]
+    fn seemux_env_unknown_mode_errors() {
+        let path = Path::new("/tmp/test.sock");
+        assert!(cmd_seemux_env(&["bogus".to_string()], path).is_err());
+    }
 }
