@@ -760,6 +760,10 @@ impl Sidebar {
         }
     }
 
+    pub fn is_group_collapsed(&self, group_id: &str) -> bool {
+        self.group_widgets.borrow().get(group_id).is_some_and(|gw| gw.is_collapsed())
+    }
+
     /// Make a single tab "peek" out of its collapsed group.
     pub fn peek_tab(&self, session_id: &str) {
         let rows = self.rows.borrow();

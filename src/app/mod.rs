@@ -527,9 +527,13 @@ fn schedule_deferred_spawn(manager: &Rc<RefCell<SessionManager>>, grab_focus: bo
             let mgr = mgr.clone();
 
             glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
-                for (session_id, claude_session_id) in &pending {
+                for (session_id, claude_session_id, collapsed) in &pending {
                     if let Some(term) = mgr.borrow().session_terminal(session_id) {
-                        term.feed_child(format!("claude --resume {claude_session_id}\n").as_bytes());
+                        if *collapsed {
+                            term.feed_child(format!("claude --resume {claude_session_id}").as_bytes());
+                        } else {
+                            term.feed_child(format!("claude --resume {claude_session_id}\n").as_bytes());
+                        }
                     }
                 }
             });
