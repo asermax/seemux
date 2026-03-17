@@ -111,6 +111,8 @@ pub struct SavedSession {
 pub struct SavedGroup {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub collapsed: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -234,7 +236,7 @@ mod tests {
                 },
             ],
             groups: vec![
-                SavedGroup { id: "group1".to_string(), name: "Work".to_string() },
+                SavedGroup { id: "group1".to_string(), name: "Work".to_string(), collapsed: true },
             ],
             active_session_index: Some(1),
         };

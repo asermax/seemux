@@ -255,6 +255,10 @@ fn restore_sessions(
     for group in &saved_state.groups {
         sidebar.add_group(&group.id, &group.name);
 
+        if group.collapsed {
+            sidebar.collapse_group(&group.id);
+        }
+
         let mgr = manager.clone();
         let sid = sidebar.clone();
         let notif = notification_store.clone();

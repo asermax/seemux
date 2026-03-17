@@ -707,6 +707,12 @@ impl Sidebar {
         }
     }
 
+    pub fn collapse_group(&self, group_id: &str) {
+        if let Some(gw) = self.group_widgets.borrow().get(group_id) {
+            gw.collapse();
+        }
+    }
+
     pub fn connect_group_new_tab<F: Fn(String) + Clone + 'static>(&self, group_id: &str, f: F) {
         if let Some(gw) = self.group_widgets.borrow().get(group_id) {
             let gid = group_id.to_string();
@@ -721,8 +727,13 @@ impl Sidebar {
         }
     }
 
-    pub fn group_ids(&self) -> Vec<(String, String)> {
-        self.groups.borrow().iter().map(|g| (g.id.clone(), g.name.clone())).collect()
+    pub fn group_ids(&self) -> Vec<(String, String, bool)> {
+        let widgets = self.group_widgets.borrow();
+
+        self.groups.borrow().iter().map(|g| {
+            let collapsed = widgets.get(&g.id).is_some_and(|gw| gw.is_collapsed());
+            (g.id.clone(), g.name.clone(), collapsed)
+        }).collect()
     }
 
     /// Return visible session IDs (skipping collapsed groups) in sidebar order.

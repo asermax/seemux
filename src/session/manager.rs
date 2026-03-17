@@ -663,8 +663,8 @@ impl SessionManager {
 
     /// Save current session state for restoration on next launch.
     pub fn save_state(&self) {
-        let groups = self.sidebar.group_ids().iter().map(|(id, name)| {
-            crate::config::SavedGroup { id: id.clone(), name: name.clone() }
+        let groups = self.sidebar.group_ids().iter().map(|(id, name, collapsed)| {
+            crate::config::SavedGroup { id: id.clone(), name: name.clone(), collapsed: *collapsed }
         }).collect();
 
         let cwds = self.session_cwds.borrow();

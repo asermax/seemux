@@ -106,6 +106,15 @@ impl TabGroupWidget {
         }
     }
 
+    /// Collapse the group if it's expanded.
+    pub fn collapse(&self) {
+        if !self.collapsed.get() {
+            self.collapsed.set(true);
+            self.list_box.set_visible(false);
+            self.toggle_label.set_text("\u{25b6}"); // ▶
+        }
+    }
+
     pub fn setup_drag_source(&self, dragging_group_id: Rc<RefCell<String>>) {
         let drag_source = gtk4::DragSource::new();
         drag_source.set_actions(gdk::DragAction::MOVE);
