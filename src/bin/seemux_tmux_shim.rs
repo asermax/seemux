@@ -254,9 +254,13 @@ fn create_teammate_session(
 
     // Create or find the team group
     let group_name = format!("Team: {team_name}");
-    let group_response = send_socket_command(socket_path, "create-group", serde_json::json!({
-        "name": group_name,
-    }))?;
+    let mut group_params = serde_json::json!({ "name": group_name });
+
+    if let Ok(sid) = std::env::var("SEEMUX_SESSION_ID") {
+        group_params["source_session_id"] = serde_json::Value::String(sid);
+    }
+
+    let group_response = send_socket_command(socket_path, "create-group", group_params)?;
 
     let group_id = group_response.get("group_id")
         .and_then(|v| v.as_str())

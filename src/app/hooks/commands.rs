@@ -38,12 +38,26 @@ fn cmd_create_group(
         return error_response(request_id, "missing 'name' param");
     };
 
-    // Return existing group if one with the same name exists
-    if let Some(group_id) = sidebar.find_group_by_name(name) {
-        return ok_response(request_id, serde_json::json!({ "group_id": group_id }));
+    let source_session_id = params.get("source_session_id").and_then(|v| v.as_str());
+
+    // If the source session is already in a non-default group, use that group directly
+    if let Some(sid) = source_session_id {
+        let mgr = manager.borrow();
+
+        if let Some(gid) = mgr.session_group_id(sid)
+            && gid != crate::session::DEFAULT_GROUP {
+                let gid = gid.to_string();
+                return ok_response(request_id, serde_json::json!({ "group_id": gid }));
+            }
     }
 
-    let group_id = crate::app::create_group_programmatic(name, sidebar, manager, notification_store);
+    // Find existing group by name or create a new one
+    let group_id = sidebar.find_group_by_name(name)
+        .unwrap_or_else(|| crate::app::create_group_programmatic(name, sidebar, manager, notification_store));
+
+    if let Some(sid) = source_session_id {
+        manager.borrow_mut().move_session_to_group(sid, &group_id);
+    }
 
     ok_response(request_id, serde_json::json!({ "group_id": group_id }))
 }

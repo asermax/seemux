@@ -444,9 +444,7 @@ impl SessionManager {
     }
 
     pub fn active_group_id(&self) -> Option<&str> {
-        self.active_id.as_deref()
-            .and_then(|id| self.sessions.iter().find(|s| s.id == id))
-            .map(|s| s.group_id.as_str())
+        self.active_id.as_deref().and_then(|id| self.session_group_id(id))
     }
 
     pub fn active_terminal_vte(&self) -> Option<vte4::Terminal> {
@@ -588,10 +586,21 @@ impl SessionManager {
         false
     }
 
+    pub(crate) fn session_group_id(&self, session_id: &str) -> Option<&str> {
+        self.sessions.iter().find(|s| s.id == session_id).map(|s| s.group_id.as_str())
+    }
+
+    pub(crate) fn move_session_to_group(&mut self, session_id: &str, new_group_id: &str) {
+        let Some(session) = self.find_session_mut(session_id) else { return };
+
+        if session.group_id == new_group_id { return; }
+
+        session.group_id = new_group_id.to_string();
+        self.sidebar.move_tab_to_group(session_id, new_group_id);
+    }
+
     pub fn move_session_to_position(&mut self, session_id: &str, new_group_id: &str, _position: i32) {
-        if let Some(session) = self.find_session_mut(session_id) {
-            session.group_id = new_group_id.to_string();
-        }
+        self.move_session_to_group(session_id, new_group_id);
     }
 
     pub fn sessions_with_claude_pid(&self) -> Vec<(String, u32)> {

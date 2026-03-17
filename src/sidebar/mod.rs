@@ -528,6 +528,23 @@ impl Sidebar {
         );
     }
 
+    pub fn move_tab_to_group(&self, session_id: &str, new_group_id: &str) {
+        let mut rows = self.rows.borrow_mut();
+        let Some((row, current_group)) = rows.get_mut(session_id) else { return };
+
+        if *current_group == new_group_id { return; }
+
+        let Some(new_list) = self.list_for_group(new_group_id) else { return };
+
+        if let Some(parent) = row.widget().parent()
+            && let Some(old_list) = self.list_for_group(current_group) {
+                old_list.remove(&parent);
+            }
+
+        new_list.append(row.widget());
+        *current_group = new_group_id.to_string();
+    }
+
     pub fn remove_tab(&self, session_id: &str) {
         if let Some((row, group_id)) = self.rows.borrow_mut().remove(session_id) {
             let was_peeking = row.is_peeking();
