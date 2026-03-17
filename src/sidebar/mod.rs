@@ -707,11 +707,10 @@ impl Sidebar {
             let rows = rows_for_toggle.borrow();
 
             if collapsed {
-                // Collapsing: peek the active tab so it stays visible
+                // Collapsing: peek the active tab and tabs with unread notifications
                 for (row, gid) in rows.values() {
-                    if *gid == gid_for_toggle && row.is_active() {
+                    if *gid == gid_for_toggle && (row.is_active() || row.has_badge()) {
                         row.set_peeking(true);
-                        break;
                     }
                 }
 

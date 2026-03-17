@@ -210,6 +210,10 @@ impl TabRow {
         }
     }
 
+    pub fn has_badge(&self) -> bool {
+        self.badge_label.is_visible()
+    }
+
     pub fn set_index_visible(&self, index: Option<u32>) {
         match index {
             Some(i) if i <= 9 => {
