@@ -38,7 +38,11 @@ The build script (`build.rs`) compiles GTK resources via `glib-build-tools` — 
 
 | Module | Purpose |
 |---|---|
-| `app.rs` | Main window layout, keyboard shortcuts, hook polling |
+| `app/mod.rs` | Window building, shared helpers, session lifecycle |
+| `app/actions.rs` | GIO actions: tab close, terminal copy/paste/split, editor, URL |
+| `app/dialogs.rs` | Overlay dialogs: new group form, confirmation |
+| `app/hooks.rs` | Hook event polling, stale PID detection |
+| `app/keyboard.rs` | Keyboard shortcut handling |
 | `app_state.rs` | Shared state: Config, hook receiver, socket path |
 | `session/manager.rs` | Session lifecycle, split pane management, tab switching |
 | `session/mod.rs` | Session struct (id, title, status, cwd, group) |
