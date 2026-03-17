@@ -209,6 +209,7 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     // loss (e.g. wl-copy briefly stealing focus) from intentional switches.
     let dropdown_for_kp = dropdown.clone();
     let kp_controller = EventControllerKey::new();
+    kp_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
 
     kp_controller.connect_key_pressed(move |_, key, _, _| {
         let is_modifier = matches!(key,
