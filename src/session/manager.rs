@@ -44,7 +44,7 @@ fn is_shell_title(title: &str) -> bool {
 }
 
 /// Replace the `$HOME` prefix with `~` for display.
-fn display_path(path: &str) -> String {
+pub(crate) fn display_path(path: &str) -> String {
     if let Some(home) = std::env::var_os("HOME") {
         let home = home.to_string_lossy();
 
@@ -90,7 +90,9 @@ impl SessionManager {
         config: Rc<RefCell<Config>>,
         notification_store: Rc<RefCell<NotificationStore>>,
     ) -> Rc<RefCell<Self>> {
-        let manager = Rc::new(RefCell::new(Self {
+        
+
+        Rc::new(RefCell::new(Self {
             sessions: Vec::new(),
             split_views: HashMap::new(),
             active_id: None,
@@ -102,9 +104,7 @@ impl SessionManager {
             session_cwds: Rc::new(RefCell::new(HashMap::new())),
             socket_path,
             bell_timestamps: Rc::new(RefCell::new(HashMap::new())),
-        }));
-
-        manager
+        }))
     }
 
     pub fn set_on_empty<F: Fn() + 'static>(&mut self, f: F) {
@@ -266,11 +266,10 @@ impl SessionManager {
             if let Some(ref on_empty) = self.on_empty {
                 on_empty();
             }
-        } else if self.active_id.as_deref() == Some(session_id) {
-            if let Some(next_id) = self.find_focus_after_close(session_id, group_siblings) {
+        } else if self.active_id.as_deref() == Some(session_id)
+            && let Some(next_id) = self.find_focus_after_close(session_id, group_siblings) {
                 self.switch_to(&next_id);
             }
-        }
     }
 
     /// Find the best tab to focus after closing a session.
@@ -280,8 +279,8 @@ impl SessionManager {
         closed_id: &str,
         group_siblings_before_close: Option<Vec<String>>,
     ) -> Option<String> {
-        if let Some(ids) = group_siblings_before_close {
-            if let Some(pos) = ids.iter().position(|id| id == closed_id) {
+        if let Some(ids) = group_siblings_before_close
+            && let Some(pos) = ids.iter().position(|id| id == closed_id) {
                 if pos + 1 < ids.len() {
                     return Some(ids[pos + 1].clone());
                 }
@@ -290,7 +289,6 @@ impl SessionManager {
                     return Some(ids[pos - 1].clone());
                 }
             }
-        }
 
         if let Some(id) = self.sidebar.first_session_id_in_group(crate::session::DEFAULT_GROUP) {
             return Some(id);
@@ -356,11 +354,10 @@ impl SessionManager {
         self.stack.set_visible_child_name(session_id);
         self.sidebar.set_active(session_id);
 
-        if let Some(sv) = self.split_views.get(session_id) {
-            if let Some(term) = sv.focused_terminal() {
+        if let Some(sv) = self.split_views.get(session_id)
+            && let Some(term) = sv.focused_terminal() {
                 term.grab_focus();
             }
-        }
     }
 
     pub fn active_id(&self) -> Option<&str> {
@@ -547,14 +544,12 @@ impl SessionManager {
         }
 
         // Only grab focus if this is the active session
-        if self.active_id.as_deref() == Some(session_id) {
-            if let Some(sv) = self.split_views.get(session_id) {
-                if let Some(term) = sv.focused_terminal() {
+        if self.active_id.as_deref() == Some(session_id)
+            && let Some(sv) = self.split_views.get(session_id)
+                && let Some(term) = sv.focused_terminal() {
                     let term = term.clone();
                     glib::idle_add_local_once(move || { term.grab_focus(); });
                 }
-            }
-        }
     }
 
     /// Wire child-exited on a single terminal pane.
@@ -642,11 +637,10 @@ impl SessionManager {
 
             let mut timestamps = m.bell_timestamps.borrow_mut();
 
-            if let Some(&last) = timestamps.get(&sid) {
-                if now - last < 2 {
+            if let Some(&last) = timestamps.get(&sid)
+                && now - last < 2 {
                     return;
                 }
-            }
 
             timestamps.insert(sid.clone(), now);
             drop(timestamps);

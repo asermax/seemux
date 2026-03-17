@@ -161,7 +161,7 @@ impl SessionState {
 
 fn state_path() -> PathBuf {
     dirs::state_dir()
-        .or_else(|| dirs::data_local_dir())
+        .or_else(dirs::data_local_dir)
         .unwrap_or_else(|| PathBuf::from("."))
         .join("seemux")
         .join("sessions.json")

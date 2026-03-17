@@ -147,6 +147,12 @@ impl TabRow {
         self.title_label.set_tooltip_text(Some(title));
     }
 
+    pub fn set_subtitle(&self, text: &str) {
+        self.subtitle_label.set_text(text);
+        self.subtitle_label.set_tooltip_text(Some(text));
+        self.subtitle_label.set_visible(true);
+    }
+
     pub fn update_cwd(&self, folder_name: &str, display_path: &str) {
         self.title_label.set_text(folder_name);
         self.title_label.set_tooltip_text(Some(display_path));

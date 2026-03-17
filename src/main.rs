@@ -24,7 +24,7 @@ use app_state::AppState;
 const APP_ID: &str = "com.asermax.seemux";
 
 thread_local! {
-    static APP_STATE: RefCell<Option<Rc<AppState>>> = RefCell::new(None);
+    static APP_STATE: RefCell<Option<Rc<AppState>>> = const { RefCell::new(None) };
 }
 
 fn main() -> glib::ExitCode {

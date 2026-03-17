@@ -312,11 +312,10 @@ impl SplitView {
 
     /// Spawn a shell in a specific pane by ID.
     pub fn spawn_pane(&self, pane_id: &str, cwd: Option<&str>, env_vars: &[(&str, &str)]) {
-        if let Some(terminal) = self.panes.borrow().get(pane_id) {
-            if terminal.needs_spawn() {
+        if let Some(terminal) = self.panes.borrow().get(pane_id)
+            && terminal.needs_spawn() {
                 terminal.spawn_shell(cwd, env_vars);
             }
-        }
     }
 
     /// Convert the entire split tree to serializable form.

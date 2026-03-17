@@ -40,6 +40,7 @@ pub struct Sidebar {
     groups_header: Label,
 
     // Callback when a tab is moved/reordered via drag-and-drop
+    #[allow(clippy::type_complexity)]
     on_tab_moved: Rc<RefCell<Option<Box<dyn Fn(String, String, i32)>>>>, // (session_id, group_id, position)
 }
 
@@ -98,6 +99,7 @@ impl Sidebar {
         scroll.set_child(Some(&content));
         container.append(&scroll);
 
+        #[allow(clippy::type_complexity)]
         let on_tab_moved: Rc<RefCell<Option<Box<dyn Fn(String, String, i32)>>>> =
             Rc::new(RefCell::new(None));
 
@@ -158,12 +160,11 @@ impl Sidebar {
                 let mut idx = 0;
 
                 while let Some(row) = list.row_at_index(idx) {
-                    if let Some(child) = row.child() {
-                        if child.widget_name().as_str() != dragged.as_str() {
+                    if let Some(child) = row.child()
+                        && child.widget_name().as_str() != dragged.as_str() {
                             child.add_css_class("drop-before");
                             break;
                         }
-                    }
                     idx += 1;
                 }
             }
@@ -232,11 +233,10 @@ impl Sidebar {
             }
 
             // Expand target group if collapsed
-            if target_group != DEFAULT_GROUP {
-                if let Some(gw) = group_widgets.borrow().get(target_group.as_str()) {
+            if target_group != DEFAULT_GROUP
+                && let Some(gw) = group_widgets.borrow().get(target_group.as_str()) {
                     gw.expand();
                 }
-            }
 
             *current_group = target_group.clone();
             drop(rows_ref);
@@ -307,11 +307,10 @@ impl Sidebar {
             }
 
             // Expand target group if collapsed
-            if target_group != DEFAULT_GROUP {
-                if let Some(gw) = group_widgets.borrow().get(target_group.as_str()) {
+            if target_group != DEFAULT_GROUP
+                && let Some(gw) = group_widgets.borrow().get(target_group.as_str()) {
                     gw.expand();
                 }
-            }
 
             *current_group = target_group.clone();
             drop(rows_ref);
@@ -343,12 +342,11 @@ impl Sidebar {
 
             // Show drop-before on the first non-dragged group
             for entry in groups_enter.borrow().iter() {
-                if entry.id != *dragged {
-                    if let Some(gw) = group_widgets_enter.borrow().get(&entry.id) {
+                if entry.id != *dragged
+                    && let Some(gw) = group_widgets_enter.borrow().get(&entry.id) {
                         gw.container.add_css_class("drop-before-group");
                         break;
                     }
-                }
             }
 
             gdk::DragAction::MOVE
@@ -481,23 +479,20 @@ impl Sidebar {
             let mut insert_index = target_index + 1;
 
             // Adjust for same-list removal shifting indices down
-            if same_list {
-                if let Some(di) = dragged_index {
-                    if di < insert_index {
+            if same_list
+                && let Some(di) = dragged_index
+                    && di < insert_index {
                         insert_index -= 1;
                     }
-                }
-            }
 
             // Insert at computed position
             target_list.insert(dragged_row.widget(), insert_index);
 
             // Expand target group if collapsed
-            if target_group != DEFAULT_GROUP {
-                if let Some(gw) = group_widgets.borrow().get(target_group.as_str()) {
+            if target_group != DEFAULT_GROUP
+                && let Some(gw) = group_widgets.borrow().get(target_group.as_str()) {
                     gw.expand();
                 }
-            }
 
             *current_group = target_group.clone();
             drop(rows_ref);
@@ -537,11 +532,10 @@ impl Sidebar {
         if let Some((row, group_id)) = self.rows.borrow_mut().remove(session_id) {
             let was_peeking = row.is_peeking();
 
-            if let Some(parent) = row.widget().parent() {
-                if let Some(list) = self.list_for_group(&group_id) {
+            if let Some(parent) = row.widget().parent()
+                && let Some(list) = self.list_for_group(&group_id) {
                     list.remove(&parent);
                 }
-            }
 
             if was_peeking {
                 self.reconcile_group_peek(&group_id);
@@ -565,14 +559,13 @@ impl Sidebar {
         }
 
         // If the new active tab is in a collapsed group, peek it
-        if let Some((row, group_id)) = rows.get(session_id) {
-            if *group_id != DEFAULT_GROUP
+        if let Some((row, group_id)) = rows.get(session_id)
+            && *group_id != DEFAULT_GROUP
                 && self.group_widgets.borrow().get(group_id.as_str()).is_some_and(|gw| gw.is_collapsed())
             {
                 row.set_peeking(true);
                 groups_to_reconcile.push(group_id.clone());
             }
-        }
 
         drop(rows);
 
@@ -584,6 +577,12 @@ impl Sidebar {
     pub fn update_title(&self, session_id: &str, title: &str) {
         if let Some((row, _)) = self.rows.borrow().get(session_id) {
             row.set_title(title);
+        }
+    }
+
+    pub fn update_subtitle(&self, session_id: &str, text: &str) {
+        if let Some((row, _)) = self.rows.borrow().get(session_id) {
+            row.set_subtitle(text);
         }
     }
 
@@ -719,11 +718,10 @@ impl Sidebar {
 
         for sid in &session_ids {
             if let Some((row, gid)) = rows.get_mut(sid) {
-                if let Some(parent) = row.widget().parent() {
-                    if let Some(list) = self.list_for_group(gid) {
+                if let Some(parent) = row.widget().parent()
+                    && let Some(list) = self.list_for_group(gid) {
                         list.remove(&parent);
                     }
-                }
                 self.default_list.append(row.widget());
                 *gid = crate::session::DEFAULT_GROUP.to_string();
             }
@@ -911,11 +909,10 @@ impl Sidebar {
         let mut group_ids = vec![crate::session::DEFAULT_GROUP.to_string()];
 
         for entry in self.groups.borrow().iter() {
-            if let Some(gw) = self.group_widgets.borrow().get(&entry.id) {
-                if !gw.is_collapsed() {
+            if let Some(gw) = self.group_widgets.borrow().get(&entry.id)
+                && !gw.is_collapsed() {
                     group_ids.push(entry.id.clone());
                 }
-            }
         }
 
         group_ids

@@ -15,6 +15,7 @@ pub struct TabGroupWidget {
     pub list_box: ListBox,
     collapsed: Rc<Cell<bool>>,
     toggle_label: Label,
+    #[allow(clippy::type_complexity)]
     on_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
 }
 
@@ -57,6 +58,7 @@ impl TabGroupWidget {
         container.append(&list_box);
 
         let collapsed = Rc::new(Cell::new(false));
+        #[allow(clippy::type_complexity)]
         let on_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
 
         // Left-click on header toggles collapse
