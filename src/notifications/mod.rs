@@ -2,13 +2,14 @@ pub mod hook_handler;
 pub mod hook_server;
 
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct Notification {
     pub session_id: String,
-    #[allow(dead_code)] // classification label: Permission, Error, Completed, etc.
     pub subtitle: String,
     pub body: String,
+    pub created_at: Instant,
 }
 
 impl Notification {
@@ -17,7 +18,12 @@ impl Notification {
             session_id: session_id.to_string(),
             subtitle: subtitle.to_string(),
             body: body.to_string(),
+            created_at: Instant::now(),
         }
+    }
+
+    pub fn is_recent(&self, within: Duration) -> bool {
+        self.created_at.elapsed() < within
     }
 }
 
@@ -53,6 +59,10 @@ impl NotificationStore {
     pub fn mark_read(&mut self, session_id: &str) {
         self.unread_count_by_session.insert(session_id.to_string(), 0);
         self.notify_change(session_id);
+    }
+
+    pub fn latest(&self, session_id: &str) -> Option<&Notification> {
+        self.latest_by_session.get(session_id)
     }
 
     pub fn clear_session(&mut self, session_id: &str) {

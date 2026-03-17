@@ -11,6 +11,8 @@ use crate::session::SessionStatus;
 use crate::session::manager::SessionManager;
 use crate::sidebar::Sidebar;
 
+use std::time::Duration;
+
 mod commands;
 
 pub(crate) fn setup_hook_polling(
@@ -38,6 +40,19 @@ pub(crate) fn setup_hook_polling(
                             dd.toggle();
                         }
                         continue;
+                    }
+
+                    // Skip notification events that arrive shortly after a stop,
+                    // as Claude Code can fire both for the same completion.
+                    if event.event == "notification" {
+                        let dominated_by_stop = notif_store.borrow()
+                            .latest(&event.session_id)
+                            .is_some_and(|n| n.subtitle == "Completed"
+                                && n.is_recent(Duration::from_secs(1)));
+
+                        if dominated_by_stop {
+                            continue;
+                        }
                     }
 
                     let result = hook_handler::handle_hook_event(event);
