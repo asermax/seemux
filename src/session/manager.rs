@@ -230,13 +230,13 @@ impl SessionManager {
         // Window title changes (shows running command name)
         let sidebar = self.sidebar.clone();
         let sid = session_id.to_string();
-        let last_was_git_cmd_ref = last_was_git_cmd.clone();
-        let pending_redetect_ref = pending_redetect.clone();
+        let last_git_cmd = last_was_git_cmd.clone();
+        let pending = pending_redetect.clone();
 
         vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
             let Some(title) = term.window_title() else { return };
 
-            let was_git_command = last_was_git_cmd_ref.replace(is_git_command_title(&title));
+            let was_git_command = last_git_cmd.replace(is_git_command_title(&title));
 
             if is_shell_title(&title) {
                 // Shell regained control — reset title to folder name
@@ -247,8 +247,7 @@ impl SessionManager {
 
                     // If the previous title was a git/gh command, re-detect branch + PR
                     if was_git_command {
-                        // Cancel any pending re-detection
-                        if let Some(source_id) = pending_redetect_ref.take() {
+                        if let Some(source_id) = pending.take() {
                             source_id.remove();
                         }
 
@@ -262,7 +261,7 @@ impl SessionManager {
                             },
                         );
 
-                        pending_redetect_ref.set(Some(source_id));
+                        pending.set(Some(source_id));
                     }
                 }
             } else {

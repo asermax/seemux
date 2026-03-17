@@ -158,12 +158,7 @@ paned > separator:hover {{
     color: {text_secondary};
 }}
 
-.tab-branch {{
-    font-size: 10px;
-    color: {text_muted};
-}}
-
-.tab-pr {{
+.tab-branch, .tab-pr {{
     font-size: 10px;
     color: {text_muted};
 }}
