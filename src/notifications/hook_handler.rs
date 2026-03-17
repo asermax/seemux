@@ -53,10 +53,6 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
             result.new_status = Some(SessionStatus::Running);
         }
 
-        "post-tool-use" => {
-            result.new_status = Some(SessionStatus::Running);
-        }
-
         "notification" => {
             let signal = event.payload.get("event_name")
                 .or_else(|| event.payload.get("notification_type"))
@@ -261,13 +257,6 @@ mod tests {
             "pre-tool-use",
             serde_json::json!({"tool_name": "Bash", "tool_input": {"command": "npm test"}}),
         ));
-
-        assert_eq!(result.new_status, Some(SessionStatus::Running));
-    }
-
-    #[test]
-    fn handle_post_tool_use() {
-        let result = handle_hook_event(make_event("post-tool-use", serde_json::json!({})));
 
         assert_eq!(result.new_status, Some(SessionStatus::Running));
     }
