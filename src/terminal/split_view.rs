@@ -303,6 +303,11 @@ impl SplitView {
         self.panes.borrow().contains_key(id)
     }
 
+    /// Return any one pane ID, or None if the view is empty.
+    pub fn any_pane_id(&self) -> Option<String> {
+        self.panes.borrow().keys().next().cloned()
+    }
+
     /// Collect all (pane_id, vte4::Terminal) pairs for signal wiring.
     pub fn collect_vte_terminals(&self) -> Vec<(String, vte4::Terminal)> {
         self.panes.borrow().iter()

@@ -71,7 +71,7 @@ impl TabRow {
         branch_label.add_css_class("tab-branch");
         branch_label.set_xalign(0.0);
         branch_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-        branch_label.set_max_width_chars(20);
+        branch_label.set_hexpand(true);
         branch_label.set_visible(false);
 
         let pr_label = Label::new(None);

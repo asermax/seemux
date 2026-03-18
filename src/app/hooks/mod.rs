@@ -64,7 +64,19 @@ pub(crate) fn setup_hook_polling(
                         last_stop_by_session.remove(&event.session_id);
                     }
 
+                    // Detect PR creation: re-check branch/PR after any `gh pr` Bash tool call
+                    let should_redetect_pr = event.event == "post-tool-use"
+                        && event.payload.get("tool_name").and_then(|v| v.as_str()) == Some("Bash")
+                        && event.payload.get("tool_input")
+                            .and_then(|ti| ti.get("command"))
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|cmd| cmd.contains("gh pr"));
+
                     let result = hook_handler::handle_hook_event(event);
+
+                    if should_redetect_pr {
+                        mgr_for_hooks.borrow().redetect_branch_and_pr(&result.session_id);
+                    }
 
                     if let Some(status) = result.new_status {
                         mgr_for_hooks.borrow_mut().update_session_status(

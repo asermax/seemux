@@ -630,6 +630,20 @@ impl SessionManager {
             .collect()
     }
 
+    /// Trigger branch and PR re-detection for a session by looking up its current CWD.
+    pub fn redetect_branch_and_pr(&self, session_id: &str) {
+        let Some(sv) = self.split_views.get(session_id) else { return };
+        let cwds = self.session_cwds.borrow();
+
+        let cwd = sv.any_pane_id()
+            .and_then(|pane_id| cwds.get(&pane_id).cloned());
+
+        drop(cwds);
+
+        let Some(cwd) = cwd else { return };
+        detect_branch_and_pr(&cwd, &self.sidebar, session_id);
+    }
+
     /// Close a specific pane in a specific session (used by child-exited handler).
     fn close_pane(&mut self, session_id: &str, pane_id: &str) {
         let should_destroy = {
