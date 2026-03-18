@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use gtk4::glib;
@@ -11,8 +11,6 @@ use crate::notifications::NotificationStore;
 use crate::session::SessionStatus;
 use crate::session::manager::SessionManager;
 use crate::sidebar::Sidebar;
-
-use std::time::{Duration, Instant};
 
 mod commands;
 
@@ -30,8 +28,9 @@ pub(crate) fn setup_hook_polling(
     let sidebar_for_cmds = sidebar.clone();
     let notif_for_cmds = notification_store.clone();
 
-    // Tracks when each session last received a stop event, for post-stop notification suppression.
-    let mut last_stop_by_session: HashMap<String, Instant> = HashMap::new();
+    // Tracks sessions whose turn has completed, to suppress stale post-stop notifications.
+    // Cleared when a new turn begins (prompt-submit, pre-tool-use, session-start) or session ends.
+    let mut stopped_sessions: HashSet<String> = HashSet::new();
 
     glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
         let Some(ref rx) = hook_rx else { return glib::ControlFlow::Continue };
@@ -46,22 +45,22 @@ pub(crate) fn setup_hook_polling(
                         continue;
                     }
 
-                    // Skip notification events that arrive shortly after a stop,
-                    // as Claude Code can fire both for the same completion.
-                    if event.event == "notification" {
-                        let recently_stopped = last_stop_by_session
-                            .get(&event.session_id)
-                            .is_some_and(|t| t.elapsed() < Duration::from_secs(2));
-
-                        if recently_stopped {
-                            continue;
-                        }
+                    // Skip notification events that arrive after a stop for the same turn.
+                    // Claude Code fires both Stop and Notification hooks for completions;
+                    // with async delivery the notification can arrive arbitrarily late.
+                    if event.event == "notification"
+                        && stopped_sessions.contains(&event.session_id)
+                    {
+                        continue;
                     }
 
                     if event.event == "stop" || event.event == "stop-failure" {
-                        last_stop_by_session.insert(event.session_id.clone(), Instant::now());
-                    } else if event.event == "session-end" {
-                        last_stop_by_session.remove(&event.session_id);
+                        stopped_sessions.insert(event.session_id.clone());
+                    } else if matches!(
+                        event.event.as_str(),
+                        "session-end" | "prompt-submit" | "pre-tool-use" | "session-start"
+                    ) {
+                        stopped_sessions.remove(&event.session_id);
                     }
 
                     // Detect PR creation: re-check branch/PR after any `gh pr` Bash tool call
