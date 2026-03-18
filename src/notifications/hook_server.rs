@@ -90,8 +90,8 @@ impl HookServer {
                             && value.get("command").is_some_and(|v| v.is_string());
 
                         if is_command {
-                            let request_id = value["request_id"].as_str().unwrap().to_string();
-                            let command = value["command"].as_str().unwrap().to_string();
+                            let Some(request_id) = value["request_id"].as_str().map(|s| s.to_string()) else { continue };
+                            let Some(command) = value["command"].as_str().map(|s| s.to_string()) else { continue };
                             let params = value.get_mut("params")
                                 .map(|v| v.take())
                                 .unwrap_or(serde_json::Value::Null);

@@ -546,7 +546,9 @@ impl Sidebar {
     }
 
     pub fn remove_tab(&self, session_id: &str) {
-        if let Some((row, group_id)) = self.rows.borrow_mut().remove(session_id) {
+        let removed = self.rows.borrow_mut().remove(session_id);
+
+        if let Some((row, group_id)) = removed {
             let was_peeking = row.is_peeking();
 
             if let Some(parent) = row.widget().parent()

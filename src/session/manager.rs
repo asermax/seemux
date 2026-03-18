@@ -308,7 +308,10 @@ impl SessionManager {
                 return;
             }
             *last_cwd.borrow_mut() = Some(cwd.clone());
-            cwds.borrow_mut().insert(pid.clone(), cwd.clone());
+
+            let Ok(mut cwds_ref) = cwds.try_borrow_mut() else { return };
+            cwds_ref.insert(pid.clone(), cwd.clone());
+            drop(cwds_ref);
 
             // Update tab title (folder name) and subtitle (full display path)
             sidebar.update_cwd(&sid, folder_name(&cwd), &display_path(&cwd));
@@ -872,7 +875,7 @@ impl SessionManager {
 
         if self.config.borrow().agent_teams_shim {
             // Derive paths from the socket_path rather than recomputing XDG_RUNTIME_DIR
-            let seemux_dir = self.socket_path.parent().unwrap();
+            let seemux_dir = self.socket_path.parent().unwrap_or(std::path::Path::new("/"));
             let bin_dir = seemux_dir.join("bin");
             let existing_path = std::env::var("PATH").unwrap_or_default();
 
