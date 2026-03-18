@@ -1,5 +1,5 @@
 {
   "name": "seemux-hooks",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Claude Code hooks for seemux terminal multiplexer — sends session events via Unix socket for real-time status and notifications"
 }
