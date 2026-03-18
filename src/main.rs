@@ -7,6 +7,7 @@ mod git;
 mod global_shortcuts;
 mod layer_shell;
 mod notifications;
+mod persistence;
 mod runtime;
 mod session;
 mod sidebar;

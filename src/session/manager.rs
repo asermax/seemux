@@ -110,6 +110,7 @@ pub struct SessionManager {
     config: Rc<RefCell<Config>>,
     notification_store: Rc<RefCell<NotificationStore>>,
     on_empty: Option<Box<dyn Fn()>>,
+    on_state_changed: Option<Box<dyn Fn()>>,
     /// Shared CWD tracking — updated by terminal CWD signal, read at save time
     session_cwds: Rc<RefCell<HashMap<String, String>>>,
     socket_path: PathBuf,
@@ -136,6 +137,7 @@ impl SessionManager {
             config,
             notification_store,
             on_empty: None,
+            on_state_changed: None,
             session_cwds: Rc::new(RefCell::new(HashMap::new())),
             socket_path,
             bell_timestamps: Rc::new(RefCell::new(HashMap::new())),
@@ -144,6 +146,16 @@ impl SessionManager {
 
     pub fn set_on_empty<F: Fn() + 'static>(&mut self, f: F) {
         self.on_empty = Some(Box::new(f));
+    }
+
+    pub fn set_on_state_changed<F: Fn() + 'static>(&mut self, f: F) {
+        self.on_state_changed = Some(Box::new(f));
+    }
+
+    fn notify_state_changed(&self) {
+        if let Some(ref callback) = self.on_state_changed {
+            callback();
+        }
     }
 
     fn find_session_mut(&mut self, session_id: &str) -> Option<&mut Session> {
@@ -165,6 +177,7 @@ impl SessionManager {
         self.split_views.insert(id.clone(), split_view);
         self.sessions.push(session);
         self.switch_to(&id);
+        self.notify_state_changed();
 
         id
     }
@@ -335,6 +348,8 @@ impl SessionManager {
         self.split_views.remove(session_id);
         self.sessions.retain(|s| s.id != session_id);
 
+        self.notify_state_changed();
+
         if self.sessions.is_empty() {
             if let Some(ref on_empty) = self.on_empty {
                 on_empty();
@@ -385,6 +400,8 @@ impl SessionManager {
         for id in to_remove {
             self.destroy_session(&id);
         }
+
+        self.notify_state_changed();
     }
 
     pub fn update_session_status(&mut self, session_id: &str, status: SessionStatus) {
@@ -403,6 +420,7 @@ impl SessionManager {
     pub fn set_claude_session_id(&mut self, session_id: &str, claude_session_id: Option<String>) {
         if let Some(session) = self.find_session_mut(session_id) {
             session.claude_session_id = claude_session_id;
+            self.notify_state_changed();
         }
     }
 
@@ -431,6 +449,7 @@ impl SessionManager {
         self.active_id = Some(session_id.to_string());
         self.stack.set_visible_child_name(session_id);
         self.sidebar.set_active(session_id);
+        self.notify_state_changed();
 
         if let Some(sv) = self.split_views.get(session_id)
             && let Some(term) = sv.focused_terminal() {
@@ -505,6 +524,8 @@ impl SessionManager {
         Self::wire_pane_child_exited(self_ref, &active_id, &new_pane_id, &new_vte);
         Self::wire_pane_focus(self_ref, &active_id, &new_pane_id, &new_vte);
         Self::wire_pane_bell(self_ref, &active_id, &new_vte);
+
+        self_ref.borrow().notify_state_changed();
 
         true
     }
@@ -596,6 +617,7 @@ impl SessionManager {
 
         session.group_id = new_group_id.to_string();
         self.sidebar.move_tab_to_group(session_id, new_group_id);
+        self.notify_state_changed();
     }
 
     pub fn move_session_to_position(&mut self, session_id: &str, new_group_id: &str, _position: i32) {
@@ -624,6 +646,8 @@ impl SessionManager {
             self.destroy_session(session_id);
             return;
         }
+
+        self.notify_state_changed();
 
         // Rebuild widget tree in the stack
         if let Some(sv) = self.split_views.get(session_id) {

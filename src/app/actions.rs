@@ -6,6 +6,7 @@ use vte4::prelude::*;
 use gtk4::{ApplicationWindow, GestureClick, Overlay, PopoverMenu, Stack, gio, glib};
 
 use crate::notifications::NotificationStore;
+use crate::persistence::StatePersistence;
 use crate::session::manager::{self, SessionManager};
 use crate::sidebar::Sidebar;
 use crate::terminal::VteTerminal;
@@ -14,6 +15,7 @@ pub(crate) fn register_tab_actions(
     window: &ApplicationWindow,
     manager: &Rc<RefCell<SessionManager>>,
     sidebar: &Rc<Sidebar>,
+    persistence: &Rc<StatePersistence>,
 ) {
     // tab-close
     let mgr = manager.clone();
@@ -38,6 +40,7 @@ pub(crate) fn register_tab_actions(
     // group-delete
     let sidebar_del = sidebar.clone();
     let mgr_del = manager.clone();
+    let persistence_del = persistence.clone();
     let action = gio::SimpleAction::new("group-delete", Some(&String::static_variant_type()));
     action.connect_activate(move |_, param| {
         let Some(group_id) = param.and_then(|v| v.get::<String>()) else { return };
@@ -45,6 +48,7 @@ pub(crate) fn register_tab_actions(
 
         if tab_count == 0 {
             sidebar_del.remove_group(&group_id);
+            persistence_del.mark_dirty();
             super::refocus_terminal(&mgr_del);
         } else {
             // Find the overlay by walking up from the sidebar container
@@ -53,13 +57,17 @@ pub(crate) fn register_tab_actions(
 
             let sidebar = sidebar_del.clone();
             let gid = group_id.clone();
+            let p = persistence_del.clone();
 
             super::dialogs::show_confirm_overlay(
                 &overlay,
                 &mgr_del,
                 "Delete Group",
                 &format!("This group has {tab_count} tab(s). Tabs will move to the default group."),
-                move || { sidebar.remove_group(&gid); },
+                move || {
+                    sidebar.remove_group(&gid);
+                    p.mark_dirty();
+                },
             );
         }
     });

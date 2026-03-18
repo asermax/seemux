@@ -1,7 +1,22 @@
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+
+/// Write content to a file atomically using temp file + rename.
+fn atomic_write(path: &Path, contents: &str) -> std::io::Result<()> {
+    let parent = path.parent()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "no parent dir"))?;
+
+    let _ = fs::create_dir_all(parent);
+
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+    tmp.write_all(contents.as_bytes())?;
+    tmp.persist(path)?;
+
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -55,13 +70,9 @@ impl Config {
     pub fn save(&self) {
         let path = config_path();
 
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-
         match toml::to_string_pretty(self) {
             Ok(contents) => {
-                if let Err(e) = fs::write(&path, contents) {
+                if let Err(e) = atomic_write(&path, &contents) {
                     eprintln!("Failed to write config: {e}");
                 }
             }
@@ -146,13 +157,9 @@ impl SessionState {
     pub fn save(&self) {
         let path = state_path();
 
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-
         match serde_json::to_string_pretty(self) {
             Ok(contents) => {
-                if let Err(e) = fs::write(&path, contents) {
+                if let Err(e) = atomic_write(&path, &contents) {
                     eprintln!("Failed to write session state: {e}");
                 }
             }

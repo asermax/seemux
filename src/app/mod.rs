@@ -19,6 +19,7 @@ use gtk4::{
 use crate::app_state::AppState;
 use crate::config::SessionState;
 use crate::notifications::NotificationStore;
+use crate::persistence::StatePersistence;
 use crate::session::manager::{self, SessionManager};
 use crate::sidebar::Sidebar;
 
@@ -61,8 +62,10 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     let overlay = Overlay::new();
     overlay.set_child(Some(&paned));
 
-    // Common setup: actions, context menus, notification wiring, DnD
-    setup_common(&window, &manager, &sidebar, &notification_store, &stack);
+    let persistence = StatePersistence::new(manager.clone(), paned.clone(), config.clone());
+
+    // Common setup: actions, context menus, notification wiring, DnD, signal handlers
+    setup_common(&window, &manager, &sidebar, &notification_store, &stack, &persistence);
 
     // Quit when all tabs are closed
     let app_clone = app.clone();
@@ -73,6 +76,10 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     // Restore saved sessions/groups or create a fresh tab
     restore_sessions(&sidebar, &manager, &notification_store);
     wire_new_tab_button(&sidebar, &manager, &notification_store);
+
+    // Wire state-changed callback *after* restore to avoid saving during load
+    let p = persistence.clone();
+    manager.borrow_mut().set_on_state_changed(move || p.mark_dirty());
 
     // Shared "create new group" logic — used by both sidebar button and Ctrl+Shift+G
     let create_group = make_create_group_action(
@@ -114,12 +121,10 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     keyboard::setup_keyboard_shortcuts(&window, &manager, &sidebar, &notification_store, on_new_tab, extra_handler);
 
     // Save session state and sidebar width on window close
-    let mgr_for_close = manager.clone();
-    let paned_for_close = paned.clone();
-    let config_for_close = config.clone();
+    let persistence_for_close = persistence.clone();
     let app_for_close = app.clone();
     window.connect_close_request(move |_| {
-        save_state(&mgr_for_close, &paned_for_close, &config_for_close);
+        persistence_for_close.save_now();
         app_for_close.quit();
         glib::Propagation::Proceed
     });
@@ -136,13 +141,18 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     hooks::setup_hook_polling(state, &dropdown.manager, &dropdown.notification_store, &dropdown.sidebar, Some(dropdown.clone()));
     hooks::setup_stale_pid_detection(&dropdown.manager);
 
-    // Common setup: actions, context menus, notification wiring, DnD
+    let persistence = StatePersistence::new(
+        dropdown.manager.clone(), dropdown.paned.clone(), state.config.clone(),
+    );
+
+    // Common setup: actions, context menus, notification wiring, DnD, signal handlers
     setup_common(
         dropdown.window(),
         &dropdown.manager,
         &dropdown.sidebar,
         &dropdown.notification_store,
         &dropdown.stack,
+        &persistence,
     );
 
     // Register hide-dropdown action so open-url can dismiss the dropdown
@@ -170,6 +180,10 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     // Restore saved sessions/groups or create a fresh tab
     restore_sessions(&dropdown.sidebar, &dropdown.manager, &dropdown.notification_store);
     wire_new_tab_button(&dropdown.sidebar, &dropdown.manager, &dropdown.notification_store);
+
+    // Wire state-changed callback *after* restore to avoid saving during load
+    let p = persistence.clone();
+    dropdown.manager.borrow_mut().set_on_state_changed(move || p.mark_dirty());
 
     // Shared "create new group" logic — Ctrl+Shift+G and sidebar button
     let create_group = make_create_group_action(
@@ -260,11 +274,9 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     });
 
     // Save session state on close
-    let mgr_for_close = dropdown.manager.clone();
-    let paned_for_close = dropdown.paned.clone();
-    let config_for_close = state.config.clone();
+    let persistence_for_close = persistence.clone();
     dropdown.window().connect_close_request(move |_| {
-        save_state(&mgr_for_close, &paned_for_close, &config_for_close);
+        persistence_for_close.save_now();
         glib::Propagation::Proceed
     });
 
@@ -288,8 +300,9 @@ fn setup_common(
     sidebar: &Rc<Sidebar>,
     notification_store: &Rc<RefCell<NotificationStore>>,
     stack: &Stack,
+    persistence: &Rc<StatePersistence>,
 ) {
-    actions::register_tab_actions(window, manager, sidebar);
+    actions::register_tab_actions(window, manager, sidebar, persistence);
     actions::register_terminal_actions(window, manager, sidebar, notification_store);
     actions::setup_terminal_context_menu(stack, manager);
 
@@ -316,6 +329,46 @@ fn setup_common(
     let mgr_for_dnd = manager.clone();
     sidebar.set_on_tab_moved(move |session_id, new_group, position| {
         mgr_for_dnd.borrow_mut().move_session_to_position(&session_id, &new_group, position);
+    });
+
+    // Poll signal flags to save state on SIGTERM / SIGHUP
+    setup_signal_save(persistence);
+}
+
+/// Register signal handlers for SIGTERM and SIGHUP that save state before exit.
+///
+/// Uses AtomicBool flags polled from the GTK main loop (100ms) since glib 0.22
+/// doesn't expose `g_unix_signal_add` as a safe Rust wrapper.
+fn setup_signal_save(persistence: &Rc<StatePersistence>) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static SIGNAL_RECEIVED: AtomicBool = AtomicBool::new(false);
+
+    // Install signal handlers (safe: only sets an atomic flag)
+    unsafe {
+        libc::signal(libc::SIGTERM, signal_handler as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGHUP, signal_handler as *const () as libc::sighandler_t);
+    }
+
+    extern "C" fn signal_handler(_sig: libc::c_int) {
+        SIGNAL_RECEIVED.store(true, Ordering::Relaxed);
+    }
+
+    // Poll the flag from the GTK main loop
+    let p = persistence.clone();
+
+    glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+        if SIGNAL_RECEIVED.load(Ordering::Relaxed) {
+            p.save_now();
+
+            if let Some(app) = gio::Application::default() {
+                app.quit();
+            }
+
+            return glib::ControlFlow::Break;
+        }
+
+        glib::ControlFlow::Continue
     });
 }
 
@@ -496,19 +549,6 @@ fn register_group(
         let id = mgr.borrow_mut().create_session_in_group(None, None, &gid);
         wire_tab_lifecycle(&sid, &mgr, &notif, &id);
     });
-}
-
-/// Save session state and sidebar width to disk.
-fn save_state(
-    manager: &Rc<RefCell<SessionManager>>,
-    paned: &Paned,
-    config: &Rc<RefCell<crate::config::Config>>,
-) {
-    manager.borrow().save_state();
-
-    let mut cfg = config.borrow_mut();
-    cfg.sidebar_width = paned.position();
-    cfg.save();
 }
 
 /// Spawn deferred shells and resume any Claude sessions that were active at shutdown.

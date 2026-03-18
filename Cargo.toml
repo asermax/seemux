@@ -1,6 +1,6 @@
 [package]
 name = "seemux"
-version = "0.10.0"
+version = "0.11.0"
 edition = "2024"
 
 [[bin]]
@@ -21,3 +21,4 @@ libc = "0.2"
 toml = "1"
 ashpd = { version = "0.13.7", default-features = false, features = ["global_shortcuts", "async-io"] }
 futures-util = { version = "0.3.32", default-features = false }
+tempfile = "3"
