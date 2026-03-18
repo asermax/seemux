@@ -304,7 +304,8 @@ fn setup_common(
 ) {
     actions::register_tab_actions(window, manager, sidebar, persistence);
     actions::register_terminal_actions(window, manager, sidebar, notification_store);
-    actions::setup_terminal_context_menu(stack, manager);
+    actions::setup_terminal_context_menu(stack);
+    actions::setup_ctrl_click_url_open(stack);
 
     // Wire notification changes to sidebar badge + preview updates + peek
     let sidebar_for_notif = sidebar.clone();

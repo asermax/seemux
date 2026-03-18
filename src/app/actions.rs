@@ -11,6 +11,26 @@ use crate::session::manager::{self, SessionManager};
 use crate::sidebar::Sidebar;
 use crate::terminal::VteTerminal;
 
+/// Find the URL at click coordinates by picking the widget under the cursor,
+/// walking up to find a VTE terminal, and checking for hyperlinks/regex matches.
+fn find_url_at(gesture: &GestureClick, x: f64, y: f64) -> Option<String> {
+    let stack_widget = gesture.widget()?;
+    let picked = stack_widget.pick(x, y, gtk4::PickFlags::DEFAULT)?;
+
+    let term = picked.ancestor(vte4::Terminal::static_type())
+        .and_downcast::<vte4::Terminal>()
+        .or_else(|| picked.downcast::<vte4::Terminal>().ok())?;
+
+    let point = stack_widget.compute_point(&term, &gtk4::graphene::Point::new(x as f32, y as f32))?;
+    VteTerminal::check_url_at(&term, point.x() as f64, point.y() as f64)
+}
+
+fn is_text_file_from_uri(url: &str) -> bool {
+    manager::path_from_file_uri(url)
+        .map(|p| is_text_file(std::path::Path::new(&p)))
+        .unwrap_or(false)
+}
+
 pub(crate) fn register_tab_actions(
     window: &ApplicationWindow,
     manager: &Rc<RefCell<SessionManager>>,
@@ -240,9 +260,7 @@ fn is_text_file(path: &std::path::Path) -> bool {
     gio::content_type_is_a(&content_type, "text/plain")
 }
 
-pub(crate) fn setup_terminal_context_menu(stack: &Stack, manager: &Rc<RefCell<SessionManager>>) {
-    let mgr = manager.clone();
-
+pub(crate) fn setup_terminal_context_menu(stack: &Stack) {
     let popover = PopoverMenu::from_model(None::<&gio::MenuModel>);
     popover.set_parent(stack);
     popover.set_has_arrow(false);
@@ -255,22 +273,13 @@ pub(crate) fn setup_terminal_context_menu(stack: &Stack, manager: &Rc<RefCell<Se
 
         let menu = gio::Menu::new();
 
-        // Check for URL at click position
-        let url = mgr.borrow().active_terminal_vte().and_then(|term| {
-            let stack_widget = gesture.widget()?;
-            let point = stack_widget.compute_point(&term, &gtk4::graphene::Point::new(x as f32, y as f32))?;
-            VteTerminal::check_url_at(&term, point.x() as f64, point.y() as f64)
-        });
+        let url = find_url_at(gesture, x, y);
 
         if let Some(ref url) = url {
             let url_section = gio::Menu::new();
 
             if url.starts_with("file://") {
-                let is_text = manager::path_from_file_uri(url)
-                    .map(|p| is_text_file(std::path::Path::new(&p)))
-                    .unwrap_or(false);
-
-                if is_text {
+                if is_text_file_from_uri(url) {
                     let item = gio::MenuItem::new(Some("Open in Editor"), None);
                     item.set_action_and_target_value(
                         Some("win.edit-file"),
@@ -312,6 +321,35 @@ pub(crate) fn setup_terminal_context_menu(stack: &Stack, manager: &Rc<RefCell<Se
         popover.set_menu_model(Some(&menu));
         popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
         popover.popup();
+    });
+
+    stack.add_controller(gesture);
+}
+
+pub(crate) fn setup_ctrl_click_url_open(stack: &Stack) {
+    let gesture = GestureClick::new();
+    gesture.set_button(1);
+    gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+    gesture.connect_pressed(move |gesture, _n_press, x, y| {
+        if !gesture.current_event_state().contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
+            return;
+        }
+
+        let Some(url) = find_url_at(gesture, x, y) else {
+            gesture.set_state(gtk4::EventSequenceState::Denied);
+            return;
+        };
+
+        gesture.set_state(gtk4::EventSequenceState::Claimed);
+        let Some(stack_widget) = gesture.widget() else { return };
+
+        if url.starts_with("file://") && is_text_file_from_uri(&url) {
+            let _ = stack_widget.activate_action("win.edit-file", Some(&url.to_variant()));
+        } else {
+            let _ = stack_widget.activate_action("win.open-url", Some(&url.to_variant()));
+        }
     });
 
     stack.add_controller(gesture);
