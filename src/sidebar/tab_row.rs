@@ -71,7 +71,6 @@ impl TabRow {
         branch_label.add_css_class("tab-branch");
         branch_label.set_xalign(0.0);
         branch_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-        branch_label.set_hexpand(true);
         branch_label.set_visible(false);
 
         let pr_label = Label::new(None);
@@ -177,9 +176,11 @@ impl TabRow {
         match branch {
             Some(b) if !b.is_empty() => {
                 self.branch_label.set_text(&format!("\u{e0a0} {b}")); // git branch icon
+                self.branch_label.set_tooltip_text(Some(b));
                 self.branch_label.set_visible(true);
             }
             _ => {
+                self.branch_label.set_tooltip_text(None);
                 self.branch_label.set_visible(false);
                 self.pr_label.set_visible(false);
             }
