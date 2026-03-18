@@ -51,6 +51,7 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
 
         "pre-tool-use" => {
             result.new_status = Some(SessionStatus::Running);
+            result.clear_notifications = true;
         }
 
         "notification" => {
@@ -287,6 +288,7 @@ mod tests {
         ));
 
         assert_eq!(result.new_status, Some(SessionStatus::Running));
+        assert!(result.clear_notifications);
     }
 
     #[test]
