@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gtk4::glib;
@@ -11,7 +12,7 @@ use crate::session::SessionStatus;
 use crate::session::manager::SessionManager;
 use crate::sidebar::Sidebar;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod commands;
 
@@ -29,6 +30,9 @@ pub(crate) fn setup_hook_polling(
     let sidebar_for_cmds = sidebar.clone();
     let notif_for_cmds = notification_store.clone();
 
+    // Tracks when each session last received a stop event, for post-stop notification suppression.
+    let mut last_stop_by_session: HashMap<String, Instant> = HashMap::new();
+
     glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
         let Some(ref rx) = hook_rx else { return glib::ControlFlow::Continue };
 
@@ -45,14 +49,19 @@ pub(crate) fn setup_hook_polling(
                     // Skip notification events that arrive shortly after a stop,
                     // as Claude Code can fire both for the same completion.
                     if event.event == "notification" {
-                        let dominated_by_stop = notif_store.borrow()
-                            .latest(&event.session_id)
-                            .is_some_and(|n| n.subtitle == "Completed"
-                                && n.is_recent(Duration::from_secs(1)));
+                        let recently_stopped = last_stop_by_session
+                            .get(&event.session_id)
+                            .is_some_and(|t| t.elapsed() < Duration::from_secs(2));
 
-                        if dominated_by_stop {
+                        if recently_stopped {
                             continue;
                         }
+                    }
+
+                    if event.event == "stop" || event.event == "stop-failure" {
+                        last_stop_by_session.insert(event.session_id.clone(), Instant::now());
+                    } else if event.event == "session-end" {
+                        last_stop_by_session.remove(&event.session_id);
                     }
 
                     let result = hook_handler::handle_hook_event(event);
@@ -76,7 +85,7 @@ pub(crate) fn setup_hook_polling(
                         notif_store.borrow_mut().clear_session(&result.session_id);
                     }
 
-                    if let Some((subtitle, body)) = result.notification {
+                    if let Some(body) = result.notification {
                         let is_active = mgr_for_hooks.borrow().active_id()
                             .map(|id| id == result.session_id)
                             .unwrap_or(false);
@@ -84,7 +93,6 @@ pub(crate) fn setup_hook_polling(
                         if !is_active {
                             let notification = crate::notifications::Notification::new(
                                 &result.session_id,
-                                &subtitle,
                                 &body,
                             );
                             notif_store.borrow_mut().add_notification(notification);

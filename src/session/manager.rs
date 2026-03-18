@@ -756,7 +756,7 @@ impl SessionManager {
             timestamps.insert(sid.clone(), now);
             drop(timestamps);
 
-            let notification = Notification::new(&sid, "Bell", "Terminal bell received");
+            let notification = Notification::new(&sid, "Terminal bell received");
             m.notification_store.borrow_mut().add_notification(notification);
         });
     }

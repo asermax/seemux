@@ -13,7 +13,7 @@ pub struct HookEvent {
 pub struct HookResult {
     pub session_id: String,
     pub new_status: Option<SessionStatus>,
-    pub notification: Option<(String, String)>, // (subtitle, body)
+    pub notification: Option<String>,
     pub clear_notifications: bool,
     pub claude_pid: Option<u32>,
     /// Some(Some(id)) = set, Some(None) = clear, None = no change
@@ -68,8 +68,8 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
 
-            let (subtitle, body) = classify_notification(signal, message);
-            result.notification = Some((subtitle, body));
+            let (_, body) = classify_notification(signal, message);
+            result.notification = Some(body);
             result.new_status = Some(SessionStatus::NeedsInput);
         }
 
@@ -81,7 +81,7 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
             // Truncate to a reasonable preview length
             let preview: String = message.chars().take(100).collect();
 
-            result.notification = Some(("Completed".to_string(), preview));
+            result.notification = Some(preview);
             result.new_status = Some(SessionStatus::Idle);
         }
 
@@ -94,7 +94,7 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
 
             let preview: String = message.chars().take(100).collect();
 
-            result.notification = Some(("Error".to_string(), preview));
+            result.notification = Some(preview);
             result.new_status = Some(SessionStatus::Error);
         }
 
@@ -237,9 +237,7 @@ mod tests {
         ));
 
         assert_eq!(result.new_status, Some(SessionStatus::NeedsInput));
-        let (subtitle, body) = result.notification.unwrap();
-        assert_eq!(subtitle, "Permission");
-        assert_eq!(body, "Allow file write?");
+        assert_eq!(result.notification.unwrap(), "Allow file write?");
     }
 
     #[test]
@@ -250,9 +248,7 @@ mod tests {
         ));
 
         assert_eq!(result.new_status, Some(SessionStatus::Idle));
-        let (subtitle, body) = result.notification.unwrap();
-        assert_eq!(subtitle, "Completed");
-        assert_eq!(body, "Done refactoring");
+        assert_eq!(result.notification.unwrap(), "Done refactoring");
     }
 
     #[test]
@@ -263,9 +259,7 @@ mod tests {
         ));
 
         assert_eq!(result.new_status, Some(SessionStatus::Error));
-        let (subtitle, body) = result.notification.unwrap();
-        assert_eq!(subtitle, "Error");
-        assert_eq!(body, "Rate limit reached");
+        assert_eq!(result.notification.unwrap(), "Rate limit reached");
     }
 
     #[test]
@@ -273,9 +267,7 @@ mod tests {
         let result = handle_hook_event(make_event("stop-failure", serde_json::json!({})));
 
         assert_eq!(result.new_status, Some(SessionStatus::Error));
-        let (subtitle, body) = result.notification.unwrap();
-        assert_eq!(subtitle, "Error");
-        assert_eq!(body, "Turn ended due to an API error");
+        assert_eq!(result.notification.unwrap(), "Turn ended due to an API error");
     }
 
     #[test]

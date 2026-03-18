@@ -2,28 +2,19 @@ pub mod hook_handler;
 pub mod hook_server;
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct Notification {
     pub session_id: String,
-    pub subtitle: String,
     pub body: String,
-    pub created_at: Instant,
 }
 
 impl Notification {
-    pub fn new(session_id: &str, subtitle: &str, body: &str) -> Self {
+    pub fn new(session_id: &str, body: &str) -> Self {
         Self {
             session_id: session_id.to_string(),
-            subtitle: subtitle.to_string(),
             body: body.to_string(),
-            created_at: Instant::now(),
         }
-    }
-
-    pub fn is_recent(&self, within: Duration) -> bool {
-        self.created_at.elapsed() < within
     }
 }
 
@@ -61,10 +52,6 @@ impl NotificationStore {
         self.notify_change(session_id);
     }
 
-    pub fn latest(&self, session_id: &str) -> Option<&Notification> {
-        self.latest_by_session.get(session_id)
-    }
-
     pub fn clear_session(&mut self, session_id: &str) {
         self.unread_count_by_session.remove(session_id);
         self.latest_by_session.remove(session_id);
@@ -88,15 +75,15 @@ impl NotificationStore {
 mod tests {
     use super::*;
 
-    fn make_notif(session_id: &str, subtitle: &str) -> Notification {
-        Notification::new(session_id, subtitle, "test body")
+    fn make_notif(session_id: &str, body: &str) -> Notification {
+        Notification::new(session_id, body)
     }
 
     #[test]
     fn add_increments_unread_count() {
         let mut store = NotificationStore::new();
-        store.add_notification(make_notif("s1", "Permission"));
-        store.add_notification(make_notif("s1", "Error"));
+        store.add_notification(make_notif("s1", "Permission needed"));
+        store.add_notification(make_notif("s1", "Build failed"));
 
         assert_eq!(store.unread_count("s1"), 2);
         assert_eq!(store.unread_count("s2"), 0);
@@ -105,8 +92,8 @@ mod tests {
     #[test]
     fn mark_read_resets_count() {
         let mut store = NotificationStore::new();
-        store.add_notification(make_notif("s1", "Permission"));
-        store.add_notification(make_notif("s1", "Waiting"));
+        store.add_notification(make_notif("s1", "Permission needed"));
+        store.add_notification(make_notif("s1", "Waiting for input"));
         store.mark_read("s1");
 
         assert_eq!(store.unread_count("s1"), 0);
@@ -115,8 +102,8 @@ mod tests {
     #[test]
     fn clear_session_removes_all() {
         let mut store = NotificationStore::new();
-        store.add_notification(make_notif("s1", "Permission"));
-        store.add_notification(make_notif("s2", "Error"));
+        store.add_notification(make_notif("s1", "Permission needed"));
+        store.add_notification(make_notif("s2", "Build failed"));
         store.clear_session("s1");
 
         assert_eq!(store.unread_count("s1"), 0);
@@ -128,11 +115,11 @@ mod tests {
     #[test]
     fn latest_tracks_most_recent() {
         let mut store = NotificationStore::new();
-        store.add_notification(make_notif("s1", "First"));
-        store.add_notification(make_notif("s1", "Second"));
+        store.add_notification(make_notif("s1", "first message"));
+        store.add_notification(make_notif("s1", "second message"));
 
         let latest = store.latest_by_session.get("s1").unwrap();
-        assert_eq!(latest.subtitle, "Second");
+        assert_eq!(latest.body, "second message");
     }
 
     #[test]
