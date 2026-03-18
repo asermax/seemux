@@ -271,10 +271,12 @@ impl SessionManager {
 
                         let sidebar = sidebar.clone();
                         let sid = sid.clone();
+                        let pending_for_timeout = pending.clone();
 
                         let source_id = glib::timeout_add_local_once(
                             std::time::Duration::from_secs(2),
                             move || {
+                                pending_for_timeout.set(None);
                                 detect_branch_and_pr(&cwd, &sidebar, &sid);
                             },
                         );
