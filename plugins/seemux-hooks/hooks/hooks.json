@@ -7,7 +7,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/seemux-hook.sh session-start",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -19,7 +20,21 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/seemux-hook.sh stop",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/seemux-hook.sh stop-failure",
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -31,7 +46,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/seemux-hook.sh notification",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -43,7 +59,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/seemux-hook.sh prompt-submit",
-            "timeout": 10
+            "timeout": 10,
+            "async": true
           }
         ]
       }
@@ -55,7 +72,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/seemux-hook.sh pre-tool-use",
-            "timeout": 5,
+            "timeout": 10,
             "async": true
           }
         ]
@@ -68,7 +85,8 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/seemux-hook.sh session-end",
-            "timeout": 1
+            "timeout": 10,
+            "async": true
           }
         ]
       }
