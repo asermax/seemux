@@ -85,6 +85,19 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
             result.new_status = Some(SessionStatus::Idle);
         }
 
+        "stop-failure" => {
+            let message = event.payload.get("message")
+                .or_else(|| event.payload.get("error"))
+                .or_else(|| event.payload.get("reason"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Turn ended due to an API error");
+
+            let preview: String = message.chars().take(100).collect();
+
+            result.notification = Some(("Error".to_string(), preview));
+            result.new_status = Some(SessionStatus::Error);
+        }
+
         "session-end" => {
             result.new_status = Some(SessionStatus::Idle);
             result.claude_pid = Some(0); // signal to clear
@@ -240,6 +253,29 @@ mod tests {
         let (subtitle, body) = result.notification.unwrap();
         assert_eq!(subtitle, "Completed");
         assert_eq!(body, "Done refactoring");
+    }
+
+    #[test]
+    fn handle_stop_failure() {
+        let result = handle_hook_event(make_event(
+            "stop-failure",
+            serde_json::json!({"message": "Rate limit reached"}),
+        ));
+
+        assert_eq!(result.new_status, Some(SessionStatus::Error));
+        let (subtitle, body) = result.notification.unwrap();
+        assert_eq!(subtitle, "Error");
+        assert_eq!(body, "Rate limit reached");
+    }
+
+    #[test]
+    fn handle_stop_failure_default_message() {
+        let result = handle_hook_event(make_event("stop-failure", serde_json::json!({})));
+
+        assert_eq!(result.new_status, Some(SessionStatus::Error));
+        let (subtitle, body) = result.notification.unwrap();
+        assert_eq!(subtitle, "Error");
+        assert_eq!(body, "Turn ended due to an API error");
     }
 
     #[test]
