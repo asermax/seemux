@@ -35,7 +35,11 @@ fn folder_name(path: &str) -> &str {
 
 /// Detect whether a window title indicates a git or gh command.
 fn is_git_command_title(title: &str) -> bool {
-    title.starts_with("git ") || title.starts_with("gh ")
+    title.split("&&")
+        .any(|segment| {
+            let trimmed = segment.trim_start();
+            trimmed.starts_with("git ") || trimmed.starts_with("gh ")
+        })
 }
 
 /// Asynchronously detect the git branch and PR for a directory, updating the sidebar.
@@ -49,11 +53,11 @@ fn detect_branch_and_pr(cwd: &str, sidebar: &Rc<Sidebar>, session_id: &str) {
         move |branch| {
             sidebar.update_branch(&sid, branch.as_deref());
 
-            if branch.is_some() {
+            if let Some(ref branch_name) = branch {
                 let sidebar = sidebar.clone();
                 let sid = sid.clone();
 
-                crate::git::detect_pr_async(&cwd, move |pr_info| {
+                crate::git::detect_pr_async(&cwd, branch_name, move |pr_info| {
                     let pr = pr_info.as_ref()
                         .map(|info| (info.number.to_string(), info.url.clone()));
 
@@ -911,5 +915,28 @@ mod tests {
     fn is_shell_title_ignores_titles_without_path() {
         assert!(!is_shell_title("user@host:"));
         assert!(!is_shell_title("user@host:something"));
+    }
+
+    #[test]
+    fn is_git_command_title_detects_simple_commands() {
+        assert!(is_git_command_title("git push"));
+        assert!(is_git_command_title("git add ."));
+        assert!(is_git_command_title("gh pr create"));
+        assert!(is_git_command_title("gh pr view"));
+    }
+
+    #[test]
+    fn is_git_command_title_detects_after_double_ampersand() {
+        assert!(is_git_command_title("cd foo && git push"));
+        assert!(is_git_command_title("echo done && gh pr create"));
+        assert!(is_git_command_title("cd foo && git add . && git commit -m 'msg'"));
+    }
+
+    #[test]
+    fn is_git_command_title_ignores_non_git_commands() {
+        assert!(!is_git_command_title("cargo build"));
+        assert!(!is_git_command_title("vim"));
+        assert!(!is_git_command_title("cd foo && cargo test"));
+        assert!(!is_git_command_title(""));
     }
 }

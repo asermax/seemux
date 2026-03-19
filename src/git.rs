@@ -56,15 +56,16 @@ pub fn detect_branch_async<F: Fn(Option<String>) + 'static>(cwd: &str, callback:
     );
 }
 
-/// Detect the GitHub PR for the current branch asynchronously.
-/// Runs `gh pr view --json number,url` in a background thread and calls `callback` on the main thread.
-pub fn detect_pr_async<F: Fn(Option<PrInfo>) + 'static>(cwd: &str, callback: F) {
+/// Detect the open GitHub PR for a given branch asynchronously.
+/// Runs `gh pr list --head <branch> --state open` in a background thread and calls `callback` on the main thread.
+pub fn detect_pr_async<F: Fn(Option<PrInfo>) + 'static>(cwd: &str, branch: &str, callback: F) {
     let cwd = cwd.to_string();
+    let branch = branch.to_string();
 
     run_async(
         move || {
             Command::new("gh")
-                .args(["pr", "view", "--json", "number,url"])
+                .args(["pr", "list", "--head", &branch, "--state", "open", "--json", "number,url", "--limit", "1"])
                 .current_dir(&cwd)
                 .output()
                 .ok()
@@ -73,9 +74,10 @@ pub fn detect_pr_async<F: Fn(Option<PrInfo>) + 'static>(cwd: &str, callback: F) 
                         return None;
                     }
 
-                    let json: serde_json::Value = serde_json::from_slice(&o.stdout).ok()?;
-                    let number = json["number"].as_u64()?;
-                    let url = json["url"].as_str()?.to_string();
+                    let json: Vec<serde_json::Value> = serde_json::from_slice(&o.stdout).ok()?;
+                    let pr = json.first()?;
+                    let number = pr["number"].as_u64()?;
+                    let url = pr["url"].as_str()?.to_string();
 
                     Some(PrInfo { number, url })
                 })
