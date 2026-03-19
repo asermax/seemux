@@ -25,6 +25,8 @@ pub struct TabRow {
     index_label: Label,
     close_btn: Button,
     peeking: Cell<bool>,
+    status: Cell<SessionStatus>,
+    badge_count: Cell<u32>,
 }
 
 impl TabRow {
@@ -125,6 +127,8 @@ impl TabRow {
             index_label,
             close_btn,
             peeking: Cell::new(false),
+            status: Cell::new(SessionStatus::Idle),
+            badge_count: Cell::new(0),
         }
     }
 
@@ -203,6 +207,8 @@ impl TabRow {
     }
 
     pub fn set_badge_count(&self, count: u32) {
+        self.badge_count.set(count);
+
         if count > 0 {
             self.badge_label.set_text(&count.to_string());
             self.badge_label.set_visible(true);
@@ -241,7 +247,16 @@ impl TabRow {
         }
     }
 
+    pub fn status(&self) -> SessionStatus {
+        self.status.get()
+    }
+
+    pub fn badge_count(&self) -> u32 {
+        self.badge_count.get()
+    }
+
     pub fn set_status(&self, status: &SessionStatus) {
+        self.status.set(*status);
         for class in &[
             "status-pill--idle",
             "status-pill--running",

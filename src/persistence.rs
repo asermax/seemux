@@ -1,4 +1,5 @@
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -7,6 +8,7 @@ use gtk4::Paned;
 
 use crate::config::Config;
 use crate::session::manager::SessionManager;
+use crate::sidebar::Sidebar;
 
 const DEBOUNCE_MS: u64 = 2000;
 const SAFETY_NET_SECS: u32 = 30;
@@ -18,6 +20,8 @@ pub struct StatePersistence {
     paned: Paned,
     config: Rc<RefCell<Config>>,
     last_sidebar_width: Cell<i32>,
+    last_sidebar_collapsed: Cell<bool>,
+    sidebar: Rc<Sidebar>,
 }
 
 impl StatePersistence {
@@ -25,8 +29,10 @@ impl StatePersistence {
         manager: Rc<RefCell<SessionManager>>,
         paned: Paned,
         config: Rc<RefCell<Config>>,
+        sidebar: Rc<Sidebar>,
     ) -> Rc<Self> {
-        let initial_width = paned.position();
+        let initial_width = sidebar.effective_sidebar_width(&paned);
+        let initial_collapsed = sidebar.is_sidebar_collapsed();
 
         let persistence = Rc::new(Self {
             dirty: Cell::new(false),
@@ -35,6 +41,8 @@ impl StatePersistence {
             paned,
             config,
             last_sidebar_width: Cell::new(initial_width),
+            last_sidebar_collapsed: Cell::new(initial_collapsed),
+            sidebar,
         });
 
         // 30-second safety-net timer — catches any missed mutations
@@ -98,13 +106,19 @@ impl StatePersistence {
 
         self.manager.borrow().save_state();
 
-        // Only write config when sidebar width actually changed
-        let current_width = self.paned.position();
+        let is_collapsed = self.sidebar.is_sidebar_collapsed();
+        let effective_width = self.sidebar.effective_sidebar_width(&self.paned);
 
-        if current_width != self.last_sidebar_width.get() {
-            self.last_sidebar_width.set(current_width);
+        let width_changed = effective_width != self.last_sidebar_width.get();
+        let collapsed_changed = is_collapsed != self.last_sidebar_collapsed.get();
+
+        if width_changed || collapsed_changed {
+            self.last_sidebar_width.set(effective_width);
+            self.last_sidebar_collapsed.set(is_collapsed);
+
             let mut cfg = self.config.borrow_mut();
-            cfg.sidebar_width = current_width;
+            cfg.sidebar_width = effective_width;
+            cfg.sidebar_collapsed = is_collapsed;
             cfg.save();
         }
 

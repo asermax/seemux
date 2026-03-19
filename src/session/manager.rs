@@ -415,7 +415,7 @@ impl SessionManager {
 
     pub fn update_session_status(&mut self, session_id: &str, status: SessionStatus) {
         if let Some(session) = self.find_session_mut(session_id) {
-            session.status = status.clone();
+            session.status = status;
             self.sidebar.update_status(session_id, &status);
         }
     }

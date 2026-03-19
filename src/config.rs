@@ -30,6 +30,8 @@ pub struct Config {
     pub dropdown_height_percent: u32,
     pub dropdown_animation_ms: u32,
     pub agent_teams_shim: bool,
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
 }
 
 impl Default for Config {
@@ -44,6 +46,7 @@ impl Default for Config {
             dropdown_height_percent: 50,
             dropdown_animation_ms: 500,
             agent_teams_shim: false,
+            sidebar_collapsed: false,
         }
     }
 }
@@ -203,6 +206,7 @@ mod tests {
             dropdown_height_percent: 50,
             dropdown_animation_ms: 200,
             agent_teams_shim: false,
+            sidebar_collapsed: false,
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();

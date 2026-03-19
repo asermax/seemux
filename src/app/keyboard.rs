@@ -34,7 +34,7 @@ pub(crate) fn setup_keyboard_shortcuts(
 
         #[allow(clippy::nonminimal_bool)]
         let is_our_shortcut = (ctrl && shift && matches!(key, Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G))
-            || (ctrl && !shift && matches!(key, Key::t | Key::Page_Up | Key::Page_Down))
+            || (ctrl && !shift && matches!(key, Key::t | Key::b | Key::Page_Up | Key::Page_Down))
             || (ctrl && key == Key::Tab)
             || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l | Key::Page_Up | Key::Page_Down))
             || (alt && !ctrl && shift && matches!(key, Key::Page_Up | Key::Page_Down))
@@ -72,6 +72,11 @@ pub(crate) fn setup_keyboard_shortcuts(
 
         if ctrl && (key == Key::t || key == Key::T) {
             on_new_tab();
+            return glib::Propagation::Stop;
+        }
+
+        if ctrl && !shift && key == Key::b {
+            sidebar_for_keys.set_sidebar_collapsed(!sidebar_for_keys.is_sidebar_collapsed());
             return glib::Propagation::Stop;
         }
 

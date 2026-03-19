@@ -389,6 +389,52 @@ popover.menu modelbutton {{
     min-height: 28px;
     padding: 4px 8px;
 }}
+
+/* Sidebar collapse */
+
+.sidebar-header-row {{
+    padding: 4px 8px 0 12px;
+}}
+
+.sidebar-collapse-btn {{
+    min-width: 20px;
+    min-height: 20px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: {text_muted};
+    font-size: 10px;
+}}
+
+.sidebar-collapse-btn:hover {{
+    color: {text_primary};
+}}
+
+.sidebar-collapsed {{
+    padding: 4px 0;
+}}
+
+.collapsed-dot {{
+    margin: 1px 0;
+}}
+
+.collapsed-group-sep {{
+    margin: 2px 2px;
+}}
+
+.collapsed-group-label {{
+    font-size: 8px;
+    font-weight: 700;
+    color: {text_muted};
+}}
+
+.collapsed-group-line {{
+    min-height: 1px;
+}}
+
+separator.collapsed-group-line {{
+    background-color: {separator};
+}}
 "#,
         name = s.name,
         window_bg = s.window_bg,

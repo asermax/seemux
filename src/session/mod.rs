@@ -16,7 +16,7 @@ pub struct Session {
     pub group_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum SessionStatus {
     Idle,
     Running,

@@ -22,6 +22,7 @@ use crate::notifications::NotificationStore;
 use crate::persistence::StatePersistence;
 use crate::session::manager::{self, SessionManager};
 use crate::sidebar::Sidebar;
+use crate::sidebar::collapsed_bar::COLLAPSED_WIDTH;
 
 pub fn build_window(app: &Application, state: &Rc<AppState>) {
     let window = ApplicationWindow::builder()
@@ -35,7 +36,10 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     let socket_path = state.socket_path.clone();
 
     // Layout: sidebar | drag handle | terminal stack (via GtkPaned)
-    let sidebar = Rc::new(Sidebar::new());
+    let scheme = crate::theme::get_scheme(&config.borrow().color_scheme);
+    let sidebar = Rc::new(Sidebar::new(scheme));
+    sidebar.wire_collapse_toggle();
+
 
     let stack = Stack::new();
     stack.set_hexpand(true);
@@ -52,6 +56,8 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     paned.set_resize_start_child(false);
     paned.set_resize_end_child(true);
 
+    wire_sidebar_collapse(&sidebar, &paned, &config);
+
     let notification_store = Rc::new(RefCell::new(NotificationStore::new()));
 
     let manager = SessionManager::new(
@@ -62,7 +68,9 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     let overlay = Overlay::new();
     overlay.set_child(Some(&paned));
 
-    let persistence = StatePersistence::new(manager.clone(), paned.clone(), config.clone());
+    let persistence = StatePersistence::new(
+        manager.clone(), paned.clone(), config.clone(), sidebar.clone(),
+    );
 
     // Common setup: actions, context menus, notification wiring, DnD, signal handlers
     setup_common(&window, &manager, &sidebar, &notification_store, &stack, &persistence);
@@ -76,6 +84,9 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     // Restore saved sessions/groups or create a fresh tab
     restore_sessions(&sidebar, &manager, &notification_store);
     wire_new_tab_button(&sidebar, &manager, &notification_store);
+
+    // Restore collapsed state after sessions are loaded so rebuild sees all tabs
+    restore_sidebar_collapsed(&sidebar, &paned, &config);
 
     // Wire state-changed callback *after* restore to avoid saving during load
     let p = persistence.clone();
@@ -138,11 +149,14 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
 pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, state));
 
+    wire_sidebar_collapse(&dropdown.sidebar, &dropdown.paned, &state.config);
+
     hooks::setup_hook_polling(state, &dropdown.manager, &dropdown.notification_store, &dropdown.sidebar, Some(dropdown.clone()));
     hooks::setup_stale_pid_detection(&dropdown.manager);
 
     let persistence = StatePersistence::new(
         dropdown.manager.clone(), dropdown.paned.clone(), state.config.clone(),
+        dropdown.sidebar.clone(),
     );
 
     // Common setup: actions, context menus, notification wiring, DnD, signal handlers
@@ -180,6 +194,9 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     // Restore saved sessions/groups or create a fresh tab
     restore_sessions(&dropdown.sidebar, &dropdown.manager, &dropdown.notification_store);
     wire_new_tab_button(&dropdown.sidebar, &dropdown.manager, &dropdown.notification_store);
+
+    // Restore collapsed state after sessions are loaded so rebuild sees all tabs
+    restore_sidebar_collapsed(&dropdown.sidebar, &dropdown.paned, &state.config);
 
     // Wire state-changed callback *after* restore to avoid saving during load
     let p = persistence.clone();
@@ -332,6 +349,14 @@ fn setup_common(
         mgr_for_dnd.borrow_mut().move_session_to_position(&session_id, &new_group, position);
     });
 
+    // Wire collapsed bar dot clicks to switch tab + mark notifications read
+    let mgr_for_dot = manager.clone();
+    let notif_for_dot = notification_store.clone();
+    sidebar.collapsed_bar().set_on_dot_click(move |session_id| {
+        mgr_for_dot.borrow_mut().switch_to(&session_id);
+        notif_for_dot.borrow_mut().mark_read(&session_id);
+    });
+
     // Poll signal flags to save state on SIGTERM / SIGHUP
     setup_signal_save(persistence);
 }
@@ -371,6 +396,41 @@ fn setup_signal_save(persistence: &Rc<StatePersistence>) {
 
         glib::ControlFlow::Continue
     });
+}
+
+/// Wire sidebar collapse/expand to paned position management.
+/// Stores the expanded width in the sidebar and sets up the on_collapse_changed callback.
+/// Does NOT restore collapsed state from config — that must happen after session restore.
+fn wire_sidebar_collapse(
+    sidebar: &Rc<Sidebar>,
+    paned: &Paned,
+    config: &Rc<RefCell<crate::config::Config>>,
+) {
+    sidebar.expanded_width.set(config.borrow().sidebar_width);
+
+    let paned_for_collapse = paned.clone();
+    let sidebar_for_collapse = sidebar.clone();
+    sidebar.set_on_collapse_changed(move |collapsed| {
+        if collapsed {
+            sidebar_for_collapse.expanded_width.set(paned_for_collapse.position());
+            paned_for_collapse.set_position(COLLAPSED_WIDTH);
+        } else {
+            paned_for_collapse.set_position(sidebar_for_collapse.expanded_width.get());
+        }
+    });
+}
+
+/// Restore collapsed sidebar state from config. Must be called after sessions are restored
+/// so the collapsed bar's rebuild sees all tabs.
+fn restore_sidebar_collapsed(
+    sidebar: &Rc<Sidebar>,
+    paned: &Paned,
+    config: &Rc<RefCell<crate::config::Config>>,
+) {
+    if config.borrow().sidebar_collapsed {
+        sidebar.set_sidebar_collapsed(true);
+        paned.set_position(COLLAPSED_WIDTH);
+    }
 }
 
 pub(crate) fn wire_tab_lifecycle(
