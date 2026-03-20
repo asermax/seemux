@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// Write content to a file atomically using temp file + rename.
-fn atomic_write(path: &Path, contents: &str) -> std::io::Result<()> {
+pub(crate) fn atomic_write(path: &Path, contents: &str) -> std::io::Result<()> {
     let parent = path.parent()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "no parent dir"))?;
 

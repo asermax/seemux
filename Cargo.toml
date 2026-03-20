@@ -2,6 +2,11 @@
 name = "seemux"
 version = "0.14.0"
 edition = "2024"
+default-run = "seemux"
+
+[[bin]]
+name = "seemux"
+path = "src/main.rs"
 
 [[bin]]
 name = "seemux-tmux-shim"
@@ -22,3 +27,8 @@ toml = "1"
 ashpd = { version = "0.13.7", default-features = false, features = ["global_shortcuts", "async-io"] }
 futures-util = { version = "0.3.32", default-features = false }
 tempfile = "3"
+
+[features]
+default = ["layer-shell"]
+layer-shell = []
+kwin = []

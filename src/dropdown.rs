@@ -5,8 +5,10 @@ use std::time::Instant;
 use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box as GtkBox, Orientation, Overlay, Paned,
-    Stack, StackTransitionType, glib,
+    Stack, StackTransitionType,
 };
+#[cfg(feature = "layer-shell")]
+use gtk4::glib;
 
 use crate::app_state::AppState;
 use crate::notifications::NotificationStore;
@@ -16,10 +18,18 @@ use crate::sidebar::Sidebar;
 pub struct DropdownWindow {
     window: ApplicationWindow,
     visible: RefCell<bool>,
+
+    #[cfg(feature = "layer-shell")]
     target_height: i32,
+    #[cfg(feature = "layer-shell")]
     animation_ms: u32,
+    #[cfg(feature = "layer-shell")]
     /// Incremented on each animation start; stale callbacks see a mismatch and stop.
     animation_generation: Rc<Cell<u32>>,
+
+    #[cfg(feature = "kwin")]
+    revealer: gtk4::Revealer,
+
     last_keypress: Rc<Cell<Option<Instant>>>,
     pub overlay: Overlay,
     pub paned: Paned,
@@ -55,8 +65,16 @@ impl DropdownWindow {
         let width = (monitor_width as f64 * cfg.dropdown_width_percent as f64 / 100.0) as i32;
         let target_height = (monitor_height as f64 * cfg.dropdown_height_percent as f64 / 100.0) as i32;
 
-        // Layer shell: anchor to top of screen, start off-screen
-        crate::layer_shell::setup_dropdown(&window, width, monitor_width, -target_height);
+        #[cfg(feature = "layer-shell")]
+        {
+            crate::layer_shell::setup_dropdown(&window, width, monitor_width, -target_height);
+        }
+
+        #[cfg(feature = "kwin")]
+        {
+            let x = (monitor_width - width) / 2;
+            crate::kwin_rules::install_rules(width, target_height, x, 0);
+        }
 
         window.set_default_size(width, target_height);
 
@@ -99,8 +117,32 @@ impl DropdownWindow {
         let overlay = Overlay::new();
         overlay.set_child(Some(&content));
 
-        window.set_child(Some(&overlay));
+        #[cfg(feature = "layer-shell")]
+        {
+            window.set_child(Some(&overlay));
+        }
 
+        #[cfg(feature = "kwin")]
+        let revealer = {
+            let revealer = gtk4::Revealer::new();
+            revealer.set_transition_type(gtk4::RevealerTransitionType::SlideDown);
+            revealer.set_transition_duration(cfg.dropdown_animation_ms);
+            revealer.set_reveal_child(false);
+            revealer.set_child(Some(&overlay));
+            window.set_child(Some(&revealer));
+
+            // Hide window once the slide-up animation finishes
+            let window_for_reveal = window.clone();
+            revealer.connect_notify_local(Some("child-revealed"), move |rev, _| {
+                if !rev.is_child_revealed() {
+                    window_for_reveal.set_visible(false);
+                }
+            });
+
+            revealer
+        };
+
+        #[cfg(feature = "layer-shell")]
         let animation_ms = cfg.dropdown_animation_ms;
 
         drop(cfg);
@@ -108,9 +150,17 @@ impl DropdownWindow {
         Self {
             window,
             visible: RefCell::new(false),
+
+            #[cfg(feature = "layer-shell")]
             target_height,
+            #[cfg(feature = "layer-shell")]
             animation_ms,
+            #[cfg(feature = "layer-shell")]
             animation_generation: Rc::new(Cell::new(0)),
+
+            #[cfg(feature = "kwin")]
+            revealer,
+
             last_keypress: Rc::new(Cell::new(None)),
             overlay,
             paned,
@@ -140,14 +190,28 @@ impl DropdownWindow {
     }
 
     pub fn show(&self) {
-        if !self.window.is_visible() {
-            self.window.set_opacity(0.0);
-            crate::layer_shell::set_top_margin(&self.window, -self.target_height);
-            self.window.set_visible(true);
-            self.window.present();
+        #[cfg(feature = "layer-shell")]
+        {
+            if !self.window.is_visible() {
+                self.window.set_opacity(0.0);
+                crate::layer_shell::set_top_margin(&self.window, -self.target_height);
+                self.window.set_visible(true);
+                self.window.present();
+            }
+
+            self.animate(true);
         }
 
-        self.animate(true);
+        #[cfg(feature = "kwin")]
+        {
+            if !self.window.is_visible() {
+                self.window.set_visible(true);
+                self.window.present();
+            }
+
+            self.revealer.set_reveal_child(true);
+        }
+
         *self.visible.borrow_mut() = true;
 
         if let Some(term) = self.manager.borrow().active_terminal_vte() {
@@ -157,30 +221,38 @@ impl DropdownWindow {
 
     /// Present the window off-screen without animating — used to start quake mode hidden.
     pub fn present_hidden(&self) {
-        self.window.set_opacity(0.0);
-        crate::layer_shell::set_top_margin(&self.window, -self.target_height);
-        self.window.set_visible(true);
-        self.window.present();
+        #[cfg(feature = "layer-shell")]
+        {
+            self.window.set_opacity(0.0);
+            crate::layer_shell::set_top_margin(&self.window, -self.target_height);
+            self.window.set_visible(true);
+            self.window.present();
+        }
+
+        // KWin: window starts invisible, first toggle will show it — nothing to do
     }
 
     pub fn hide(&self) {
         if *self.visible.borrow() {
+            #[cfg(feature = "layer-shell")]
             self.animate(false);
+
+            #[cfg(feature = "kwin")]
+            self.revealer.set_reveal_child(false);
+
             *self.visible.borrow_mut() = false;
         }
     }
 
     pub fn toggle(&self) {
-        let is_visible = *self.visible.borrow();
-
-        if is_visible {
-            self.animate(false);
-            *self.visible.borrow_mut() = false;
+        if *self.visible.borrow() {
+            self.hide();
         } else {
             self.show();
         }
     }
 
+    #[cfg(feature = "layer-shell")]
     fn animate(&self, opening: bool) {
         let generation = self.animation_generation.get().wrapping_add(1);
         self.animation_generation.set(generation);

@@ -5,7 +5,16 @@ mod config;
 mod dropdown;
 mod git;
 mod global_shortcuts;
+#[cfg(feature = "kwin")]
+mod kwin_rules;
+#[cfg(feature = "layer-shell")]
 mod layer_shell;
+
+#[cfg(all(feature = "kwin", feature = "layer-shell"))]
+compile_error!("features 'kwin' and 'layer-shell' are mutually exclusive");
+
+#[cfg(not(any(feature = "kwin", feature = "layer-shell")))]
+compile_error!("either feature 'kwin' or 'layer-shell' must be enabled");
 mod notifications;
 mod persistence;
 mod runtime;

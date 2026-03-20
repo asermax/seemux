@@ -9,8 +9,15 @@ env:
 
 jobs:
   test:
-    name: Test
+    name: Test (${{ matrix.variant }})
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - variant: layer-shell
+            features: ""
+          - variant: kwin
+            features: "--features kwin --no-default-features"
     container:
       image: ghcr.io/asermax/seemux-ci:latest
       credentials:
@@ -29,11 +36,18 @@ jobs:
           shared-key: seemux-ci
 
       - name: Run tests
-        run: cargo test --locked
+        run: cargo test --locked ${{ matrix.features }}
 
   clippy:
-    name: Clippy
+    name: Clippy (${{ matrix.variant }})
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - variant: layer-shell
+            features: ""
+          - variant: kwin
+            features: "--features kwin --no-default-features"
     container:
       image: ghcr.io/asermax/seemux-ci:latest
       credentials:
@@ -54,7 +68,7 @@ jobs:
           shared-key: seemux-ci
 
       - name: Run clippy
-        run: cargo clippy --locked
+        run: cargo clippy --locked ${{ matrix.features }}
 
   build-release:
     name: Build & Release
@@ -79,14 +93,23 @@ jobs:
         with:
           shared-key: seemux-ci
 
-      - name: Build release binary
+      - name: Build layer-shell release
         run: cargo build --release --locked
 
-      - name: Strip and rename binaries
+      - name: Save layer-shell binaries
         run: |
           strip target/release/seemux target/release/seemux-tmux-shim
           cp target/release/seemux seemux-linux-x86_64
           cp target/release/seemux-tmux-shim seemux-tmux-shim-linux-x86_64
+
+      - name: Build KWin release
+        run: cargo build --release --locked --features kwin --no-default-features
+
+      - name: Save KWin binaries
+        run: |
+          strip target/release/seemux target/release/seemux-tmux-shim
+          cp target/release/seemux seemux-kwin-linux-x86_64
+          cp target/release/seemux-tmux-shim seemux-tmux-shim-kwin-linux-x86_64
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -95,3 +118,5 @@ jobs:
           files: |
             seemux-linux-x86_64
             seemux-tmux-shim-linux-x86_64
+            seemux-kwin-linux-x86_64
+            seemux-tmux-shim-kwin-linux-x86_64

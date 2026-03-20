@@ -136,6 +136,10 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     let app_for_close = app.clone();
     window.connect_close_request(move |_| {
         persistence_for_close.save_now();
+
+        #[cfg(feature = "kwin")]
+        crate::kwin_rules::remove_rules();
+
         app_for_close.quit();
         glib::Propagation::Proceed
     });
@@ -294,6 +298,10 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     let persistence_for_close = persistence.clone();
     dropdown.window().connect_close_request(move |_| {
         persistence_for_close.save_now();
+
+        #[cfg(feature = "kwin")]
+        crate::kwin_rules::remove_rules();
+
         glib::Propagation::Proceed
     });
 
@@ -386,6 +394,9 @@ fn setup_signal_save(persistence: &Rc<StatePersistence>) {
     glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
         if SIGNAL_RECEIVED.load(Ordering::Relaxed) {
             p.save_now();
+
+            #[cfg(feature = "kwin")]
+            crate::kwin_rules::remove_rules();
 
             if let Some(app) = gio::Application::default() {
                 app.quit();
