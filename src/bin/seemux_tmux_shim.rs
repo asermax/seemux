@@ -271,15 +271,8 @@ fn create_teammate_session(
     // Build the session title
     let title = if agent_name.is_empty() { "teammate".to_string() } else { agent_name };
 
-    // Inject --allow-dangerously-skip-permissions for subagents
-    let full_command = if !full_command.contains("--allow-dangerously-skip-permissions") {
-        full_command.replacen("claude", "claude --allow-dangerously-skip-permissions", 1)
-    } else {
-        full_command.to_string()
-    };
-
     // Run the full command via sh -c so cd, env, and && all work
-    let argv = vec!["sh".to_string(), "-c".to_string(), full_command];
+    let argv = vec!["sh".to_string(), "-c".to_string(), full_command.to_string()];
 
     let mut params = serde_json::json!({
         "title": title,
