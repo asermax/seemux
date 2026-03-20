@@ -109,6 +109,7 @@ impl VteTerminal {
         let user_interacting = Rc::new(Cell::new(false));
         let scrollbar_active = Rc::new(Cell::new(false));
         let restoring = Rc::new(Cell::new(false));
+        let debug_scroll = std::env::var("SEEMUX_DEBUG_SCROLL").is_ok();
 
         // Detect mouse wheel scrolling (CAPTURE phase so we see it before VTE)
         let scroll_controller = gtk4::EventControllerScroll::new(
@@ -117,24 +118,36 @@ impl VteTerminal {
         scroll_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
 
         let ui_for_scroll = user_interacting.clone();
-        scroll_controller.connect_scroll(move |_, _, _| {
+        scroll_controller.connect_scroll(move |_, _, dy| {
             ui_for_scroll.set(true);
+
+            if debug_scroll {
+                eprintln!("[scroll-guard] mouse wheel dy={dy:.1}");
+            }
+
             glib::Propagation::Proceed
         });
 
         terminal.add_controller(scroll_controller);
 
-        // Detect keyboard-initiated scrolling (Shift+PageUp/Down/Home/End)
+        // Detect any non-modifier keystroke as user interaction.
+        // This covers both explicit scroll keys (Shift+PageUp/Down) and regular
+        // typing, which triggers VTE's scroll_on_keystroke behavior.
         let key_scroll_controller = gtk4::EventControllerKey::new();
         key_scroll_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
 
         let ui_for_key = user_interacting.clone();
-        key_scroll_controller.connect_key_pressed(move |_, keyval, _, state| {
-            if state.contains(gdk::ModifierType::SHIFT_MASK) && matches!(
+        key_scroll_controller.connect_key_pressed(move |_, keyval, _, _| {
+            let is_modifier = matches!(
                 keyval,
-                gdk::Key::Page_Up | gdk::Key::Page_Down |
-                gdk::Key::Home | gdk::Key::End
-            ) {
+                gdk::Key::Shift_L | gdk::Key::Shift_R |
+                gdk::Key::Control_L | gdk::Key::Control_R |
+                gdk::Key::Alt_L | gdk::Key::Alt_R |
+                gdk::Key::Super_L | gdk::Key::Super_R |
+                gdk::Key::Meta_L | gdk::Key::Meta_R
+            );
+
+            if !is_modifier {
                 ui_for_key.set(true);
             }
 
@@ -150,6 +163,10 @@ impl VteTerminal {
         let sa_for_press = scrollbar_active.clone();
         scrollbar_gesture.connect_pressed(move |_, _, _, _| {
             sa_for_press.set(true);
+
+            if debug_scroll {
+                eprintln!("[scroll-guard] scrollbar pressed");
+            }
         });
 
         let sa_for_release = scrollbar_active.clone();
@@ -164,7 +181,8 @@ impl VteTerminal {
 
         scrollbar.add_controller(scrollbar_gesture);
 
-        // Core logic: restore scroll position when VTE jumps while user is scrolled up
+        // Core logic: restore scroll position when VTE jumps while user is scrolled up,
+        // and snap to bottom when VTE jumps while user was at the bottom.
         let adj = terminal.vadjustment().expect("terminal has vadjustment");
 
         adj.connect_value_changed(move |adj| {
@@ -180,27 +198,52 @@ impl VteTerminal {
             let had_user_interaction = user_interacting.replace(false);
             let is_user = had_user_interaction || scrollbar_active.get();
 
-            if at_bottom {
-                user_scrolled_up.set(false);
+            // User-initiated scroll — update guard state based on position
+            if is_user {
+                if at_bottom {
+                    user_scrolled_up.set(false);
+                } else {
+                    frozen_value.set(value);
+                    user_scrolled_up.set(true);
+                }
+
                 return;
             }
 
-            if is_user {
-                frozen_value.set(value);
-                user_scrolled_up.set(true);
-                return;
-            }
+            // Non-user scroll (VTE cursor movement / re-render)
 
             if user_scrolled_up.get() {
                 restoring.set(true);
                 adj.set_value(frozen_value.get());
                 restoring.set(false);
+
+                if debug_scroll {
+                    eprintln!(
+                        "[scroll-guard] restored frozen={:.1} (vte tried {:.1})",
+                        frozen_value.get(), value,
+                    );
+                }
+
                 return;
             }
 
-            // First non-user scroll from bottom — VTE following cursor, allow & freeze
-            frozen_value.set(value);
-            user_scrolled_up.set(true);
+            if at_bottom {
+                return;
+            }
+
+            // VTE jumped away from bottom during re-render — snap back to bottom
+            let bottom = (upper - page_size).max(0.0);
+
+            restoring.set(true);
+            adj.set_value(bottom);
+            restoring.set(false);
+
+            if debug_scroll {
+                eprintln!(
+                    "[scroll-guard] snap-to-bottom={:.1} (vte jumped to {:.1})",
+                    bottom, value,
+                );
+            }
         });
     }
 
