@@ -75,7 +75,7 @@ pub(crate) fn setup_keyboard_shortcuts(
             return glib::Propagation::Stop;
         }
 
-        if ctrl && !shift && key == Key::b {
+        if ctrl && shift && key == Key::B {
             sidebar_for_keys.set_sidebar_collapsed(!sidebar_for_keys.is_sidebar_collapsed());
             return glib::Propagation::Stop;
         }
