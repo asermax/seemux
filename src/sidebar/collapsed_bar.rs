@@ -9,7 +9,7 @@ use crate::theme::ColorScheme;
 
 type Rgb = (f64, f64, f64);
 
-pub const COLLAPSED_WIDTH: i32 = 12;
+pub const COLLAPSED_WIDTH: i32 = 24;
 
 /// Precomputed RGB colors for zero-allocation draw calls.
 struct DrawColors {
@@ -80,7 +80,7 @@ impl CollapsedBar {
         scroll.set_vexpand(true);
         scroll.set_hscrollbar_policy(gtk4::PolicyType::Never);
 
-        let content = GtkBox::new(Orientation::Vertical, 1);
+        let content = GtkBox::new(Orientation::Vertical, 4);
         content.set_halign(gtk4::Align::Center);
 
         scroll.set_child(Some(&content));
@@ -168,8 +168,8 @@ impl CollapsedBar {
         active: bool,
     ) -> DotEntry {
         let drawing_area = DrawingArea::new();
-        drawing_area.set_content_width(10);
-        drawing_area.set_content_height(10);
+        drawing_area.set_content_width(20);
+        drawing_area.set_content_height(20);
         drawing_area.add_css_class("collapsed-dot");
 
         let status_cell = Rc::new(Cell::new(status));
@@ -182,7 +182,7 @@ impl CollapsedBar {
         drawing_area.set_draw_func(move |_da, cr, width, height| {
             let cx = width as f64 / 2.0;
             let cy = height as f64 / 2.0;
-            let radius = 4.0;
+            let radius = 7.0;
 
             // Status color
             let (r, g, b) = colors.status_rgb(status_draw.get());
@@ -194,9 +194,9 @@ impl CollapsedBar {
             // Active ring
             if active_draw.get() {
                 let (ar, ag, ab) = colors.accent;
-                cr.arc(cx, cy, 5.0, 0.0, 2.0 * std::f64::consts::PI);
+                cr.arc(cx, cy, 9.0, 0.0, 2.0 * std::f64::consts::PI);
                 cr.set_source_rgb(ar, ag, ab);
-                cr.set_line_width(1.0);
+                cr.set_line_width(1.5);
                 let _ = cr.stroke();
             }
         });

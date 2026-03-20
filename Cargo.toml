@@ -1,7 +1,8 @@
 [package]
 name = "seemux"
-version = "0.16.0"
+version = "0.16.1"
 edition = "2024"
+default-run = "seemux"
 
 [[bin]]
 name = "seemux-tmux-shim"
