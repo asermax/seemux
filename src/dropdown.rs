@@ -63,7 +63,6 @@ impl DropdownWindow {
         // Build full UI
         let scheme = crate::theme::get_scheme(&cfg.color_scheme);
         let sidebar = Rc::new(Sidebar::new(scheme));
-        sidebar.wire_collapse_toggle();
 
         let stack = Stack::new();
         stack.set_hexpand(true);

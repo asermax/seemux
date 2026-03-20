@@ -251,10 +251,6 @@ impl TabRow {
         self.status.get()
     }
 
-    pub fn badge_count(&self) -> u32 {
-        self.badge_count.get()
-    }
-
     pub fn set_status(&self, status: &SessionStatus) {
         self.status.set(*status);
         for class in &[

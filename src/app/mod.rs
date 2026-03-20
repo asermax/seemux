@@ -3,7 +3,7 @@ mod dialogs;
 mod hooks;
 mod keyboard;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
@@ -38,8 +38,6 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     // Layout: sidebar | drag handle | terminal stack (via GtkPaned)
     let scheme = crate::theme::get_scheme(&config.borrow().color_scheme);
     let sidebar = Rc::new(Sidebar::new(scheme));
-    sidebar.wire_collapse_toggle();
-
 
     let stack = Stack::new();
     stack.set_hexpand(true);
@@ -408,15 +406,43 @@ fn wire_sidebar_collapse(
 ) {
     sidebar.expanded_width.set(config.borrow().sidebar_width);
 
+    // Lock flag: when true, snap paned position back to COLLAPSED_WIDTH
+    let locked = Rc::new(Cell::new(false));
+    let snapping = Rc::new(Cell::new(false));
+
     let paned_for_collapse = paned.clone();
     let sidebar_for_collapse = sidebar.clone();
+    let locked_for_collapse = locked.clone();
     sidebar.set_on_collapse_changed(move |collapsed| {
+        locked_for_collapse.set(collapsed);
+
         if collapsed {
             sidebar_for_collapse.expanded_width.set(paned_for_collapse.position());
             paned_for_collapse.set_position(COLLAPSED_WIDTH);
+            paned_for_collapse.set_wide_handle(false);
+            paned_for_collapse.add_css_class("sidebar-locked");
         } else {
             paned_for_collapse.set_position(sidebar_for_collapse.expanded_width.get());
+            paned_for_collapse.set_wide_handle(true);
+            paned_for_collapse.remove_css_class("sidebar-locked");
         }
+    });
+
+    // Snap-back guard: prevent dragging the separator when collapsed
+    let locked_for_notify = locked.clone();
+    let snapping_for_notify = snapping.clone();
+    paned.connect_notify_local(Some("position"), move |paned, _| {
+        if locked_for_notify.get() && !snapping_for_notify.get() && paned.position() != COLLAPSED_WIDTH {
+            snapping_for_notify.set(true);
+            paned.set_position(COLLAPSED_WIDTH);
+            snapping_for_notify.set(false);
+        }
+    });
+
+    // Refresh collapsed bar when tab group visibility changes
+    let sidebar_for_group = sidebar.clone();
+    sidebar.set_on_group_visibility_changed(move || {
+        sidebar_for_group.refresh_collapsed_bar();
     });
 }
 

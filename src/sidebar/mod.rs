@@ -50,12 +50,14 @@ pub struct Sidebar {
     on_tab_moved: Rc<RefCell<Option<Box<dyn Fn(String, String, i32)>>>>, // (session_id, group_id, position)
 
     // Sidebar collapse state
+    header_row: GtkBox,
     collapsed: Rc<Cell<bool>>,
     collapsed_bar: CollapsedBar,
-    collapse_toggle: Button,
     pub(crate) expanded_width: Cell<i32>,
     #[allow(clippy::type_complexity)]
     on_collapse_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    #[allow(clippy::type_complexity)]
+    on_group_visibility_changed: Rc<RefCell<Option<Box<dyn Fn()>>>>,
 }
 
 struct GroupEntry {
@@ -69,7 +71,7 @@ impl Sidebar {
         container.add_css_class("sidebar");
         container.set_width_request(EXPANDED_MIN_WIDTH);
 
-        // Header row: "Sessions" label + collapse toggle (always visible)
+        // Header row: "Sessions" label (hidden when collapsed)
         let header_row = GtkBox::new(Orientation::Horizontal, 4);
         header_row.add_css_class("sidebar-header-row");
 
@@ -78,12 +80,7 @@ impl Sidebar {
         sessions_header.set_xalign(0.0);
         sessions_header.set_hexpand(true);
 
-        let collapse_toggle = Button::with_label("\u{25c0}"); // ◀
-        collapse_toggle.add_css_class("sidebar-collapse-btn");
-        collapse_toggle.set_tooltip_text(Some("Collapse sidebar (Ctrl+B)"));
-
         header_row.append(&sessions_header);
-        header_row.append(&collapse_toggle);
 
         let scroll = ScrolledWindow::new();
         scroll.set_vexpand(true);
@@ -149,11 +146,12 @@ impl Sidebar {
             dragging_group_id: Rc::new(RefCell::new(String::new())),
             groups_header,
             on_tab_moved,
+            header_row,
             collapsed: collapsed.clone(),
             collapsed_bar,
-            collapse_toggle: collapse_toggle.clone(),
             expanded_width: Cell::new(0), // set by wire_sidebar_collapse
             on_collapse_changed: Rc::new(RefCell::new(None)),
+            on_group_visibility_changed: Rc::new(RefCell::new(None)),
         };
 
         sidebar.setup_header_drop_target(&sessions_header, DEFAULT_GROUP);
@@ -168,6 +166,10 @@ impl Sidebar {
 
     pub fn set_on_collapse_changed<F: Fn(bool) + 'static>(&self, f: F) {
         *self.on_collapse_changed.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_group_visibility_changed<F: Fn() + 'static>(&self, f: F) {
+        *self.on_group_visibility_changed.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn collapsed_bar(&self) -> &CollapsedBar {
@@ -196,22 +198,17 @@ impl Sidebar {
         self.collapsed.set(collapsed);
 
         if collapsed {
-            // Rebuild collapsed bar with current state before showing
-            let sessions = self.gather_dot_data();
-            let groups = self.gather_group_data();
-            self.collapsed_bar.rebuild(&sessions, &groups);
+            self.refresh_collapsed_bar();
 
+            self.header_row.set_visible(false);
             self.scroll.set_visible(false);
             self.collapsed_bar.container.set_visible(true);
             self.container.set_width_request(COLLAPSED_WIDTH);
-            self.collapse_toggle.set_label("\u{25b6}"); // ▶
-            self.collapse_toggle.set_tooltip_text(Some("Expand sidebar (Ctrl+B)"));
         } else {
+            self.header_row.set_visible(true);
             self.scroll.set_visible(true);
             self.collapsed_bar.container.set_visible(false);
             self.container.set_width_request(EXPANDED_MIN_WIDTH);
-            self.collapse_toggle.set_label("\u{25c0}"); // ◀
-            self.collapse_toggle.set_tooltip_text(Some("Collapse sidebar (Ctrl+B)"));
         }
 
         if let Some(ref callback) = *self.on_collapse_changed.borrow() {
@@ -219,40 +216,27 @@ impl Sidebar {
         }
     }
 
-    /// Wire the collapse toggle button. Must be called after wrapping in Rc.
-    pub fn wire_collapse_toggle(self: &Rc<Self>) {
-        let sidebar = Rc::downgrade(self);
-
-        self.collapse_toggle.connect_clicked(move |_| {
-            if let Some(s) = sidebar.upgrade() {
-                s.set_sidebar_collapsed(!s.is_sidebar_collapsed());
-            }
-        });
-    }
-
-    /// Gather (session_id, group_id, status, is_active, badge_count) for all tabs in order.
-    fn gather_dot_data(&self) -> Vec<(String, String, crate::session::SessionStatus, bool, u32)> {
-        let ordered = self.ordered_session_ids();
+    /// Gather (session_id, status, is_active) for visible tabs in order.
+    fn gather_dot_data(&self) -> Vec<(String, crate::session::SessionStatus, bool)> {
+        let ordered = self.ordered_visible_session_ids();
         let rows = self.rows.borrow();
 
         ordered.iter().filter_map(|id| {
-            rows.get(id).map(|(row, group_id)| {
-                (
-                    id.clone(),
-                    group_id.clone(),
-                    row.status(),
-                    row.is_active(),
-                    row.badge_count(),
-                )
+            rows.get(id).map(|(row, _)| {
+                (id.clone(), row.status(), row.is_active())
             })
         }).collect()
     }
 
-    /// Gather (group_id, group_name) for all named groups in order.
-    fn gather_group_data(&self) -> Vec<(String, String)> {
-        self.groups.borrow().iter()
-            .map(|g| (g.id.clone(), g.name.clone()))
-            .collect()
+    /// Refresh the collapsed bar if the sidebar is currently collapsed.
+    /// Called when tab group visibility changes while sidebar is collapsed.
+    pub fn refresh_collapsed_bar(&self) {
+        if !self.collapsed.get() {
+            return;
+        }
+
+        let sessions = self.gather_dot_data();
+        self.collapsed_bar.rebuild(&sessions);
     }
 
     fn list_for_group(&self, group_id: &str) -> Option<ListBox> {
@@ -656,10 +640,8 @@ impl Sidebar {
 
         self.collapsed_bar.add_dot(
             &session.id,
-            &session.group_id,
             crate::session::SessionStatus::Idle,
             false,
-            0,
         );
     }
 
@@ -725,8 +707,12 @@ impl Sidebar {
 
         drop(rows);
 
-        for gid in groups_to_reconcile {
-            self.reconcile_group_peek(&gid);
+        for gid in &groups_to_reconcile {
+            self.reconcile_group_peek_only(gid);
+        }
+
+        if !groups_to_reconcile.is_empty() {
+            self.refresh_collapsed_bar();
         }
 
         self.collapsed_bar.update_active(session_id, true);
@@ -754,8 +740,6 @@ impl Sidebar {
         if let Some((row, _)) = self.rows.borrow().get(session_id) {
             row.set_badge_count(count);
         }
-
-        self.collapsed_bar.update_badge(session_id, count);
     }
 
     pub fn update_status(&self, session_id: &str, status: &crate::session::SessionStatus) {
@@ -848,6 +832,7 @@ impl Sidebar {
         let rows_for_toggle = self.rows.clone();
         let gid_for_toggle = id.to_string();
         let group_widgets_for_toggle = self.group_widgets.clone();
+        let on_visibility = self.on_group_visibility_changed.clone();
         group_widget.set_on_toggle(move |collapsed| {
             let rows = rows_for_toggle.borrow();
 
@@ -869,6 +854,12 @@ impl Sidebar {
                     }
                 }
             }
+
+            drop(rows);
+
+            if let Some(ref callback) = *on_visibility.borrow() {
+                callback();
+            }
         });
 
         // Per-row drop targets handle positioning; header handles collapsed/empty groups
@@ -888,8 +879,6 @@ impl Sidebar {
 
         // Group drop target must be set up after inserting into group_widgets
         self.setup_group_drop_target(id);
-
-        self.collapsed_bar.add_group(id, name);
     }
 
     pub fn remove_group(&self, group_id: &str) {
@@ -917,8 +906,6 @@ impl Sidebar {
             self.content.remove(gw.widget());
         }
         self.groups.borrow_mut().retain(|g| g.id != group_id);
-
-        self.collapsed_bar.remove_group(group_id);
     }
 
     /// Count tabs belonging to a specific group.
@@ -980,7 +967,15 @@ impl Sidebar {
     }
 
     /// Reconcile a collapsed group's list_box visibility based on peek state of its rows.
+    /// Also refreshes the collapsed bar if the sidebar is collapsed.
     fn reconcile_group_peek(&self, group_id: &str) {
+        self.reconcile_group_peek_only(group_id);
+        self.refresh_collapsed_bar();
+    }
+
+    /// Reconcile without refreshing the collapsed bar.
+    /// Use when batching multiple reconciliations — call `refresh_collapsed_bar` once after.
+    fn reconcile_group_peek_only(&self, group_id: &str) {
         if group_id == DEFAULT_GROUP {
             return;
         }

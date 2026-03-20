@@ -183,42 +183,15 @@ list row:selected {
     padding: 4px 8px 0 12px;
 }
 
-.sidebar-collapse-btn {
-    min-width: 20px;
-    min-height: 20px;
-    padding: 0;
-    background: none;
-    border: none;
-    color: #585b70;
-    font-size: 10px;
-}
-
-.sidebar-collapse-btn:hover {
-    color: #cdd6f4;
-}
-
 .sidebar-collapsed {
-    padding: 4px 0;
+    padding: 2px 0;
 }
 
 .collapsed-dot {
-    margin: 1px 0;
+    margin: 0;
 }
 
-.collapsed-group-sep {
-    margin: 2px 2px;
-}
-
-.collapsed-group-label {
-    font-size: 8px;
-    font-weight: 700;
-    color: #585b70;
-}
-
-.collapsed-group-line {
-    min-height: 1px;
-}
-
-separator.collapsed-group-line {
-    background-color: #313244;
+paned.sidebar-locked > separator {
+    min-width: 0;
+    opacity: 0;
 }
