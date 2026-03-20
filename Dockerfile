@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libwayland-dev \
     wayland-protocols \
     libgirepository1.0-dev \
+    libdbus-1-dev \
     zstd \
     git \
     curl \
