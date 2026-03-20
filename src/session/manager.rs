@@ -561,7 +561,7 @@ impl SessionManager {
     }
 
     pub fn switch_to_index(&mut self, index: usize) {
-        let ordered = self.sidebar.ordered_visible_session_ids();
+        let ordered = self.sidebar.ordered_session_ids();
 
         if let Some(id) = ordered.get(index).cloned() {
             self.switch_to(&id);
