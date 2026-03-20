@@ -23,6 +23,7 @@ use crate::persistence::StatePersistence;
 use crate::session::manager::{self, SessionManager};
 use crate::sidebar::Sidebar;
 use crate::sidebar::collapsed_bar::COLLAPSED_WIDTH;
+use crate::tray::TrayHandle;
 
 pub fn build_window(app: &Application, state: &Rc<AppState>) {
     let window = ApplicationWindow::builder()
@@ -32,6 +33,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         .default_height(700)
         .build();
 
+    let tray_handle = crate::tray::setup_tray();
     let config = state.config.clone();
     let socket_path = state.socket_path.clone();
 
@@ -71,7 +73,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     );
 
     // Common setup: actions, context menus, notification wiring, DnD, signal handlers
-    setup_common(&window, &manager, &sidebar, &notification_store, &stack, &persistence);
+    setup_common(&window, &manager, &sidebar, &notification_store, &stack, &persistence, &tray_handle);
 
     // Quit when all tabs are closed
     let app_clone = app.clone();
@@ -132,7 +134,9 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     // Save session state and sidebar width on window close
     let persistence_for_close = persistence.clone();
     let app_for_close = app.clone();
+    let tray_for_close = tray_handle.clone();
     window.connect_close_request(move |_| {
+        tray_for_close.shutdown();
         persistence_for_close.save_now();
         app_for_close.quit();
         glib::Propagation::Proceed
@@ -145,6 +149,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
 }
 
 pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
+    let tray_handle = crate::tray::setup_tray();
     let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, state));
 
     wire_sidebar_collapse(&dropdown.sidebar, &dropdown.paned, &state.config);
@@ -165,6 +170,7 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         &dropdown.notification_store,
         &dropdown.stack,
         &persistence,
+        &tray_handle,
     );
 
     // Register hide-dropdown action so open-url can dismiss the dropdown
@@ -290,7 +296,9 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
 
     // Save session state on close
     let persistence_for_close = persistence.clone();
+    let tray_for_close = tray_handle.clone();
     dropdown.window().connect_close_request(move |_| {
+        tray_for_close.shutdown();
         persistence_for_close.save_now();
         glib::Propagation::Proceed
     });
@@ -316,15 +324,17 @@ fn setup_common(
     notification_store: &Rc<RefCell<NotificationStore>>,
     stack: &Stack,
     persistence: &Rc<StatePersistence>,
+    tray_handle: &TrayHandle,
 ) {
     actions::register_tab_actions(window, manager, sidebar, persistence);
     actions::register_terminal_actions(window, manager, sidebar, notification_store);
     actions::setup_terminal_context_menu(stack);
     actions::setup_ctrl_click_url_open(stack);
 
-    // Wire notification changes to sidebar badge + preview updates + peek
+    // Wire notification changes to sidebar badge + preview updates + peek + tray
     let sidebar_for_notif = sidebar.clone();
-    notification_store.borrow_mut().set_on_change(move |session_id, count, latest| {
+    let tray = tray_handle.clone();
+    notification_store.borrow_mut().set_on_change(move |session_id, count, latest, total| {
         sidebar_for_notif.update_badge(session_id, count);
 
         let preview = if count > 0 {
@@ -339,6 +349,8 @@ fn setup_common(
         } else {
             sidebar_for_notif.unpeek_tab(session_id);
         }
+
+        tray.update_count(total);
     });
 
     // Wire drag-and-drop tab movement/reordering

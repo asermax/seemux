@@ -13,6 +13,7 @@ mod session;
 mod sidebar;
 mod terminal;
 mod theme;
+mod tray;
 
 use std::cell::RefCell;
 use std::rc::Rc;

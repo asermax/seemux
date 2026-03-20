@@ -22,7 +22,7 @@ pub struct NotificationStore {
     unread_count_by_session: HashMap<String, u32>,
     latest_by_session: HashMap<String, Notification>,
     #[allow(clippy::type_complexity)]
-    on_change: Option<Box<dyn Fn(&str, u32, Option<&Notification>)>>,
+    on_change: Option<Box<dyn Fn(&str, u32, Option<&Notification>, u32)>>,
 }
 
 impl NotificationStore {
@@ -34,7 +34,7 @@ impl NotificationStore {
         }
     }
 
-    pub fn set_on_change<F: Fn(&str, u32, Option<&Notification>) + 'static>(&mut self, f: F) {
+    pub fn set_on_change<F: Fn(&str, u32, Option<&Notification>, u32) + 'static>(&mut self, f: F) {
         self.on_change = Some(Box::new(f));
     }
 
@@ -62,11 +62,16 @@ impl NotificationStore {
         *self.unread_count_by_session.get(session_id).unwrap_or(&0)
     }
 
+    pub fn total_unread_count(&self) -> u32 {
+        self.unread_count_by_session.values().sum()
+    }
+
     fn notify_change(&self, session_id: &str) {
         if let Some(ref on_change) = self.on_change {
             let count = self.unread_count(session_id);
             let latest = self.latest_by_session.get(session_id);
-            on_change(session_id, count, latest);
+            let total = self.total_unread_count();
+            on_change(session_id, count, latest, total);
         }
     }
 }
@@ -120,6 +125,22 @@ mod tests {
 
         let latest = store.latest_by_session.get("s1").unwrap();
         assert_eq!(latest.body, "second message");
+    }
+
+    #[test]
+    fn total_unread_count_sums_all_sessions() {
+        let mut store = NotificationStore::new();
+        store.add_notification(make_notif("s1", "A"));
+        store.add_notification(make_notif("s1", "B"));
+        store.add_notification(make_notif("s2", "C"));
+
+        assert_eq!(store.total_unread_count(), 3);
+
+        store.mark_read("s1");
+        assert_eq!(store.total_unread_count(), 1);
+
+        store.clear_session("s2");
+        assert_eq!(store.total_unread_count(), 0);
     }
 
     #[test]
