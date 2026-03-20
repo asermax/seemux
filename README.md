@@ -5,12 +5,15 @@ A GTK4 terminal multiplexer for Linux with Claude Code integration, inspired by 
 ## Features
 
 - **Tabbed terminal** with vertical sidebar showing title, git branch, status pill, and notification badges
+- **Collapsible sidebar** — collapse to a minimal 24px bar with colored status dots; expand back to full view (Ctrl+Shift+B)
 - **Split panes** — horizontal and vertical splits within any tab, with click-to-focus and directional navigation
 - **Tab groups** — organize tabs into named, collapsible groups with drag-and-drop reordering
 - **Claude Code integration** — real-time session status (Running, Needs Input, Completed, Error) and desktop notifications via a Claude Code plugin, with automatic session resume on restart
+- **Agent Teams support** — tmux shim intercepts Claude Code team commands, spawning subagent sessions as seemux tabs in dedicated team groups
+- **PR detection** — automatically detects PRs created by Claude via `gh pr` and shows a clickable badge on the tab
 - **Dropdown mode** — quake-style terminal toggled via `seemux toggle` or a global shortcut
-- **Editor integration** — right-click file:// links to open in neovim with per-terminal socket reuse
-- **Session persistence** — tabs, groups, splits, working directories, and Claude sessions restored on restart
+- **Editor integration** — Ctrl+Click or right-click file:// links to open in neovim with per-terminal socket reuse
+- **Session persistence** — tabs, groups, splits, working directories, sidebar state, and Claude sessions restored on restart
 - **Notification peek** — tabs with notifications automatically peek out of collapsed groups
 - **Themes** — Catppuccin Mocha (default) and Dracula
 
@@ -81,6 +84,12 @@ Claude Code ──hooks──> seemux-hook.sh ──Unix socket──> seemux �
 | Alt+1-9 / Ctrl+1-9 | Jump to tab by index |
 | Hold Alt | Show tab index numbers in sidebar |
 
+### Sidebar
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+Shift+B | Toggle sidebar collapse/expand |
+
 ### Groups
 
 | Shortcut | Action |
@@ -113,6 +122,7 @@ Claude Code ──hooks──> seemux-hook.sh ──Unix socket──> seemux �
 |----------|--------|
 | Ctrl+Shift+C | Copy |
 | Ctrl+Shift+V | Paste |
+| Ctrl+Click | Open URL under cursor (file:// opens in editor, others in browser) |
 
 ### Window
 
@@ -147,6 +157,7 @@ color_scheme = "catppuccin-mocha" # "catppuccin-mocha" or "dracula"
 dropdown_width_percent = 90       # Dropdown window width (% of screen)
 dropdown_height_percent = 50      # Dropdown window height (% of screen)
 dropdown_animation_ms = 200       # Dropdown slide animation duration
+sidebar_collapsed = false         # Start with sidebar collapsed
 ```
 
 ## File Locations
