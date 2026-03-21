@@ -33,7 +33,7 @@ pub(crate) fn setup_keyboard_shortcuts(
         let number_keys = matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9);
 
         #[allow(clippy::nonminimal_bool)]
-        let is_our_shortcut = (ctrl && shift && matches!(key, Key::B | Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::bracketleft | Key::bracketright))
+        let is_our_shortcut = (ctrl && shift && matches!(key, Key::B | Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::bracketleft | Key::bracketright | Key::Page_Up | Key::Page_Down))
             || (ctrl && !shift && matches!(key, Key::Page_Up | Key::Page_Down))
             || (ctrl && key == Key::Tab)
             || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l | Key::Page_Up | Key::Page_Down))
@@ -166,6 +166,16 @@ pub(crate) fn setup_keyboard_shortcuts(
 
         if ctrl && alt && !shift && matches!(key, Key::Page_Down | Key::Page_Up) {
             mgr.borrow_mut().switch_adjacent_group(key == Key::Page_Down);
+
+            if let Some(active) = mgr.borrow().active_id() {
+                notif_for_keys.borrow_mut().mark_read(active);
+            }
+
+            return glib::Propagation::Stop;
+        }
+
+        if ctrl && shift && !alt && matches!(key, Key::Page_Down | Key::Page_Up) {
+            mgr.borrow_mut().switch_adjacent_running(key == Key::Page_Down);
 
             if let Some(active) = mgr.borrow().active_id() {
                 notif_for_keys.borrow_mut().mark_read(active);

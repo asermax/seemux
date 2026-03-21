@@ -105,6 +105,27 @@ fn circular_offset_by(pos: usize, len: usize, offset: usize, forward: bool) -> u
     if forward { (pos + offset) % len } else { (pos + len - offset) % len }
 }
 
+/// Find the next session ID (circularly) matching a predicate.
+fn find_adjacent_matching(
+    ordered: &[String],
+    active_id: &str,
+    forward: bool,
+    predicate: impl Fn(&str) -> bool,
+) -> Option<String> {
+    let pos = ordered.iter().position(|id| id == active_id)?;
+    let len = ordered.len();
+
+    for i in 1..len {
+        let idx = circular_offset_by(pos, len, i, forward);
+
+        if predicate(&ordered[idx]) {
+            return Some(ordered[idx].clone());
+        }
+    }
+
+    None
+}
+
 pub struct SessionManager {
     sessions: Vec<Session>,
     split_views: HashMap<String, SplitView>,
@@ -605,21 +626,26 @@ impl SessionManager {
     pub fn switch_adjacent_with_notifications(&mut self, notif_store: &NotificationStore, forward: bool) -> bool {
         let Some(active_id) = &self.active_id else { return false };
         let ordered = self.sidebar.ordered_session_ids();
-        let Some(pos) = ordered.iter().position(|id| id == active_id) else { return false };
 
-        let len = ordered.len();
+        let Some(id) = find_adjacent_matching(&ordered, active_id, forward, |id| {
+            notif_store.unread_count(id) > 0
+        }) else { return false };
 
-        for i in 1..len {
-            let idx = circular_offset_by(pos, len, i, forward);
+        self.switch_to(&id);
+        true
+    }
 
-            if notif_store.unread_count(&ordered[idx]) > 0 {
-                let id = ordered[idx].clone();
-                self.switch_to(&id);
-                return true;
-            }
-        }
+    pub fn switch_adjacent_running(&mut self, forward: bool) -> bool {
+        let Some(active_id) = &self.active_id else { return false };
+        let ordered = self.sidebar.ordered_session_ids();
 
-        false
+        let Some(id) = find_adjacent_matching(&ordered, active_id, forward, |id| {
+            self.find_session(id)
+                .is_some_and(|s| !matches!(s.status, SessionStatus::Idle | SessionStatus::Exited))
+        }) else { return false };
+
+        self.switch_to(&id);
+        true
     }
 
     pub(crate) fn session_group_id(&self, session_id: &str) -> Option<&str> {
