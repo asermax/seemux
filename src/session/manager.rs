@@ -374,7 +374,7 @@ impl SessionManager {
     }
 
     /// Find the best tab to focus after closing a session.
-    /// Priority: next in group → previous in group → first in default → first in any group.
+    /// Priority: previous in group → next in group → first visible tab → first non-visible tab.
     fn find_focus_after_close(
         &self,
         closed_id: &str,
@@ -382,17 +382,19 @@ impl SessionManager {
     ) -> Option<String> {
         if let Some(ids) = group_siblings_before_close
             && let Some(pos) = ids.iter().position(|id| id == closed_id) {
-                if pos + 1 < ids.len() {
-                    return Some(ids[pos + 1].clone());
-                }
-
                 if pos > 0 {
                     return Some(ids[pos - 1].clone());
                 }
+
+                if pos + 1 < ids.len() {
+                    return Some(ids[pos + 1].clone());
+                }
             }
 
-        if let Some(id) = self.sidebar.first_session_id_in_group(crate::session::DEFAULT_GROUP) {
-            return Some(id);
+        for gid in self.sidebar.ordered_visible_group_ids() {
+            if let Some(id) = self.sidebar.first_session_id_in_group(&gid) {
+                return Some(id);
+            }
         }
 
         for gid in self.sidebar.ordered_group_ids() {
