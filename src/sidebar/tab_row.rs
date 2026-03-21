@@ -251,6 +251,14 @@ impl TabRow {
         self.status.get()
     }
 
+    pub fn is_running(&self) -> bool {
+        !matches!(self.status.get(), SessionStatus::Idle | SessionStatus::Exited)
+    }
+
+    pub fn should_peek(&self) -> bool {
+        self.is_active() || self.has_badge() || self.is_running()
+    }
+
     pub fn set_status(&self, status: &SessionStatus) {
         self.status.set(*status);
         for class in &[

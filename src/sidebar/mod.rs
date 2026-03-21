@@ -688,7 +688,9 @@ impl Sidebar {
         let mut groups_to_reconcile = Vec::new();
 
         for (id, (row, group_id)) in rows.iter() {
-            if row.is_active() && id != session_id && row.is_peeking() {
+            if row.is_active() && id != session_id && row.is_peeking()
+                && !row.should_peek()
+            {
                 row.set_peeking(false);
                 groups_to_reconcile.push(group_id.clone());
             }
@@ -743,11 +745,20 @@ impl Sidebar {
     }
 
     pub fn update_status(&self, session_id: &str, status: &crate::session::SessionStatus) {
-        if let Some((row, _)) = self.rows.borrow().get(session_id) {
+        let is_running = if let Some((row, _)) = self.rows.borrow().get(session_id) {
             row.set_status(status);
-        }
+            row.is_running()
+        } else {
+            false
+        };
 
         self.collapsed_bar.update_status(session_id, status);
+
+        if is_running {
+            self.peek_tab(session_id);
+        } else {
+            self.unpeek_tab(session_id);
+        }
     }
 
     pub fn update_branch(&self, session_id: &str, branch: Option<&str>) {
@@ -839,7 +850,7 @@ impl Sidebar {
             if collapsed {
                 // Collapsing: peek the active tab and tabs with unread notifications
                 for (row, gid) in rows.values() {
-                    if *gid == gid_for_toggle && (row.is_active() || row.has_badge()) {
+                    if *gid == gid_for_toggle && row.should_peek() {
                         row.set_peeking(true);
                     }
                 }
@@ -956,7 +967,7 @@ impl Sidebar {
         let rows = self.rows.borrow();
         let Some((row, group_id)) = rows.get(session_id) else { return };
 
-        if !row.is_peeking() || row.is_active() {
+        if !row.is_peeking() || row.should_peek() {
             return;
         }
 
