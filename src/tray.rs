@@ -172,7 +172,7 @@ const DIGIT_GLYPHS: [[u8; 6]; 11] = [
     [0b0000, 0b0010, 0b0111, 0b0010, 0b0000, 0b0000],
 ];
 
-const BADGE_SIZE: i32 = 22;
+const BADGE_SIZE: i32 = 44;
 
 /// Render a notification badge as ARGB32 overlay icon.
 fn render_badge(count: u32, color: (u8, u8, u8)) -> Vec<Icon> {
@@ -209,30 +209,35 @@ fn render_badge(count: u32, color: (u8, u8, u8)) -> Vec<Icon> {
         vec![count as usize]
     };
 
-    let glyph_width = 4;
-    let glyph_height = 6;
-    let spacing = 1;
+    let scale = 2usize;
+    let glyph_width = 4 * scale;
+    let glyph_height = 6 * scale;
+    let spacing = 1 * scale;
     let total_width = glyphs.len() * glyph_width + (glyphs.len() - 1) * spacing;
     let start_x = (size - total_width) / 2;
     let start_y = (size - glyph_height) / 2;
 
-    // Draw white digit(s)
+    // Draw white digit(s), scaled up
     for (gi, &glyph_idx) in glyphs.iter().enumerate() {
         let gx = start_x + gi * (glyph_width + spacing);
         let glyph = &DIGIT_GLYPHS[glyph_idx];
 
         for (row, &bits) in glyph.iter().enumerate() {
-            for col in 0..glyph_width {
+            for col in 0..4usize {
                 if bits & (0b1000 >> col) != 0 {
-                    let px = gx + col;
-                    let py = start_y + row;
+                    for sy in 0..scale {
+                        for sx in 0..scale {
+                            let px = gx + col * scale + sx;
+                            let py = start_y + row * scale + sy;
 
-                    if px < size && py < size {
-                        let offset = (py * size + px) * 4;
-                        buf[offset] = 0xFF;     // A
-                        buf[offset + 1] = 0xFF; // R
-                        buf[offset + 2] = 0xFF; // G
-                        buf[offset + 3] = 0xFF; // B
+                            if px < size && py < size {
+                                let offset = (py * size + px) * 4;
+                                buf[offset] = 0xFF;     // A
+                                buf[offset + 1] = 0xFF; // R
+                                buf[offset + 2] = 0xFF; // G
+                                buf[offset + 3] = 0xFF; // B
+                            }
+                        }
                     }
                 }
             }
