@@ -33,7 +33,7 @@ pub(crate) fn setup_keyboard_shortcuts(
         let number_keys = matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9);
 
         #[allow(clippy::nonminimal_bool)]
-        let is_our_shortcut = (ctrl && shift && matches!(key, Key::B | Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G))
+        let is_our_shortcut = (ctrl && shift && matches!(key, Key::B | Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::bracketleft | Key::bracketright))
             || (ctrl && !shift && matches!(key, Key::Page_Up | Key::Page_Down))
             || (ctrl && key == Key::Tab)
             || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l | Key::Page_Up | Key::Page_Down))
@@ -77,6 +77,18 @@ pub(crate) fn setup_keyboard_shortcuts(
 
         if ctrl && shift && key == Key::B {
             sidebar_for_keys.set_sidebar_collapsed(!sidebar_for_keys.is_sidebar_collapsed());
+            return glib::Propagation::Stop;
+        }
+
+        if ctrl && shift && matches!(key, Key::bracketleft | Key::bracketright) {
+            if let Some(group_id) = mgr.borrow().active_group_id() {
+                if key == Key::bracketleft {
+                    sidebar_for_keys.collapse_group(group_id);
+                } else {
+                    sidebar_for_keys.expand_group(group_id);
+                }
+            }
+
             return glib::Propagation::Stop;
         }
 
