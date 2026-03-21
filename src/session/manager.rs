@@ -850,6 +850,11 @@ impl SessionManager {
 
             let Some(title) = term.window_title() else { return };
 
+            // Skip — Claude hooks will manage the status for this session
+            if title.starts_with("claude") {
+                return;
+            }
+
             if is_shell_title(&title) {
                 if !running.replace(false) {
                     return;
