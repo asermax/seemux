@@ -843,8 +843,11 @@ impl SessionManager {
 
             let Some(title) = title else { return };
 
-            // Skip — Claude hooks will manage the status for this session
-            if title.starts_with("claude") {
+            // Skip — Claude hooks will manage the status for this session.
+            // Mark as running so subsequent title changes from Claude's TUI
+            // don't trigger a new command start.
+            if title.to_ascii_lowercase().starts_with("claude") {
+                running.set(true);
                 return;
             }
 
@@ -894,6 +897,14 @@ impl SessionManager {
 
                             let Some(mgr) = mgr_weak.upgrade() else { return };
                             let Ok(m) = mgr.try_borrow() else { return };
+
+                            // Claude hooks may have taken over during the delay
+                            let has_claude = m.find_session(&sid_timeout)
+                                .is_some_and(|s| s.claude_pid.is_some());
+
+                            if has_claude {
+                                return;
+                            }
 
                             badge_visible_timeout.set(true);
                             m.sidebar.update_status(&sid_timeout, &SessionStatus::Running);
