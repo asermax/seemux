@@ -1188,7 +1188,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "seemux"
-version = "0.20.2"
+version = "0.20.3"
 dependencies = [
  "ashpd",
  "dirs",

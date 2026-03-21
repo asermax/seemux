@@ -202,6 +202,23 @@ impl VteTerminal {
             if is_user {
                 if at_bottom {
                     user_scrolled_up.set(false);
+                } else if !scrollbar_active.get()
+                    && user_scrolled_up.get()
+                    && (value - frozen_value.get()).abs() >= page_size
+                {
+                    // Large jump during user interaction while scrolled up — VTE cursor
+                    // movement coinciding with mouse wheel or keyboard input.
+                    // Restore to prevent frozen_value from being overwritten by VTE jump.
+                    restoring.set(true);
+                    adj.set_value(frozen_value.get());
+                    restoring.set(false);
+
+                    if debug_scroll {
+                        eprintln!(
+                            "[scroll-guard] rejected jump frozen={:.1} (jump tried {:.1})",
+                            frozen_value.get(), value,
+                        );
+                    }
                 } else {
                     frozen_value.set(value);
                     user_scrolled_up.set(true);
