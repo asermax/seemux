@@ -819,14 +819,21 @@ impl SessionManager {
     }
 
     /// Wire command-running status pill + completion notification on a single terminal pane.
+    ///
+    /// For non-Claude sessions, the badge is delayed by 3 seconds so that short-lived
+    /// commands (cd, ls, …) never flash the Running pill.
     fn wire_pane_status(
         self_ref: &Rc<RefCell<Self>>,
         session_id: &str,
         vte_term: &vte4::Terminal,
     ) {
+        const RUNNING_BADGE_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
+
         let mgr = Rc::downgrade(self_ref);
         let sid = session_id.to_string();
         let running = Rc::new(Cell::new(false));
+        let badge_visible = Rc::new(Cell::new(false));
+        let pending_badge: Rc<Cell<Option<glib::SourceId>>> = Rc::new(Cell::new(None));
         let last_command: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
 
         vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
@@ -848,16 +855,26 @@ impl SessionManager {
                     return;
                 }
 
-                // Command finished — hide the Running pill
-                m.sidebar.update_status(&sid, &SessionStatus::Idle);
+                // Cancel pending badge timeout — command finished before delay elapsed
+                if let Some(source_id) = pending_badge.take() {
+                    source_id.remove();
+                }
 
-                // Notify if tab is in background
-                if m.active_id.as_deref() != Some(sid.as_str()) {
-                    if let Some(cmd) = last_command.borrow_mut().take() {
-                        let notification = Notification::new(&sid, &format!("$ {cmd}"));
-                        m.notification_store.borrow_mut().add_notification(notification);
+                if badge_visible.replace(false) {
+                    // Badge was visible — hide the Running pill
+                    m.sidebar.update_status(&sid, &SessionStatus::Idle);
+
+                    // Notify if tab is in background
+                    if m.active_id.as_deref() != Some(sid.as_str()) {
+                        if let Some(cmd) = last_command.borrow_mut().take() {
+                            let notification = Notification::new(&sid, &format!("$ {cmd}"));
+                            m.notification_store.borrow_mut().add_notification(notification);
+                        }
+                    } else {
+                        last_command.borrow_mut().take();
                     }
                 } else {
+                    // Command finished before badge was shown — short-lived, just clean up
                     last_command.borrow_mut().take();
                 }
             } else {
@@ -865,7 +882,27 @@ impl SessionManager {
                 *last_command.borrow_mut() = Some(title.to_string());
 
                 if !running.replace(true) {
-                    m.sidebar.update_status(&sid, &SessionStatus::Running);
+                    // New command — schedule delayed badge display
+
+                    let mgr_weak = Rc::downgrade(&mgr);
+                    let sid_timeout = sid.clone();
+                    let badge_visible_timeout = badge_visible.clone();
+                    let pending_badge_timeout = pending_badge.clone();
+
+                    let source_id = glib::timeout_add_local_once(
+                        RUNNING_BADGE_DELAY,
+                        move || {
+                            pending_badge_timeout.set(None);
+
+                            let Some(mgr) = mgr_weak.upgrade() else { return };
+                            let Ok(m) = mgr.try_borrow() else { return };
+
+                            badge_visible_timeout.set(true);
+                            m.sidebar.update_status(&sid_timeout, &SessionStatus::Running);
+                        },
+                    );
+
+                    pending_badge.set(Some(source_id));
                 }
             }
         });
