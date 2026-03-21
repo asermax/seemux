@@ -148,6 +148,15 @@ paned > separator:hover {{
     background-color: {accent};
 }}
 
+.tab-folder-icon {{
+    color: {text_muted};
+    font-size: 12px;
+}}
+
+.tab-row.active .tab-folder-icon {{
+    color: {text_secondary};
+}}
+
 .tab-title {{
     color: {text_primary};
     font-size: 13px;

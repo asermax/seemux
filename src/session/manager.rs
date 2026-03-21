@@ -286,7 +286,7 @@ impl SessionManager {
             if is_shell_title(&title) {
                 // Shell regained control — reset title to folder name
                 if let Some(cwd) = cwd_uri.and_then(|uri| path_from_file_uri(&uri)) {
-                    sidebar.update_title(&sid, folder_name(&cwd));
+                    sidebar.update_cwd(&sid, folder_name(&cwd), &display_path(&cwd));
 
                     // If the previous title was a git/gh command, re-detect branch + PR
                     if was_git_command {

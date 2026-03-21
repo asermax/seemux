@@ -15,6 +15,7 @@ pub struct TabRow {
     active_indicator: GtkBox,
     #[allow(dead_code)]
     content: GtkBox,
+    folder_icon: Label,
     title_label: Label,
     subtitle_label: Label,
     branch_label: Label,
@@ -44,11 +45,19 @@ impl TabRow {
         let content = GtkBox::new(Orientation::Vertical, 1);
         content.set_hexpand(true);
 
+        let folder_icon = Label::new(Some("\u{f07b}"));
+        folder_icon.add_css_class("tab-folder-icon");
+        folder_icon.set_visible(false);
+
         let title_label = Label::new(Some(title));
         title_label.add_css_class("tab-title");
         title_label.set_xalign(0.0);
         title_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
         title_label.set_tooltip_text(Some(title));
+
+        let title_row = GtkBox::new(Orientation::Horizontal, 4);
+        title_row.append(&folder_icon);
+        title_row.append(&title_label);
 
         let status_label = Label::new(None);
         status_label.add_css_class("status-pill");
@@ -84,7 +93,7 @@ impl TabRow {
         branch_row.append(&branch_label);
         branch_row.append(&pr_label);
 
-        content.append(&title_label);
+        content.append(&title_row);
         content.append(&subtitle_label);
         content.append(&branch_row);
         content.append(&status_label);
@@ -117,6 +126,7 @@ impl TabRow {
             container,
             active_indicator,
             content,
+            folder_icon,
             title_label,
             subtitle_label,
             branch_label,
@@ -159,6 +169,7 @@ impl TabRow {
     pub fn set_title(&self, title: &str) {
         self.title_label.set_text(title);
         self.title_label.set_tooltip_text(Some(title));
+        self.folder_icon.set_visible(false);
     }
 
     pub fn set_subtitle(&self, text: &str) {
@@ -170,6 +181,7 @@ impl TabRow {
     pub fn update_cwd(&self, folder_name: &str, display_path: &str) {
         self.title_label.set_text(folder_name);
         self.title_label.set_tooltip_text(Some(display_path));
+        self.folder_icon.set_visible(true);
 
         self.subtitle_label.set_text(display_path);
         self.subtitle_label.set_tooltip_text(Some(display_path));
