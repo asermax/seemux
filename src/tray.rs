@@ -172,7 +172,7 @@ const DIGIT_GLYPHS: [[u8; 6]; 11] = [
     [0b0000, 0b0010, 0b0111, 0b0010, 0b0000, 0b0000],
 ];
 
-const BADGE_SIZE: i32 = 44;
+const BADGE_SIZE: i32 = 64;
 
 /// Render a notification badge as ARGB32 overlay icon.
 fn render_badge(count: u32, color: (u8, u8, u8)) -> Vec<Icon> {
@@ -209,7 +209,7 @@ fn render_badge(count: u32, color: (u8, u8, u8)) -> Vec<Icon> {
         vec![count as usize]
     };
 
-    let scale = 2usize;
+    let scale = 3usize;
     let glyph_width = 4 * scale;
     let glyph_height = 6 * scale;
     let spacing = scale;
