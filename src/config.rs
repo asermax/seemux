@@ -32,7 +32,14 @@ pub struct Config {
     pub agent_teams_shim: bool,
     #[serde(default)]
     pub sidebar_collapsed: bool,
+    #[serde(default = "default_tray_enabled")]
+    pub tray_enabled: bool,
+    #[serde(default = "default_tray_icon")]
+    pub tray_icon: String,
 }
+
+fn default_tray_enabled() -> bool { true }
+fn default_tray_icon() -> String { "seemux".to_string() }
 
 impl Default for Config {
     fn default() -> Self {
@@ -47,6 +54,8 @@ impl Default for Config {
             dropdown_animation_ms: 500,
             agent_teams_shim: false,
             sidebar_collapsed: false,
+            tray_enabled: true,
+            tray_icon: "seemux".to_string(),
         }
     }
 }
@@ -207,6 +216,8 @@ mod tests {
             dropdown_animation_ms: 200,
             agent_teams_shim: false,
             sidebar_collapsed: false,
+            tray_enabled: true,
+            tray_icon: "seemux".to_string(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -224,6 +235,8 @@ mod tests {
         let parsed: Config = toml::from_str(toml_str).unwrap();
 
         assert_eq!(parsed.font_size, 16);
+        assert!(parsed.tray_enabled);
+        assert_eq!(parsed.tray_icon, "seemux");
         assert_eq!(parsed.font_family, "Monospace"); // default
         assert_eq!(parsed.scrollback_lines, 10000); // default
     }

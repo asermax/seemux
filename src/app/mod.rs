@@ -33,12 +33,17 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
         .default_height(700)
         .build();
 
-    let tray_handle = crate::tray::setup_tray();
     let config = state.config.clone();
     let socket_path = state.socket_path.clone();
 
     // Layout: sidebar | drag handle | terminal stack (via GtkPaned)
     let scheme = crate::theme::get_scheme(&config.borrow().color_scheme);
+
+    let tray_handle = if config.borrow().tray_enabled {
+        crate::tray::setup_tray(&config.borrow().tray_icon, &socket_path, false, scheme.accent)
+    } else {
+        crate::tray::TrayHandle::disabled()
+    };
     let sidebar = Rc::new(Sidebar::new(scheme));
 
     let stack = Stack::new();
@@ -104,7 +109,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     // Create dropdown window (shown via `seemux toggle` CLI command)
     let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, state));
 
-    hooks::setup_hook_polling(state, &manager, &notification_store, &sidebar, Some(dropdown));
+    hooks::setup_hook_polling(state, &manager, &notification_store, &sidebar, Some(dropdown), window.clone());
     hooks::setup_stale_pid_detection(&manager);
 
     // Keyboard shortcuts
@@ -149,12 +154,19 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
 }
 
 pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
-    let tray_handle = crate::tray::setup_tray();
+    let scheme = crate::theme::get_scheme(&state.config.borrow().color_scheme);
+
+    let tray_handle = if state.config.borrow().tray_enabled {
+        crate::tray::setup_tray(&state.config.borrow().tray_icon, &state.socket_path, true, scheme.accent)
+    } else {
+        crate::tray::TrayHandle::disabled()
+    };
+
     let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, state));
 
     wire_sidebar_collapse(&dropdown.sidebar, &dropdown.paned, &state.config);
 
-    hooks::setup_hook_polling(state, &dropdown.manager, &dropdown.notification_store, &dropdown.sidebar, Some(dropdown.clone()));
+    hooks::setup_hook_polling(state, &dropdown.manager, &dropdown.notification_store, &dropdown.sidebar, Some(dropdown.clone()), dropdown.window().clone());
     hooks::setup_stale_pid_detection(&dropdown.manager);
 
     let persistence = StatePersistence::new(

@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
+use gtk4::prelude::*;
 use gtk4::glib;
 
 use crate::app_state::AppState;
@@ -20,6 +21,7 @@ pub(crate) fn setup_hook_polling(
     notification_store: &Rc<RefCell<NotificationStore>>,
     sidebar: &Rc<Sidebar>,
     dropdown: Option<Rc<crate::dropdown::DropdownWindow>>,
+    window: gtk4::ApplicationWindow,
 ) {
     let hook_rx = state.take_hook_rx();
     let mgr_for_hooks = manager.clone();
@@ -41,6 +43,18 @@ pub(crate) fn setup_hook_polling(
                     if event.event == "toggle-dropdown" {
                         if let Some(dd) = dropdown.as_ref() {
                             dd.toggle();
+                        }
+                        continue;
+                    }
+
+                    if event.event == "activate-window" {
+                        window.present();
+                        continue;
+                    }
+
+                    if event.event == "quit" {
+                        if let Some(app) = window.application() {
+                            app.quit();
                         }
                         continue;
                     }
