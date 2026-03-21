@@ -6,7 +6,6 @@ use std::rc::Rc;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::Stack;
-use vte4::prelude::*;
 
 use crate::config::{Config, SavedSession, SessionState};
 use crate::notifications::{Notification, NotificationStore};
@@ -251,7 +250,6 @@ impl SessionManager {
 
         let pane_id = uuid::Uuid::new_v4().to_string();
         let terminal = VteTerminal::new_with_config(&self.config.borrow());
-        let vte_term = terminal.terminal().clone();
 
         if self.stack.is_realized() {
             match spawn {
@@ -260,7 +258,7 @@ impl SessionManager {
             }
         }
 
-        self.wire_vte_signals(&vte_term, &id, &pane_id);
+        self.wire_vte_signals(&terminal, &id, &pane_id);
 
         let active_hint = self.active_id.as_deref().map(|s| s.to_string());
         let split_view = SplitView::new(terminal, pane_id);
@@ -269,7 +267,7 @@ impl SessionManager {
     }
 
     /// Wire VTE signals to update tab title, subtitle, git branch, and PR.
-    fn wire_vte_signals(&self, vte_term: &vte4::Terminal, session_id: &str, pane_id: &str) {
+    fn wire_vte_signals(&self, terminal: &VteTerminal, session_id: &str, pane_id: &str) {
         // Shared state for git command detection across title + CWD handlers
         let last_was_git_cmd: Rc<Cell<bool>> = Rc::new(Cell::new(false));
         let pending_redetect: Rc<Cell<Option<glib::SourceId>>> = Rc::new(Cell::new(None));
@@ -280,16 +278,14 @@ impl SessionManager {
         let last_git_cmd = last_was_git_cmd.clone();
         let pending = pending_redetect.clone();
 
-        vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
-            let Some(title) = term.window_title() else { return };
+        terminal.on_title_changed(move |title, cwd_uri| {
+            let Some(title) = title else { return };
 
             let was_git_command = last_git_cmd.replace(is_git_command_title(&title));
 
             if is_shell_title(&title) {
                 // Shell regained control — reset title to folder name
-                if let Some(cwd) = term.current_directory_uri()
-                    .and_then(|uri| path_from_file_uri(&uri))
-                {
+                if let Some(cwd) = cwd_uri.and_then(|uri| path_from_file_uri(&uri)) {
                     sidebar.update_title(&sid, folder_name(&cwd));
 
                     // If the previous title was a git/gh command, re-detect branch + PR
@@ -325,9 +321,8 @@ impl SessionManager {
         let last_cwd: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let cwds = self.session_cwds.clone();
 
-        vte_term.connect_current_directory_uri_changed(move |term: &vte4::Terminal| {
-            let path = term.current_directory_uri()
-                .and_then(|uri| path_from_file_uri(&uri));
+        terminal.on_cwd_changed(move |cwd_uri| {
+            let path = cwd_uri.and_then(|uri| path_from_file_uri(&uri));
 
             let Some(cwd) = path else {
                 sidebar.update_branch(&sid, None);
@@ -367,7 +362,7 @@ impl SessionManager {
         if let Some(sv) = self.split_views.get(session_id) {
             let mut cwds = self.session_cwds.borrow_mut();
 
-            for (pane_id, _) in sv.collect_vte_terminals() {
+            for pane_id in sv.pane_ids() {
                 cwds.remove(&pane_id);
             }
         }
@@ -460,7 +455,7 @@ impl SessionManager {
         }
     }
 
-    pub fn session_terminal(&self, session_id: &str) -> Option<vte4::Terminal> {
+    pub fn session_terminal(&self, session_id: &str) -> Option<Rc<VteTerminal>> {
         self.split_views.get(session_id).and_then(|sv| sv.focused_terminal())
     }
 
@@ -488,8 +483,8 @@ impl SessionManager {
         self.notify_state_changed();
 
         if let Some(sv) = self.split_views.get(session_id)
-            && let Some(term) = sv.focused_terminal() {
-                term.grab_focus();
+            && let Some(vt) = sv.focused_terminal() {
+                vt.grab_focus();
             }
     }
 
@@ -501,7 +496,7 @@ impl SessionManager {
         self.active_id.as_deref().and_then(|id| self.session_group_id(id))
     }
 
-    pub fn active_terminal_vte(&self) -> Option<vte4::Terminal> {
+    pub fn active_terminal_vte(&self) -> Option<Rc<VteTerminal>> {
         self.active_id.as_deref()
             .and_then(|id| self.split_views.get(id))
             .and_then(|sv| sv.focused_terminal())
@@ -537,7 +532,7 @@ impl SessionManager {
             .and_then(|uri| path_from_file_uri(&uri));
 
         let config = mgr.config.borrow();
-        let (new_pane_id, new_vte) = sv.split(orientation, &config);
+        let (new_pane_id, new_vt) = sv.split(orientation, &config);
         drop(config);
 
         let env_vars = mgr.build_env_vars(&active_id);
@@ -548,19 +543,19 @@ impl SessionManager {
         sv.rebuild_in_stack(&mgr.stack, &active_id);
 
         // Wire title/CWD signals on the new terminal
-        mgr.wire_vte_signals(&new_vte, &active_id, &new_pane_id);
+        mgr.wire_vte_signals(&new_vt, &active_id, &new_pane_id);
 
         // Focus the new pane
-        let term = new_vte.clone();
-        glib::idle_add_local_once(move || { term.grab_focus(); });
+        let vt = new_vt.clone();
+        glib::idle_add_local_once(move || { vt.grab_focus(); });
 
         drop(mgr);
 
         // Wire child-exited, focus tracking, and bell (needs Rc<RefCell<Self>>)
-        Self::wire_pane_child_exited(self_ref, &active_id, &new_pane_id, &new_vte);
-        Self::wire_pane_focus(self_ref, &active_id, &new_pane_id, &new_vte);
-        Self::wire_pane_bell(self_ref, &active_id, &new_vte);
-        Self::wire_pane_status(self_ref, &active_id, &new_vte);
+        Self::wire_pane_child_exited(self_ref, &active_id, &new_pane_id, &new_vt);
+        Self::wire_pane_focus(self_ref, &active_id, &new_pane_id, &new_vt);
+        Self::wire_pane_bell(self_ref, &active_id, &new_vt);
+        Self::wire_pane_status(self_ref, &active_id, &new_vt);
 
         self_ref.borrow().notify_state_changed();
 
@@ -580,9 +575,8 @@ impl SessionManager {
         sv.rebuild_in_stack(&self.stack, &active_id);
 
         // Focus the remaining terminal
-        if let Some(term) = sv.focused_terminal() {
-            let term = term.clone();
-            glib::idle_add_local_once(move || { term.grab_focus(); });
+        if let Some(vt) = sv.focused_terminal() {
+            glib::idle_add_local_once(move || { vt.grab_focus(); });
         }
 
         false
@@ -713,9 +707,8 @@ impl SessionManager {
         // Only grab focus if this is the active session
         if self.active_id.as_deref() == Some(session_id)
             && let Some(sv) = self.split_views.get(session_id)
-                && let Some(term) = sv.focused_terminal() {
-                    let term = term.clone();
-                    glib::idle_add_local_once(move || { term.grab_focus(); });
+                && let Some(vt) = sv.focused_terminal() {
+                    glib::idle_add_local_once(move || { vt.grab_focus(); });
                 }
     }
 
@@ -724,13 +717,13 @@ impl SessionManager {
         self_ref: &Rc<RefCell<Self>>,
         session_id: &str,
         pane_id: &str,
-        vte_term: &vte4::Terminal,
+        terminal: &VteTerminal,
     ) {
         let mgr = self_ref.clone();
         let sid = session_id.to_string();
         let pid = pane_id.to_string();
 
-        vte_term.connect_child_exited(move |_term, _status| {
+        terminal.on_child_exited(move |_status| {
             let mgr = mgr.clone();
             let sid = sid.clone();
             let pid = pid.clone();
@@ -747,14 +740,14 @@ impl SessionManager {
         let terminals = {
             let borrow = self_ref.borrow();
             let Some(sv) = borrow.split_views.get(session_id) else { return };
-            sv.collect_vte_terminals()
+            sv.collect_terminals()
         };
 
-        for (pane_id, vte_term) in &terminals {
-            Self::wire_pane_child_exited(self_ref, session_id, pane_id, vte_term);
-            Self::wire_pane_focus(self_ref, session_id, pane_id, vte_term);
-            Self::wire_pane_bell(self_ref, session_id, vte_term);
-            Self::wire_pane_status(self_ref, session_id, vte_term);
+        for (pane_id, terminal) in &terminals {
+            Self::wire_pane_child_exited(self_ref, session_id, pane_id, terminal);
+            Self::wire_pane_focus(self_ref, session_id, pane_id, terminal);
+            Self::wire_pane_bell(self_ref, session_id, terminal);
+            Self::wire_pane_status(self_ref, session_id, terminal);
         }
     }
 
@@ -763,7 +756,7 @@ impl SessionManager {
         self_ref: &Rc<RefCell<Self>>,
         session_id: &str,
         pane_id: &str,
-        vte_term: &vte4::Terminal,
+        terminal: &VteTerminal,
     ) {
         let mgr = Rc::downgrade(self_ref);
         let sid = session_id.to_string();
@@ -778,19 +771,19 @@ impl SessionManager {
             }
         });
 
-        vte_term.upcast_ref::<gtk4::Widget>().add_controller(focus_controller);
+        terminal.as_widget().add_controller(focus_controller);
     }
 
     /// Wire bell notification on a single terminal pane.
     fn wire_pane_bell(
         self_ref: &Rc<RefCell<Self>>,
         session_id: &str,
-        vte_term: &vte4::Terminal,
+        terminal: &VteTerminal,
     ) {
         let mgr = Rc::downgrade(self_ref);
         let sid = session_id.to_string();
 
-        vte_term.connect_bell(move |_term| {
+        terminal.on_bell(move || {
             let Some(mgr) = mgr.upgrade() else { return };
             let Ok(m) = mgr.try_borrow() else { return };
 
@@ -825,7 +818,7 @@ impl SessionManager {
     fn wire_pane_status(
         self_ref: &Rc<RefCell<Self>>,
         session_id: &str,
-        vte_term: &vte4::Terminal,
+        terminal: &VteTerminal,
     ) {
         const RUNNING_BADGE_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -836,7 +829,7 @@ impl SessionManager {
         let pending_badge: Rc<Cell<Option<glib::SourceId>>> = Rc::new(Cell::new(None));
         let last_command: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
 
-        vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
+        terminal.on_title_changed(move |title, _cwd_uri| {
             let Some(mgr) = mgr.upgrade() else { return };
             let Ok(m) = mgr.try_borrow() else { return };
 
@@ -848,7 +841,7 @@ impl SessionManager {
                 return;
             }
 
-            let Some(title) = term.window_title() else { return };
+            let Some(title) = title else { return };
 
             // Skip — Claude hooks will manage the status for this session
             if title.starts_with("claude") {
@@ -971,8 +964,8 @@ impl SessionManager {
         drop(config);
 
         // Wire signals for all panes
-        for (pane_id, vte_term) in split_view.collect_vte_terminals() {
-            self.wire_vte_signals(&vte_term, &id, &pane_id);
+        for (pane_id, terminal) in split_view.collect_terminals() {
+            self.wire_vte_signals(&terminal, &id, &pane_id);
         }
 
         self.register_session(session, split_view, None);
@@ -996,7 +989,7 @@ impl SessionManager {
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         let cwds = self.session_cwds.borrow();
 
-        for (pane_id, _) in sv.collect_vte_terminals() {
+        for pane_id in sv.pane_ids() {
             let cwd = cwds.get(&pane_id).map(|s| s.as_str());
             sv.spawn_pane(&pane_id, cwd, &env_refs);
         }

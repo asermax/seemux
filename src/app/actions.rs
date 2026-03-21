@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use vte4::prelude::*;
 use gtk4::{ApplicationWindow, GestureClick, Overlay, PopoverMenu, Stack, gio, glib};
 
 use crate::notifications::NotificationStore;
@@ -11,8 +10,8 @@ use crate::session::manager::{self, SessionManager};
 use crate::sidebar::Sidebar;
 use crate::terminal::VteTerminal;
 
-/// Find the URL at click coordinates by picking the widget under the cursor,
-/// walking up to find a VTE terminal, and checking for hyperlinks/regex matches.
+/// Intentional `vte4::Terminal` reference — GTK widget picking requires the concrete type.
+/// This is the only VTE leak outside the terminal module.
 fn find_url_at(gesture: &GestureClick, x: f64, y: f64) -> Option<String> {
     let stack_widget = gesture.widget()?;
     let picked = stack_widget.pick(x, y, gtk4::PickFlags::DEFAULT)?;
@@ -104,8 +103,8 @@ pub(crate) fn register_terminal_actions(
     let mgr = manager.clone();
     let action = gio::SimpleAction::new("term-copy", None);
     action.connect_activate(move |_, _| {
-        if let Some(term) = mgr.borrow().active_terminal_vte() {
-            term.copy_clipboard_format(vte4::Format::Text);
+        if let Some(vt) = mgr.borrow().active_terminal_vte() {
+            vt.copy_clipboard();
         }
     });
     window.add_action(&action);
@@ -114,8 +113,8 @@ pub(crate) fn register_terminal_actions(
     let mgr = manager.clone();
     let action = gio::SimpleAction::new("term-paste", None);
     action.connect_activate(move |_, _| {
-        if let Some(term) = mgr.borrow().active_terminal_vte() {
-            term.paste_clipboard();
+        if let Some(vt) = mgr.borrow().active_terminal_vte() {
+            vt.paste_clipboard();
         }
     });
     window.add_action(&action);
@@ -225,7 +224,7 @@ pub(crate) fn register_terminal_actions(
 
         // Get parent terminal's CWD, fall back to file's parent dir
         let parent_cwd = mgr.borrow().session_terminal(&parent_id)
-            .and_then(|term| term.current_directory_uri())
+            .and_then(|vt| vt.current_directory_uri())
             .and_then(|uri| manager::path_from_file_uri(&uri))
             .or_else(|| filepath.parent().map(|p| p.to_string_lossy().to_string()));
 

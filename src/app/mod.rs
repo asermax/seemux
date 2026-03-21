@@ -7,7 +7,6 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use vte4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, EventControllerKey, Orientation,
     Overlay, Paned, Stack, StackTransitionType,

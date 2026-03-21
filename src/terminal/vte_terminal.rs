@@ -264,9 +264,64 @@ impl VteTerminal {
         });
     }
 
+    // -- Public API: operations --
+
+    pub fn grab_focus(&self) {
+        self.terminal.grab_focus();
+    }
+
+    pub fn feed_child(&self, data: &[u8]) {
+        self.terminal.feed_child(data);
+    }
+
+    pub fn copy_clipboard(&self) {
+        self.terminal.copy_clipboard_format(vte4::Format::Text);
+    }
+
+    pub fn paste_clipboard(&self) {
+        self.terminal.paste_clipboard();
+    }
+
+    pub fn current_directory_uri(&self) -> Option<String> {
+        self.terminal.current_directory_uri().map(|s| s.to_string())
+    }
+
+    pub fn as_widget(&self) -> &gtk4::Widget {
+        self.terminal.upcast_ref()
+    }
+
+    // -- Public API: signal callbacks --
+
+    pub fn on_title_changed(&self, cb: impl Fn(Option<String>, Option<String>) + 'static) {
+        self.terminal.connect_window_title_changed(move |term| {
+            cb(
+                term.window_title().map(|s| s.to_string()),
+                term.current_directory_uri().map(|s| s.to_string()),
+            );
+        });
+    }
+
+    pub fn on_cwd_changed(&self, cb: impl Fn(Option<String>) + 'static) {
+        self.terminal.connect_current_directory_uri_changed(move |term| {
+            cb(term.current_directory_uri().map(|s| s.to_string()));
+        });
+    }
+
+    pub fn on_child_exited(&self, cb: impl Fn(i32) + 'static) {
+        self.terminal.connect_child_exited(move |_term, status| {
+            cb(status);
+        });
+    }
+
+    pub fn on_bell(&self, cb: impl Fn() + 'static) {
+        self.terminal.connect_bell(move |_term| {
+            cb();
+        });
+    }
+
     /// Check for a URL at the given coordinates (in terminal widget space).
     /// Checks OSC 8 hyperlinks first, then regex matches.
-    pub fn check_url_at(terminal: &Terminal, x: f64, y: f64) -> Option<String> {
+    pub(crate) fn check_url_at(terminal: &Terminal, x: f64, y: f64) -> Option<String> {
         if let Some(url) = terminal.check_hyperlink_at(x, y) {
             return Some(url.to_string());
         }
@@ -304,10 +359,6 @@ impl VteTerminal {
 
     pub fn widget(&self) -> &gtk4::Widget {
         self.container.upcast_ref()
-    }
-
-    pub fn terminal(&self) -> &Terminal {
-        &self.terminal
     }
 
     pub fn spawn_shell(&self, working_directory: Option<&str>, extra_env: &[(&str, &str)]) {

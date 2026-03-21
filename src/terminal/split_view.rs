@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{Orientation, Paned, Stack, Widget};
@@ -27,7 +28,7 @@ enum SplitTree {
 }
 
 impl SplitTree {
-    fn build_widget(&self, panes: &HashMap<String, VteTerminal>) -> Widget {
+    fn build_widget(&self, panes: &HashMap<String, Rc<VteTerminal>>) -> Widget {
         match self {
             SplitTree::Leaf(id) => panes[id].widget().clone(),
 
@@ -185,7 +186,7 @@ impl SplitTree {
 /// Terminals stored in a flat HashMap, tree structure tracks layout only.
 /// Split/close modify data in place, then `rebuild_in_stack` updates the GTK widgets.
 pub struct SplitView {
-    panes: RefCell<HashMap<String, VteTerminal>>,
+    panes: RefCell<HashMap<String, Rc<VteTerminal>>>,
     tree: RefCell<SplitTree>,
     focused_pane_id: RefCell<String>,
 }
@@ -193,7 +194,7 @@ pub struct SplitView {
 impl SplitView {
     pub fn new(terminal: VteTerminal, pane_id: String) -> Self {
         let mut panes = HashMap::new();
-        panes.insert(pane_id.clone(), terminal);
+        panes.insert(pane_id.clone(), Rc::new(terminal));
 
         Self {
             panes: RefCell::new(panes),
@@ -208,12 +209,12 @@ impl SplitView {
     }
 
     /// Navigate from the focused pane in a direction. Returns the target terminal if found.
-    pub fn navigate(&self, direction: Direction) -> Option<vte4::Terminal> {
+    pub fn navigate(&self, direction: Direction) -> Option<Rc<VteTerminal>> {
         let focused_id = self.focused_pane_id.borrow().clone();
         let new_id = self.tree.borrow().find_neighbor(&focused_id, &direction)?;
 
         *self.focused_pane_id.borrow_mut() = new_id.clone();
-        self.panes.borrow().get(&new_id).map(|vt| vt.terminal().clone())
+        self.panes.borrow().get(&new_id).cloned()
     }
 
     /// Remove old widget tree from stack, rebuild, re-add.
@@ -255,20 +256,19 @@ impl SplitView {
     }
 
     /// Split the focused pane.
-    /// Returns (new_pane_id, new_vte_terminal) for the caller to wire signals.
+    /// Returns (new_pane_id, new_terminal) for the caller to wire signals.
     /// Caller must call `rebuild_in_stack` after.
-    pub fn split(&self, orientation: Orientation, config: &Config) -> (String, vte4::Terminal) {
+    pub fn split(&self, orientation: Orientation, config: &Config) -> (String, Rc<VteTerminal>) {
         let new_pane_id = uuid::Uuid::new_v4().to_string();
         let focused_id = self.focused_pane_id.borrow().clone();
 
-        let terminal = VteTerminal::new_with_config(config);
-        let vte = terminal.terminal().clone();
-        self.panes.borrow_mut().insert(new_pane_id.clone(), terminal);
+        let terminal = Rc::new(VteTerminal::new_with_config(config));
+        self.panes.borrow_mut().insert(new_pane_id.clone(), terminal.clone());
 
         self.tree.borrow_mut().split(&focused_id, orientation, &new_pane_id);
 
         *self.focused_pane_id.borrow_mut() = new_pane_id.clone();
-        (new_pane_id, vte)
+        (new_pane_id, terminal)
     }
 
     /// Close the focused pane. Returns true if the session should be destroyed (last pane).
@@ -292,11 +292,9 @@ impl SplitView {
         *self.focused_pane_id.borrow_mut() = id.to_string();
     }
 
-    pub fn focused_terminal(&self) -> Option<vte4::Terminal> {
+    pub fn focused_terminal(&self) -> Option<Rc<VteTerminal>> {
         let focused_id = self.focused_pane_id.borrow();
-        self.panes.borrow()
-            .get(focused_id.as_str())
-            .map(|vt| vt.terminal().clone())
+        self.panes.borrow().get(focused_id.as_str()).cloned()
     }
 
     pub fn has_pane(&self, id: &str) -> bool {
@@ -308,10 +306,15 @@ impl SplitView {
         self.panes.borrow().keys().next().cloned()
     }
 
-    /// Collect all (pane_id, vte4::Terminal) pairs for signal wiring.
-    pub fn collect_vte_terminals(&self) -> Vec<(String, vte4::Terminal)> {
+    /// Return all pane IDs.
+    pub fn pane_ids(&self) -> Vec<String> {
+        self.panes.borrow().keys().cloned().collect()
+    }
+
+    /// Collect all (pane_id, terminal) pairs for signal wiring.
+    pub fn collect_terminals(&self) -> Vec<(String, Rc<VteTerminal>)> {
         self.panes.borrow().iter()
-            .map(|(id, t)| (id.clone(), t.terminal().clone()))
+            .map(|(id, t)| (id.clone(), t.clone()))
             .collect()
     }
 
@@ -348,13 +351,13 @@ impl SplitView {
     fn tree_from_saved(
         saved: &SavedSplitNode,
         config: &Config,
-        panes: &mut HashMap<String, VteTerminal>,
+        panes: &mut HashMap<String, Rc<VteTerminal>>,
         pane_list: &mut Vec<(String, Option<String>)>,
     ) -> SplitTree {
         match saved {
             SavedSplitNode::Leaf { cwd } => {
                 let pane_id = uuid::Uuid::new_v4().to_string();
-                let terminal = VteTerminal::new_with_config(config);
+                let terminal = Rc::new(VteTerminal::new_with_config(config));
                 panes.insert(pane_id.clone(), terminal);
                 pane_list.push((pane_id.clone(), cwd.clone()));
                 SplitTree::Leaf(pane_id)

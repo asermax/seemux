@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use vte4::prelude::*;
 use gtk4::{ApplicationWindow, EventControllerKey, gdk::Key, glib};
 
 use crate::notifications::NotificationStore;
@@ -57,15 +56,15 @@ pub(crate) fn setup_keyboard_shortcuts(
         }
 
         if ctrl && shift && key == Key::C {
-            if let Some(term) = mgr.borrow().active_terminal_vte() {
-                term.copy_clipboard_format(vte4::Format::Text);
+            if let Some(vt) = mgr.borrow().active_terminal_vte() {
+                vt.copy_clipboard();
             }
             return glib::Propagation::Stop;
         }
 
         if ctrl && shift && key == Key::V {
-            if let Some(term) = mgr.borrow().active_terminal_vte() {
-                term.paste_clipboard();
+            if let Some(vt) = mgr.borrow().active_terminal_vte() {
+                vt.paste_clipboard();
             }
             return glib::Propagation::Stop;
         }

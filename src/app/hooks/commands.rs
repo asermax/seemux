@@ -1,8 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use vte4::prelude::*;
-
 use crate::notifications::hook_server::CommandResponse;
 use crate::notifications::NotificationStore;
 use crate::session::manager::SessionManager;
