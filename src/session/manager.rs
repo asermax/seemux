@@ -162,6 +162,10 @@ impl SessionManager {
         }
     }
 
+    fn find_session(&self, session_id: &str) -> Option<&Session> {
+        self.sessions.iter().find(|s| s.id == session_id)
+    }
+
     fn find_session_mut(&mut self, session_id: &str) -> Option<&mut Session> {
         self.sessions.iter_mut().find(|s| s.id == session_id)
     }
@@ -533,6 +537,7 @@ impl SessionManager {
         Self::wire_pane_child_exited(self_ref, &active_id, &new_pane_id, &new_vte);
         Self::wire_pane_focus(self_ref, &active_id, &new_pane_id, &new_vte);
         Self::wire_pane_bell(self_ref, &active_id, &new_vte);
+        Self::wire_pane_status(self_ref, &active_id, &new_vte);
 
         self_ref.borrow().notify_state_changed();
 
@@ -721,6 +726,7 @@ impl SessionManager {
             Self::wire_pane_child_exited(self_ref, session_id, pane_id, vte_term);
             Self::wire_pane_focus(self_ref, session_id, pane_id, vte_term);
             Self::wire_pane_bell(self_ref, session_id, vte_term);
+            Self::wire_pane_status(self_ref, session_id, vte_term);
         }
     }
 
@@ -781,6 +787,59 @@ impl SessionManager {
 
             let notification = Notification::new(&sid, "Terminal bell received");
             m.notification_store.borrow_mut().add_notification(notification);
+        });
+    }
+
+    /// Wire command-running status pill + completion notification on a single terminal pane.
+    fn wire_pane_status(
+        self_ref: &Rc<RefCell<Self>>,
+        session_id: &str,
+        vte_term: &vte4::Terminal,
+    ) {
+        let mgr = Rc::downgrade(self_ref);
+        let sid = session_id.to_string();
+        let running = Rc::new(Cell::new(false));
+        let last_command: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
+        vte_term.connect_window_title_changed(move |term: &vte4::Terminal| {
+            let Some(mgr) = mgr.upgrade() else { return };
+            let Ok(m) = mgr.try_borrow() else { return };
+
+            // Skip if Claude hooks are controlling the status for this session
+            let has_claude = m.find_session(&sid)
+                .is_some_and(|s| s.claude_pid.is_some());
+
+            if has_claude {
+                return;
+            }
+
+            let Some(title) = term.window_title() else { return };
+
+            if is_shell_title(&title) {
+                if !running.replace(false) {
+                    return;
+                }
+
+                // Command finished — hide the Running pill
+                m.sidebar.update_status(&sid, &SessionStatus::Idle);
+
+                // Notify if tab is in background
+                if m.active_id.as_deref() != Some(sid.as_str()) {
+                    if let Some(cmd) = last_command.borrow_mut().take() {
+                        let notification = Notification::new(&sid, &format!("$ {cmd}"));
+                        m.notification_store.borrow_mut().add_notification(notification);
+                    }
+                } else {
+                    last_command.borrow_mut().take();
+                }
+            } else {
+                // Track the command name (even if already running — command may have changed)
+                *last_command.borrow_mut() = Some(title.to_string());
+
+                if !running.replace(true) {
+                    m.sidebar.update_status(&sid, &SessionStatus::Running);
+                }
+            }
         });
     }
 
