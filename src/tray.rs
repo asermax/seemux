@@ -212,7 +212,7 @@ fn render_badge(count: u32, color: (u8, u8, u8)) -> Vec<Icon> {
     let scale = 2usize;
     let glyph_width = 4 * scale;
     let glyph_height = 6 * scale;
-    let spacing = 1 * scale;
+    let spacing = scale;
     let total_width = glyphs.len() * glyph_width + (glyphs.len() - 1) * spacing;
     let start_x = (size - total_width) / 2;
     let start_y = (size - glyph_height) / 2;
