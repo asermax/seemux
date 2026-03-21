@@ -136,6 +136,15 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
 
     keyboard::setup_keyboard_shortcuts(&window, &manager, &sidebar, &notification_store, on_new_tab, extra_handler);
 
+    // Hide tab-index overlays when the window loses focus — the Alt key
+    // release event is swallowed by the window manager during Alt+Tab.
+    let sidebar_for_focus = sidebar.clone();
+    window.connect_notify_local(Some("is-active"), move |window, _| {
+        if !window.is_active() {
+            sidebar_for_focus.hide_tab_indices();
+        }
+    });
+
     // Save session state and sidebar width on window close
     let persistence_for_close = persistence.clone();
     let app_for_close = app.clone();
