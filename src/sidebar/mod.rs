@@ -688,14 +688,15 @@ impl Sidebar {
         let mut groups_to_reconcile = Vec::new();
 
         for (id, (row, group_id)) in rows.iter() {
-            if row.is_active() && id != session_id && row.is_peeking()
+            let was_active = row.is_active();
+            row.set_active(id == session_id);
+
+            if was_active && id != session_id && row.is_peeking()
                 && !row.should_peek()
             {
                 row.set_peeking(false);
                 groups_to_reconcile.push(group_id.clone());
             }
-
-            row.set_active(id == session_id);
         }
 
         // If the new active tab is in a collapsed group, peek it
