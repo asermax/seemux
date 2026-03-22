@@ -5,6 +5,7 @@ mod keyboard;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gtk4::prelude::*;
 use gtk4::{
@@ -177,6 +178,43 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     hooks::setup_hook_polling(state, &dropdown.manager, &dropdown.notification_store, &dropdown.sidebar, Some(dropdown.clone()), dropdown.window().clone());
     hooks::setup_stale_pid_detection(&dropdown.manager);
 
+    // Poll toplevel events from the Wayland foreign-toplevel-list protocol.
+    // When a new toplevel appears while the dropdown is visible but unfocused,
+    // enter dialog mode proactively — this catches the case where the GTK
+    // focus-loss event arrives before the toplevel event is polled.
+    // Also track a timestamp so the focus handler can detect toplevels that
+    // arrived just before focus loss (before the next poll tick).
+    let recent_toplevel: Rc<Cell<Option<Instant>>> = Rc::new(Cell::new(None));
+
+    if let Some(rx) = state.take_toplevel_rx() {
+        let recent = recent_toplevel.clone();
+        let dd = dropdown.clone();
+
+        glib::timeout_add_local(Duration::from_millis(100), move || {
+            while let Ok(event) = rx.try_recv() {
+                match event {
+                    crate::toplevel_monitor::ToplevelEvent::Added => {
+                        recent.set(Some(Instant::now()));
+
+                        if *dd.visible() {
+                            eprintln!("seemux: toplevel added while visible → dialog mode");
+                            dd.enter_dialog_mode();
+                        }
+                    }
+
+                    crate::toplevel_monitor::ToplevelEvent::Closed => {
+                        if dd.in_dialog_mode() {
+                            eprintln!("seemux: toplevel closed while in dialog mode → exiting");
+                            dd.exit_dialog_mode();
+                        }
+                    }
+                }
+            }
+
+            glib::ControlFlow::Continue
+        });
+    }
+
     let persistence = StatePersistence::new(
         dropdown.manager.clone(), dropdown.paned.clone(), state.config.clone(),
         dropdown.sidebar.clone(),
@@ -284,16 +322,29 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
 
     dropdown.window().add_controller(kp_controller);
 
-    // Auto-hide when another window gets focus.
-    // Use a short delay to avoid hiding when a popover (context menu) or
-    // clipboard tool (wl-copy) briefly steals focus.
-    // If there was recent keyboard activity the focus loss is likely
-    // spurious, so we try to recover via present() first.
-    let hide_generation: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(0));
+    // Auto-hide when another window gets focus, with dialog-mode detection.
+    let hide_generation: Rc<Cell<u32>> = Rc::new(Cell::new(0));
     let dropdown_for_focus = dropdown.clone();
     let hide_gen = hide_generation.clone();
+    let recent_for_focus = recent_toplevel.clone();
+
     dropdown.window().connect_notify_local(Some("is-active"), move |window, _| {
         if !window.is_active() && *dropdown_for_focus.visible() {
+            let toplevel_appeared_recently = recent_for_focus.get()
+                .map(|t| t.elapsed() < Duration::from_millis(500))
+                .unwrap_or(false);
+
+            eprintln!(
+                "seemux: focus lost — toplevel_recent={toplevel_appeared_recently}, recent_keypress={}",
+                dropdown_for_focus.had_recent_keypress(),
+            );
+
+            if toplevel_appeared_recently {
+                dropdown_for_focus.enter_dialog_mode();
+                return;
+            }
+
+            // Spurious focus loss recovery (wl-copy, popovers)
             if dropdown_for_focus.had_recent_keypress() {
                 window.present();
             }
@@ -303,13 +354,22 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
 
             let dd = dropdown_for_focus.clone();
             let gen_check = hide_gen.clone();
-            glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
-                if gen_check.get() == current && *dd.visible() && !dd.window().is_active() {
+            glib::timeout_add_local_once(Duration::from_millis(300), move || {
+                if gen_check.get() == current
+                    && *dd.visible()
+                    && !dd.window().is_active()
+                    && !dd.in_dialog_mode()
+                {
                     dd.hide();
                 }
             });
-        } else {
-            // Window became active again — cancel any pending hide
+        } else if window.is_active() {
+            // Window became active again — exit dialog mode if needed and
+            // cancel any pending hide.
+            if dropdown_for_focus.in_dialog_mode() {
+                dropdown_for_focus.exit_dialog_mode();
+            }
+
             hide_gen.set(hide_gen.get().wrapping_add(1));
         }
     });

@@ -21,6 +21,7 @@ pub struct DropdownWindow {
     /// Incremented on each animation start; stale callbacks see a mismatch and stop.
     animation_generation: Rc<Cell<u32>>,
     last_keypress: Rc<Cell<Option<Instant>>>,
+    dialog_mode: Rc<Cell<bool>>,
     pub overlay: Overlay,
     pub paned: Paned,
     pub stack: Stack,
@@ -111,6 +112,7 @@ impl DropdownWindow {
             animation_ms,
             animation_generation: Rc::new(Cell::new(0)),
             last_keypress: Rc::new(Cell::new(None)),
+            dialog_mode: Rc::new(Cell::new(false)),
             overlay,
             paned,
             stack,
@@ -138,6 +140,39 @@ impl DropdownWindow {
             .unwrap_or(false)
     }
 
+    pub fn in_dialog_mode(&self) -> bool {
+        self.dialog_mode.get()
+    }
+
+    /// Lower the dropdown below normal windows and release keyboard so an
+    /// external dialog can appear above and receive input.
+    pub fn enter_dialog_mode(&self) {
+        if self.dialog_mode.get() {
+            return;
+        }
+
+        eprintln!("seemux: entering dialog mode — lowering + releasing keyboard");
+        self.dialog_mode.set(true);
+        crate::layer_shell::lower(&self.window);
+        crate::layer_shell::set_keyboard_mode(&self.window, false);
+    }
+
+    /// Raise the dropdown back above normal windows and reclaim keyboard focus.
+    pub fn exit_dialog_mode(&self) {
+        if !self.dialog_mode.get() {
+            return;
+        }
+
+        eprintln!("seemux: exiting dialog mode — raising + exclusive keyboard");
+        self.dialog_mode.set(false);
+        crate::layer_shell::raise(&self.window);
+        crate::layer_shell::set_keyboard_mode(&self.window, true);
+
+        if let Some(term) = self.manager.borrow().active_terminal_vte() {
+            term.grab_focus();
+        }
+    }
+
     pub fn show(&self) {
         if !self.window.is_visible() {
             self.window.set_opacity(0.0);
@@ -163,6 +198,8 @@ impl DropdownWindow {
     }
 
     pub fn hide(&self) {
+        self.exit_dialog_mode();
+
         if *self.visible.borrow() {
             self.animate(false);
             *self.visible.borrow_mut() = false;
@@ -170,6 +207,13 @@ impl DropdownWindow {
     }
 
     pub fn toggle(&self) {
+        // If in dialog mode, just exit it (raises dropdown above the dialog
+        // again) rather than hiding.
+        if self.dialog_mode.get() {
+            self.exit_dialog_mode();
+            return;
+        }
+
         let is_visible = *self.visible.borrow();
 
         if is_visible {

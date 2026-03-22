@@ -1,6 +1,6 @@
 [package]
 name = "seemux"
-version = "0.26.2"
+version = "0.27.0"
 edition = "2024"
 default-run = "seemux"
 
@@ -25,3 +25,6 @@ futures-util = { version = "0.3.32", default-features = false }
 tempfile = "3"
 ksni = "0.2"
 png = "0.17"
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["staging", "client"] }
+wayland-protocols-plasma = { version = "0.3", features = ["client"] }

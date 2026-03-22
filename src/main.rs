@@ -13,6 +13,7 @@ mod session;
 mod sidebar;
 mod terminal;
 mod theme;
+mod toplevel_monitor;
 mod tray;
 
 use std::cell::RefCell;
