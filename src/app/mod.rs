@@ -373,6 +373,17 @@ fn setup_common(
         tray.update_count(total);
     });
 
+    // Spawn deferred terminals when a collapsed group is expanded
+    let mgr_for_expand = manager.clone();
+    sidebar.set_on_group_expanded(move |group_id| {
+        let mgr = mgr_for_expand.borrow();
+        mgr.spawn_group_sessions(group_id);
+
+        let pending = mgr.sessions_pending_resume_for_group(group_id);
+        drop(mgr);
+        schedule_claude_resumes(&mgr_for_expand, pending, false);
+    });
+
     // Wire drag-and-drop tab movement/reordering
     let mgr_for_dnd = manager.clone();
     sidebar.set_on_tab_moved(move |session_id, new_group, position| {
@@ -671,11 +682,32 @@ fn register_group(
 }
 
 /// Spawn deferred shells and resume any Claude sessions that were active at shutdown.
+/// Feed `claude --resume` commands into terminals after a short delay.
+/// When `auto_execute` is true the command runs immediately (trailing newline);
+/// otherwise it is pre-typed for the user to review.
+fn schedule_claude_resumes(
+    manager: &Rc<RefCell<SessionManager>>,
+    pending: Vec<(String, String)>,
+    auto_execute: bool,
+) {
+    if pending.is_empty() { return; }
+
+    let mgr = manager.clone();
+    let suffix = if auto_execute { "\n" } else { "" };
+
+    glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
+        for (session_id, claude_session_id) in &pending {
+            if let Some(term) = mgr.borrow().session_terminal(session_id) {
+                term.feed_child(format!("claude --resume {claude_session_id}{suffix}").as_bytes());
+            }
+        }
+    });
+}
+
 fn schedule_deferred_spawn(manager: &Rc<RefCell<SessionManager>>, grab_focus: bool) {
     let mgr = manager.clone();
 
     glib::idle_add_local_once(move || {
-        let pending = mgr.borrow().sessions_pending_resume();
         mgr.borrow().spawn_deferred();
 
         if grab_focus
@@ -683,20 +715,8 @@ fn schedule_deferred_spawn(manager: &Rc<RefCell<SessionManager>>, grab_focus: bo
                 term.grab_focus();
         }
 
-        if !pending.is_empty() {
-            let mgr = mgr.clone();
-
-            glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
-                for (session_id, claude_session_id, collapsed) in &pending {
-                    if let Some(term) = mgr.borrow().session_terminal(session_id) {
-                        if *collapsed {
-                            term.feed_child(format!("claude --resume {claude_session_id}").as_bytes());
-                        } else {
-                            term.feed_child(format!("claude --resume {claude_session_id}\n").as_bytes());
-                        }
-                    }
-                }
-            });
-        }
+        // Collapsed group sessions are handled by the on_group_expanded callback.
+        let pending = mgr.borrow().sessions_pending_resume();
+        schedule_claude_resumes(&mgr, pending, true);
     });
 }

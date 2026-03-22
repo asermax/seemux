@@ -459,24 +459,43 @@ impl SessionManager {
         self.split_views.get(session_id).and_then(|sv| sv.focused_terminal())
     }
 
-    pub fn sessions_pending_resume(&self) -> Vec<(String, String, bool)> {
+    pub fn sessions_pending_resume(&self) -> Vec<(String, String)> {
         self.sessions.iter()
+            .filter(|s| !self.sidebar.is_group_collapsed(&s.group_id))
             .filter_map(|s| {
-                s.claude_session_id.as_ref().map(|cid| {
-                    let collapsed = self.sidebar.is_group_collapsed(&s.group_id);
-                    (s.id.clone(), cid.clone(), collapsed)
-                })
+                s.claude_session_id.as_ref().map(|cid| (s.id.clone(), cid.clone()))
+            })
+            .collect()
+    }
+
+    pub fn sessions_pending_resume_for_group(&self, group_id: &str) -> Vec<(String, String)> {
+        self.sessions.iter()
+            .filter(|s| s.group_id == group_id)
+            .filter_map(|s| {
+                s.claude_session_id.as_ref().map(|cid| (s.id.clone(), cid.clone()))
             })
             .collect()
     }
 
     pub fn spawn_deferred(&self) {
         for session in &self.sessions {
-            self.spawn_restored_panes(&session.id);
+            if !self.sidebar.is_group_collapsed(&session.group_id) {
+                self.spawn_restored_panes(&session.id);
+            }
+        }
+    }
+
+    pub fn spawn_group_sessions(&self, group_id: &str) {
+        for session in &self.sessions {
+            if session.group_id == group_id {
+                self.spawn_restored_panes(&session.id);
+            }
         }
     }
 
     pub fn switch_to(&mut self, session_id: &str) {
+        self.spawn_restored_panes(session_id);
+
         self.active_id = Some(session_id.to_string());
         self.stack.set_visible_child_name(session_id);
         self.sidebar.set_active(session_id);
@@ -996,6 +1015,9 @@ impl SessionManager {
     /// Spawn deferred shells for a restored session with per-pane CWDs.
     pub fn spawn_restored_panes(&self, session_id: &str) {
         let Some(sv) = self.split_views.get(session_id) else { return };
+
+        if !sv.needs_spawn() { return; }
+
         let env_vars = self.build_env_vars(session_id);
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         let cwds = self.session_cwds.borrow();

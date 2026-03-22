@@ -58,6 +58,8 @@ pub struct Sidebar {
     on_collapse_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     #[allow(clippy::type_complexity)]
     on_group_visibility_changed: Rc<RefCell<Option<Box<dyn Fn()>>>>,
+    #[allow(clippy::type_complexity)]
+    on_group_expanded: Rc<RefCell<Option<Box<dyn Fn(&str)>>>>,
 }
 
 struct GroupEntry {
@@ -152,6 +154,7 @@ impl Sidebar {
             expanded_width: Cell::new(0), // set by wire_sidebar_collapse
             on_collapse_changed: Rc::new(RefCell::new(None)),
             on_group_visibility_changed: Rc::new(RefCell::new(None)),
+            on_group_expanded: Rc::new(RefCell::new(None)),
         };
 
         sidebar.setup_header_drop_target(&sessions_header, DEFAULT_GROUP);
@@ -170,6 +173,10 @@ impl Sidebar {
 
     pub fn set_on_group_visibility_changed<F: Fn() + 'static>(&self, f: F) {
         *self.on_group_visibility_changed.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_group_expanded<F: Fn(&str) + 'static>(&self, f: F) {
+        *self.on_group_expanded.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn collapsed_bar(&self) -> &CollapsedBar {
@@ -845,6 +852,8 @@ impl Sidebar {
         let gid_for_toggle = id.to_string();
         let group_widgets_for_toggle = self.group_widgets.clone();
         let on_visibility = self.on_group_visibility_changed.clone();
+        let on_expanded = self.on_group_expanded.clone();
+        let gid_for_expand = id.to_string();
         group_widget.set_on_toggle(move |collapsed| {
             let rows = rows_for_toggle.borrow();
 
@@ -871,6 +880,11 @@ impl Sidebar {
 
             if let Some(ref callback) = *on_visibility.borrow() {
                 callback();
+            }
+
+            if !collapsed
+                && let Some(ref callback) = *on_expanded.borrow() {
+                    callback(&gid_for_expand);
             }
         });
 

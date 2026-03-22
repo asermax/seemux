@@ -318,6 +318,11 @@ impl SplitView {
             .collect()
     }
 
+    /// Returns true if any pane has not yet been spawned.
+    pub fn needs_spawn(&self) -> bool {
+        self.panes.borrow().values().any(|t| t.needs_spawn())
+    }
+
     /// Spawn a shell in a specific pane by ID.
     pub fn spawn_pane(&self, pane_id: &str, cwd: Option<&str>, env_vars: &[(&str, &str)]) {
         if let Some(terminal) = self.panes.borrow().get(pane_id)
