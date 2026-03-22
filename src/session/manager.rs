@@ -998,16 +998,19 @@ impl SessionManager {
             self.wire_vte_signals(&terminal, &id, &pane_id);
         }
 
-        self.register_session(session, split_view, None);
+        // Store pane CWDs before register_session — which calls switch_to → spawn_restored_panes,
+        // and must find the CWDs already in place or shells spawn in the default directory.
+        {
+            let mut cwds = self.session_cwds.borrow_mut();
 
-        // Store pane CWDs for deferred spawning
-        let mut cwds = self.session_cwds.borrow_mut();
-
-        for (pane_id, cwd) in &panes {
-            if let Some(c) = cwd {
-                cwds.insert(pane_id.clone(), c.clone());
+            for (pane_id, cwd) in &panes {
+                if let Some(c) = cwd {
+                    cwds.insert(pane_id.clone(), c.clone());
+                }
             }
         }
+
+        self.register_session(session, split_view, None);
 
         id
     }
