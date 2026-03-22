@@ -7,12 +7,16 @@ use std::rc::Rc;
 use ksni::menu::StandardItem;
 use ksni::{self, Icon, MenuItem, Status, ToolTip, Tray, TrayService};
 
+const ICON_PNG_BYTES: &[u8] = include_bytes!("../extra/logo/seemux-128x128.png");
+const ICON_SIZE: i32 = 128;
+
 struct SeemuxTray {
     count: u32,
     icon_name: String,
     socket_path: PathBuf,
     quake: bool,
     badge_color: (u8, u8, u8),
+    base_icon_argb: Vec<u8>,
 }
 
 impl SeemuxTray {
@@ -33,19 +37,24 @@ impl Tray for SeemuxTray {
     }
 
     fn icon_name(&self) -> String {
-        self.icon_name.clone()
+        // Empty name forces ksni to use icon_pixmap() instead of theme lookup
+        if self.count > 0 {
+            String::new()
+        } else {
+            self.icon_name.clone()
+        }
     }
 
-    fn status(&self) -> Status {
-        Status::Active
-    }
-
-    fn overlay_icon_pixmap(&self) -> Vec<Icon> {
+    fn icon_pixmap(&self) -> Vec<Icon> {
         if self.count == 0 {
             return vec![];
         }
 
-        render_badge(self.count, self.badge_color)
+        render_icon_with_badge(&self.base_icon_argb, self.count, self.badge_color)
+    }
+
+    fn status(&self) -> Status {
+        Status::Active
     }
 
     fn tool_tip(&self) -> ToolTip {
@@ -113,15 +122,38 @@ impl TrayHandle {
 /// Parse a CSS hex color like "#89b4fa" into (R, G, B).
 fn parse_hex_color(hex: &str) -> (u8, u8, u8) {
     let hex = hex.trim_start_matches('#');
+    let fallback = (0x89, 0xB4, 0xFA); // Catppuccin blue
 
-    if hex.len() >= 6 {
-        let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0x89);
-        let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0xB4);
-        let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0xFA);
-        return (r, g, b);
+    if hex.len() < 6 {
+        return fallback;
     }
 
-    (0x89, 0xB4, 0xFA) // fallback to Catppuccin blue
+    let Ok(r) = u8::from_str_radix(&hex[0..2], 16) else { return fallback };
+    let Ok(g) = u8::from_str_radix(&hex[2..4], 16) else { return fallback };
+    let Ok(b) = u8::from_str_radix(&hex[4..6], 16) else { return fallback };
+
+    (r, g, b)
+}
+
+/// Decode the embedded PNG into ARGB32 network byte order pixels.
+fn decode_icon_png() -> Vec<u8> {
+    let decoder = png::Decoder::new(ICON_PNG_BYTES);
+    let mut reader = decoder.read_info().expect("valid embedded PNG");
+    let mut rgba = vec![0u8; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut rgba).expect("valid embedded PNG frame");
+    rgba.truncate(info.buffer_size());
+
+    // Convert RGBA to ARGB32 (network byte order)
+    let mut argb = Vec::with_capacity(rgba.len());
+
+    for chunk in rgba.chunks_exact(4) {
+        argb.push(chunk[3]); // A
+        argb.push(chunk[0]); // R
+        argb.push(chunk[1]); // G
+        argb.push(chunk[2]); // B
+    }
+
+    argb
 }
 
 pub fn setup_tray(icon_name: &str, socket_path: &Path, quake: bool, accent_color: &str) -> TrayHandle {
@@ -131,6 +163,7 @@ pub fn setup_tray(icon_name: &str, socket_path: &Path, quake: bool, accent_color
         socket_path: socket_path.to_path_buf(),
         quake,
         badge_color: parse_hex_color(accent_color),
+        base_icon_argb: decode_icon_png(),
     };
 
     let service = TrayService::new(tray);
@@ -172,28 +205,28 @@ const DIGIT_GLYPHS: [[u8; 6]; 11] = [
     [0b0000, 0b0010, 0b0111, 0b0010, 0b0000, 0b0000],
 ];
 
-const BADGE_SIZE: i32 = 64;
-
-/// Render a notification badge as ARGB32 overlay icon.
-fn render_badge(count: u32, color: (u8, u8, u8)) -> Vec<Icon> {
-    let size = BADGE_SIZE as usize;
-    let mut buf = vec![0u8; size * size * 4];
+/// Render the seemux icon with a notification badge composited in the bottom-right corner.
+fn render_icon_with_badge(base_argb: &[u8], count: u32, color: (u8, u8, u8)) -> Vec<Icon> {
+    let size = ICON_SIZE as usize;
+    let mut buf = base_argb.to_vec();
     let (r, g, b) = color;
 
-    let cx = size as f32 / 2.0;
-    let cy = size as f32 / 2.0;
-    let radius = size as f32 / 2.0 - 1.0;
+    let badge_radius = 24.0f32;
+    let cx = size as f32 - badge_radius - 2.0;
+    let cy = size as f32 - badge_radius - 2.0;
 
-    // Draw filled circle in the theme accent color
-    for y in 0..size {
-        for x in 0..size {
+    let y_min = (cy - badge_radius).floor().max(0.0) as usize;
+    let y_max = ((cy + badge_radius).ceil() as usize).min(size - 1);
+    let x_min = (cx - badge_radius).floor().max(0.0) as usize;
+    let x_max = ((cx + badge_radius).ceil() as usize).min(size - 1);
+
+    for y in y_min..=y_max {
+        for x in x_min..=x_max {
             let dx = x as f32 + 0.5 - cx;
             let dy = y as f32 + 0.5 - cy;
 
-            if dx * dx + dy * dy <= radius * radius {
+            if dx * dx + dy * dy <= badge_radius * badge_radius {
                 let offset = (y * size + x) * 4;
-
-                // ARGB32 network byte order (big-endian): A, R, G, B
                 buf[offset] = 0xFF;
                 buf[offset + 1] = r;
                 buf[offset + 2] = g;
@@ -202,7 +235,6 @@ fn render_badge(count: u32, color: (u8, u8, u8)) -> Vec<Icon> {
         }
     }
 
-    // Determine which glyphs to draw
     let glyphs: Vec<usize> = if count > 9 {
         vec![9, 10] // "9+"
     } else {
@@ -214,10 +246,9 @@ fn render_badge(count: u32, color: (u8, u8, u8)) -> Vec<Icon> {
     let glyph_height = 6 * scale;
     let spacing = scale;
     let total_width = glyphs.len() * glyph_width + (glyphs.len() - 1) * spacing;
-    let start_x = (size - total_width) / 2;
-    let start_y = (size - glyph_height) / 2;
+    let start_x = cx as usize - total_width / 2;
+    let start_y = cy as usize - glyph_height / 2;
 
-    // Draw white digit(s), scaled up
     for (gi, &glyph_idx) in glyphs.iter().enumerate() {
         let gx = start_x + gi * (glyph_width + spacing);
         let glyph = &DIGIT_GLYPHS[glyph_idx];
@@ -245,8 +276,8 @@ fn render_badge(count: u32, color: (u8, u8, u8)) -> Vec<Icon> {
     }
 
     vec![Icon {
-        width: BADGE_SIZE,
-        height: BADGE_SIZE,
+        width: ICON_SIZE,
+        height: ICON_SIZE,
         data: buf,
     }]
 }

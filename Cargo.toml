@@ -1,6 +1,6 @@
 [package]
 name = "seemux"
-version = "0.24.2"
+version = "0.24.3"
 edition = "2024"
 default-run = "seemux"
 
@@ -24,3 +24,4 @@ ashpd = { version = "0.13.7", default-features = false, features = ["global_shor
 futures-util = { version = "0.3.32", default-features = false }
 tempfile = "3"
 ksni = "0.2"
+png = "0.17"
