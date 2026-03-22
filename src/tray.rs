@@ -7,8 +7,8 @@ use std::rc::Rc;
 use ksni::menu::StandardItem;
 use ksni::{self, Icon, MenuItem, Status, ToolTip, Tray, TrayService};
 
-const ICON_PNG_BYTES: &[u8] = include_bytes!("../extra/logo/seemux-128x128.png");
-const ICON_SIZE: i32 = 128;
+const ICON_PNG_128: &[u8] = include_bytes!("../extra/logo/seemux-128x128.png");
+const ICON_PNG_48: &[u8] = include_bytes!("../extra/logo/seemux-48x48.png");
 
 struct SeemuxTray {
     count: u32,
@@ -16,7 +16,11 @@ struct SeemuxTray {
     socket_path: PathBuf,
     quake: bool,
     badge_color: (u8, u8, u8),
-    base_icon_argb: Vec<u8>,
+    base_icons: Vec<(i32, Vec<u8>)>,
+    /// Cached rendered icons with badge — recomputed only when count changes.
+    /// Avoids redundant rendering since ksni calls icon_pixmap() and
+    /// attention_icon_pixmap() multiple times per update cycle.
+    cached_badge_icons: Vec<Icon>,
 }
 
 impl SeemuxTray {
@@ -46,15 +50,19 @@ impl Tray for SeemuxTray {
     }
 
     fn icon_pixmap(&self) -> Vec<Icon> {
-        if self.count == 0 {
-            return vec![];
-        }
-
-        render_icon_with_badge(&self.base_icon_argb, self.count, self.badge_color)
+        self.cached_badge_icons.clone()
     }
 
     fn status(&self) -> Status {
-        Status::Active
+        if self.count > 0 {
+            Status::NeedsAttention
+        } else {
+            Status::Active
+        }
+    }
+
+    fn attention_icon_pixmap(&self) -> Vec<Icon> {
+        self.cached_badge_icons.clone()
     }
 
     fn tool_tip(&self) -> ToolTip {
@@ -107,7 +115,12 @@ impl TrayHandle {
     pub fn update_count(&self, count: u32) {
         if let Some(ref handle) = *self.handle.borrow() {
             handle.update(|tray| {
+                if tray.count == count {
+                    return;
+                }
+
                 tray.count = count;
+                tray.cached_badge_icons = render_badge_icons(&tray.base_icons, count, tray.badge_color);
             });
         }
     }
@@ -135,15 +148,14 @@ fn parse_hex_color(hex: &str) -> (u8, u8, u8) {
     (r, g, b)
 }
 
-/// Decode the embedded PNG into ARGB32 network byte order pixels.
-fn decode_icon_png() -> Vec<u8> {
-    let decoder = png::Decoder::new(ICON_PNG_BYTES);
+/// Decode a PNG from raw bytes into ARGB32 network byte order pixels.
+fn decode_icon_png(png_bytes: &[u8]) -> Vec<u8> {
+    let decoder = png::Decoder::new(png_bytes);
     let mut reader = decoder.read_info().expect("valid embedded PNG");
     let mut rgba = vec![0u8; reader.output_buffer_size()];
     let info = reader.next_frame(&mut rgba).expect("valid embedded PNG frame");
     rgba.truncate(info.buffer_size());
 
-    // Convert RGBA to ARGB32 (network byte order)
     let mut argb = Vec::with_capacity(rgba.len());
 
     for chunk in rgba.chunks_exact(4) {
@@ -156,14 +168,69 @@ fn decode_icon_png() -> Vec<u8> {
     argb
 }
 
+/// Box-filter downscale of ARGB32 pixel data from `src_size` to `dst_size`.
+fn downscale_argb(src: &[u8], src_size: usize, dst_size: usize) -> Vec<u8> {
+    let mut dst = vec![0u8; dst_size * dst_size * 4];
+    let scale = src_size as f32 / dst_size as f32;
+
+    for dy in 0..dst_size {
+        for dx in 0..dst_size {
+            let src_x0 = (dx as f32 * scale) as usize;
+            let src_y0 = (dy as f32 * scale) as usize;
+            let src_x1 = (((dx + 1) as f32 * scale) as usize).min(src_size);
+            let src_y1 = (((dy + 1) as f32 * scale) as usize).min(src_size);
+
+            let mut a_sum: u32 = 0;
+            let mut r_sum: u32 = 0;
+            let mut g_sum: u32 = 0;
+            let mut b_sum: u32 = 0;
+            let mut count: u32 = 0;
+
+            for sy in src_y0..src_y1 {
+                for sx in src_x0..src_x1 {
+                    let off = (sy * src_size + sx) * 4;
+                    a_sum += src[off] as u32;
+                    r_sum += src[off + 1] as u32;
+                    g_sum += src[off + 2] as u32;
+                    b_sum += src[off + 3] as u32;
+                    count += 1;
+                }
+            }
+
+            if count > 0 {
+                let off = (dy * dst_size + dx) * 4;
+                dst[off] = (a_sum / count) as u8;
+                dst[off + 1] = (r_sum / count) as u8;
+                dst[off + 2] = (g_sum / count) as u8;
+                dst[off + 3] = (b_sum / count) as u8;
+            }
+        }
+    }
+
+    dst
+}
+
 pub fn setup_tray(icon_name: &str, socket_path: &Path, quake: bool, accent_color: &str) -> TrayHandle {
+    let argb_128 = decode_icon_png(ICON_PNG_128);
+    let argb_48 = decode_icon_png(ICON_PNG_48);
+    let argb_32 = downscale_argb(&argb_48, 48, 32);
+    let argb_22 = downscale_argb(&argb_48, 48, 22);
+
+    let base_icons = vec![
+        (128, argb_128),
+        (48, argb_48),
+        (32, argb_32),
+        (22, argb_22),
+    ];
+
     let tray = SeemuxTray {
         count: 0,
         icon_name: icon_name.to_string(),
         socket_path: socket_path.to_path_buf(),
         quake,
         badge_color: parse_hex_color(accent_color),
-        base_icon_argb: decode_icon_png(),
+        base_icons,
+        cached_badge_icons: vec![],
     };
 
     let service = TrayService::new(tray);
@@ -205,15 +272,38 @@ const DIGIT_GLYPHS: [[u8; 6]; 11] = [
     [0b0000, 0b0010, 0b0111, 0b0010, 0b0000, 0b0000],
 ];
 
-/// Render the seemux icon with a notification badge composited in the bottom-right corner.
-fn render_icon_with_badge(base_argb: &[u8], count: u32, color: (u8, u8, u8)) -> Vec<Icon> {
-    let size = ICON_SIZE as usize;
+fn render_badge_icons(base_icons: &[(i32, Vec<u8>)], count: u32, color: (u8, u8, u8)) -> Vec<Icon> {
+    if count == 0 {
+        return vec![];
+    }
+
+    base_icons
+        .iter()
+        .map(|(size, argb)| render_icon_with_badge(argb, *size, count, color))
+        .collect()
+}
+
+/// Badge size scales proportionally — larger fraction at small icon sizes for visibility.
+fn render_icon_with_badge(base_argb: &[u8], icon_size: i32, count: u32, color: (u8, u8, u8)) -> Icon {
+    let size = icon_size as usize;
     let mut buf = base_argb.to_vec();
     let (r, g, b) = color;
 
-    let badge_radius = 24.0f32;
-    let cx = size as f32 - badge_radius - 2.0;
-    let cy = size as f32 - badge_radius - 2.0;
+    // Badge takes a larger fraction of the icon at small sizes so it stays readable
+    let badge_fraction = if icon_size <= 24 {
+        0.50
+    } else if icon_size <= 32 {
+        0.45
+    } else if icon_size <= 48 {
+        0.42
+    } else {
+        0.38
+    };
+
+    let badge_radius = (icon_size as f32 * badge_fraction * 0.5).round();
+    let margin = (icon_size as f32 * 0.02).max(1.0);
+    let cx = size as f32 - badge_radius - margin;
+    let cy = size as f32 - badge_radius - margin;
 
     let y_min = (cy - badge_radius).floor().max(0.0) as usize;
     let y_max = ((cy + badge_radius).ceil() as usize).min(size - 1);
@@ -241,13 +331,13 @@ fn render_icon_with_badge(base_argb: &[u8], count: u32, color: (u8, u8, u8)) -> 
         vec![count as usize]
     };
 
-    let scale = 3usize;
+    let scale = if icon_size <= 24 { 1usize } else if icon_size <= 48 { 2 } else { 3 };
     let glyph_width = 4 * scale;
     let glyph_height = 6 * scale;
     let spacing = scale;
-    let total_width = glyphs.len() * glyph_width + (glyphs.len() - 1) * spacing;
-    let start_x = cx as usize - total_width / 2;
-    let start_y = cy as usize - glyph_height / 2;
+    let total_width = glyphs.len() * glyph_width + glyphs.len().saturating_sub(1) * spacing;
+    let start_x = (cx.round() as usize).saturating_sub(total_width / 2);
+    let start_y = (cy.round() as usize).saturating_sub(glyph_height / 2);
 
     for (gi, &glyph_idx) in glyphs.iter().enumerate() {
         let gx = start_x + gi * (glyph_width + spacing);
@@ -275,9 +365,9 @@ fn render_icon_with_badge(base_argb: &[u8], count: u32, color: (u8, u8, u8)) -> 
         }
     }
 
-    vec![Icon {
-        width: ICON_SIZE,
-        height: ICON_SIZE,
+    Icon {
+        width: icon_size,
+        height: icon_size,
         data: buf,
-    }]
+    }
 }
