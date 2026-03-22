@@ -1125,6 +1125,22 @@ impl Sidebar {
             .find(|g| g.name == name)
             .map(|g| g.id.clone())
     }
+
+    pub fn find_group_name(&self, group_id: &str) -> Option<String> {
+        self.groups.borrow().iter()
+            .find(|g| g.id == group_id)
+            .map(|g| g.name.clone())
+    }
+
+    pub fn rename_group(&self, group_id: &str, new_name: &str) {
+        if let Some(entry) = self.groups.borrow_mut().iter_mut().find(|g| g.id == group_id) {
+            entry.name = new_name.to_string();
+        }
+
+        if let Some(widget) = self.group_widgets.borrow().get(group_id) {
+            widget.set_name(new_name);
+        }
+    }
 }
 
 /// Reconcile a collapsed group's list_box visibility based on peek state of its rows.

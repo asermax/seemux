@@ -91,6 +91,34 @@ pub(crate) fn register_tab_actions(
         }
     });
     window.add_action(&action);
+
+    // group-rename
+    let sidebar_rename = sidebar.clone();
+    let mgr_rename = manager.clone();
+    let persistence_rename = persistence.clone();
+    let action = gio::SimpleAction::new("group-rename", Some(&String::static_variant_type()));
+    action.connect_activate(move |_, param| {
+        let Some(group_id) = param.and_then(|v| v.get::<String>()) else { return };
+        let Some(current_name) = sidebar_rename.find_group_name(&group_id) else { return };
+
+        let Some(overlay) = sidebar_rename.container.ancestor(Overlay::static_type())
+            .and_downcast::<Overlay>() else { return };
+
+        let sidebar = sidebar_rename.clone();
+        let gid = group_id.clone();
+        let p = persistence_rename.clone();
+
+        super::dialogs::show_rename_group_overlay(
+            &overlay,
+            &mgr_rename,
+            &current_name,
+            move |new_name| {
+                sidebar.rename_group(&gid, &new_name);
+                p.mark_dirty();
+            },
+        );
+    });
+    window.add_action(&action);
 }
 
 pub(crate) fn register_terminal_actions(

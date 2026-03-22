@@ -15,6 +15,7 @@ pub struct TabGroupWidget {
     pub list_box: ListBox,
     collapsed: Rc<Cell<bool>>,
     toggle_label: Label,
+    name_label: Label,
     #[allow(clippy::type_complexity)]
     on_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
 }
@@ -101,6 +102,7 @@ impl TabGroupWidget {
             list_box,
             collapsed,
             toggle_label,
+            name_label,
             on_toggle,
         }
     }
@@ -111,6 +113,10 @@ impl TabGroupWidget {
 
     pub fn header_widget(&self) -> &GtkBox {
         &self.header
+    }
+
+    pub fn set_name(&self, name: &str) {
+        self.name_label.set_text(name);
     }
 
     pub fn is_collapsed(&self) -> bool {
@@ -257,9 +263,10 @@ impl TabGroupWidget {
         self.container.add_controller(drop_target);
     }
 
-    /// Add right-click context menu with "Delete Group" action.
+    /// Add right-click context menu with group actions.
     pub fn setup_context_menu(&self, group_id: &str) {
         let menu = gio::Menu::new();
+        menu.append(Some("Rename Group"), Some(&format!("win.group-rename('{group_id}')")));
         menu.append(Some("Delete Group"), Some(&format!("win.group-delete('{group_id}')")));
 
         let popover = PopoverMenu::from_model(Some(&menu));

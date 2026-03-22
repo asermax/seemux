@@ -6,11 +6,15 @@ use gtk4::{EventControllerKey, Orientation, Overlay, gdk::Key, glib};
 
 use crate::session::manager::SessionManager;
 
-/// Show a centered "New Group" form as an overlay child.
-pub(crate) fn show_new_group_overlay<F: Fn(String) + 'static>(
+/// Generic centered entry-form overlay. Both "New Group" and "Rename Group" are thin wrappers.
+fn show_entry_overlay<F: Fn(String) + 'static>(
     overlay: &Overlay,
     manager: &Rc<RefCell<SessionManager>>,
-    on_create: F,
+    label_text: &str,
+    prefill: Option<&str>,
+    placeholder: Option<&str>,
+    button_label: &str,
+    on_submit: F,
 ) {
     use gtk4::{Box as GtkBox, Button, Entry, Label};
 
@@ -24,29 +28,34 @@ pub(crate) fn show_new_group_overlay<F: Fn(String) + 'static>(
     card.set_margin_end(16);
     card.set_width_request(300);
 
-    let label = Label::new(Some("Group name:"));
+    let label = Label::new(Some(label_text));
     label.set_xalign(0.0);
 
     let entry = Entry::new();
-    entry.set_placeholder_text(Some("Enter group name"));
+
+    if let Some(text) = prefill {
+        entry.set_text(text);
+    }
+
+    if let Some(text) = placeholder {
+        entry.set_placeholder_text(Some(text));
+    }
 
     let btn_box = GtkBox::new(Orientation::Horizontal, 8);
     btn_box.set_halign(gtk4::Align::End);
 
     let cancel_btn = Button::with_label("Cancel");
-    let create_btn = Button::with_label("Create");
-    create_btn.add_css_class("suggested-action");
+    let submit_btn = Button::with_label(button_label);
+    submit_btn.add_css_class("suggested-action");
 
     btn_box.append(&cancel_btn);
-    btn_box.append(&create_btn);
+    btn_box.append(&submit_btn);
 
     card.append(&label);
     card.append(&entry);
     card.append(&btn_box);
 
     overlay.add_overlay(&card);
-
-    let on_create = Rc::new(on_create);
 
     let overlay_cancel = overlay.clone();
     let card_cancel = card.clone();
@@ -56,35 +65,29 @@ pub(crate) fn show_new_group_overlay<F: Fn(String) + 'static>(
         super::refocus_terminal(&mgr_cancel);
     });
 
-    let overlay_create = overlay.clone();
-    let card_create = card.clone();
-    let entry_create = entry.clone();
-    let on_create_btn = on_create.clone();
-    let mgr_create = manager.clone();
-    create_btn.connect_clicked(move |_| {
-        let name = entry_create.text().to_string();
+    let submit = {
+        let overlay = overlay.clone();
+        let card = card.clone();
+        let entry = entry.clone();
+        let on_submit = Rc::new(on_submit);
+        let mgr = manager.clone();
 
-        if !name.is_empty() {
-            on_create_btn(name);
+        move || {
+            let name = entry.text().to_string();
+
+            if !name.is_empty() {
+                on_submit(name);
+            }
+
+            overlay.remove_overlay(&card);
+            super::refocus_terminal(&mgr);
         }
+    };
 
-        overlay_create.remove_overlay(&card_create);
-        super::refocus_terminal(&mgr_create);
-    });
+    let submit_click = submit.clone();
+    submit_btn.connect_clicked(move |_| submit_click());
 
-    let overlay_enter = overlay.clone();
-    let card_enter = card.clone();
-    let mgr_enter = manager.clone();
-    entry.connect_activate(move |entry| {
-        let name = entry.text().to_string();
-
-        if !name.is_empty() {
-            on_create(name);
-        }
-
-        overlay_enter.remove_overlay(&card_enter);
-        super::refocus_terminal(&mgr_enter);
-    });
+    entry.connect_activate(move |_| submit());
 
     // Handle Escape to dismiss
     let key_controller = EventControllerKey::new();
@@ -102,6 +105,43 @@ pub(crate) fn show_new_group_overlay<F: Fn(String) + 'static>(
     entry.add_controller(key_controller);
 
     entry.grab_focus();
+
+    if prefill.is_some() {
+        entry.select_region(0, -1);
+    }
+}
+
+pub(crate) fn show_new_group_overlay<F: Fn(String) + 'static>(
+    overlay: &Overlay,
+    manager: &Rc<RefCell<SessionManager>>,
+    on_create: F,
+) {
+    show_entry_overlay(
+        overlay,
+        manager,
+        "Group name:",
+        None,
+        Some("Enter group name"),
+        "Create",
+        on_create,
+    );
+}
+
+pub(crate) fn show_rename_group_overlay<F: Fn(String) + 'static>(
+    overlay: &Overlay,
+    manager: &Rc<RefCell<SessionManager>>,
+    current_name: &str,
+    on_rename: F,
+) {
+    show_entry_overlay(
+        overlay,
+        manager,
+        "Rename group:",
+        Some(current_name),
+        None,
+        "Rename",
+        on_rename,
+    );
 }
 
 /// Show a centered confirmation dialog as an overlay child.
