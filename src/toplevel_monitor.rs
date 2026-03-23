@@ -46,7 +46,6 @@ impl ToplevelMonitor {
     /// or no supported toplevel protocol is available.
     pub fn start() -> Option<mpsc::Receiver<ToplevelEvent>> {
         if std::env::var("WAYLAND_DISPLAY").is_err() {
-            eprintln!("seemux: toplevel monitor skipped — WAYLAND_DISPLAY not set");
             return None;
         }
 
@@ -58,19 +57,12 @@ impl ToplevelMonitor {
             .spawn(move || run_monitor(tx, ready_tx))
             .is_err()
         {
-            eprintln!("seemux: toplevel monitor skipped — failed to spawn thread");
             return None;
         }
 
         match ready_rx.recv() {
-            Ok(true) => {
-                eprintln!("seemux: toplevel monitor started");
-                Some(rx)
-            }
-            _ => {
-                eprintln!("seemux: toplevel monitor failed to initialize");
-                None
-            }
+            Ok(true) => Some(rx),
+            _ => None,
         }
     }
 }
@@ -92,7 +84,6 @@ struct MonitorState {
 
 fn run_monitor(tx: mpsc::Sender<ToplevelEvent>, ready_tx: mpsc::SyncSender<bool>) {
     let Ok(conn) = Connection::connect_to_env() else {
-        eprintln!("seemux: toplevel monitor — failed to connect to Wayland display");
         let _ = ready_tx.send(false);
         return;
     };
@@ -120,7 +111,6 @@ fn run_monitor(tx: mpsc::Sender<ToplevelEvent>, ready_tx: mpsc::SyncSender<bool>
     }
 
     if let Some((name, version)) = state.ext_global {
-        eprintln!("seemux: binding ext_foreign_toplevel_list_v1");
         let list = registry.bind::<ExtForeignToplevelListV1, _, _>(
             name,
             version.min(1),
@@ -129,7 +119,6 @@ fn run_monitor(tx: mpsc::Sender<ToplevelEvent>, ready_tx: mpsc::SyncSender<bool>
         );
         state.ext_list = Some(list);
     } else if let Some((name, version)) = state.kde_global {
-        eprintln!("seemux: binding org_kde_plasma_window_management (KDE fallback)");
         let mgr = registry.bind::<OrgKdePlasmaWindowManagement, _, _>(
             name,
             version.min(18),
@@ -138,7 +127,6 @@ fn run_monitor(tx: mpsc::Sender<ToplevelEvent>, ready_tx: mpsc::SyncSender<bool>
         );
         state.kde_mgr = Some(mgr);
     } else {
-        eprintln!("seemux: no supported toplevel protocol available");
         let _ = ready_tx.send(false);
         return;
     }
@@ -146,8 +134,6 @@ fn run_monitor(tx: mpsc::Sender<ToplevelEvent>, ready_tx: mpsc::SyncSender<bool>
     // Receive pre-existing toplevels so we can ignore them.
     let _ = event_queue.roundtrip(&mut state);
 
-    let pre_existing = state.ext_handles.len() + state.kde_windows.len();
-    eprintln!("seemux: toplevel monitor ready, {pre_existing} pre-existing toplevels");
     state.initial_done = true;
 
     let _ = ready_tx.send(true);
@@ -171,11 +157,9 @@ impl Dispatch<wl_registry::WlRegistry, ()> for MonitorState {
         if let wl_registry::Event::Global { name, interface, version } = event {
             match interface.as_str() {
                 "ext_foreign_toplevel_list_v1" => {
-                    eprintln!("seemux: registry global — {interface} v{version}");
                     state.ext_global = Some((name, version));
                 }
                 "org_kde_plasma_window_management" => {
-                    eprintln!("seemux: registry global — {interface} v{version}");
                     state.kde_global = Some((name, version));
                 }
                 _ => {}
@@ -227,14 +211,12 @@ impl Dispatch<ExtForeignToplevelHandleV1, ()> for MonitorState {
                 *announced = true;
 
                 if state.initial_done {
-                    eprintln!("seemux: toplevel added [ext] (total: {})", state.ext_handles.len());
                     let _ = state.tx.send(ToplevelEvent::Added);
                 }
             }
 
             ext_foreign_toplevel_handle_v1::Event::Closed => {
                 if let Some(true) = state.ext_handles.remove(proxy) {
-                    eprintln!("seemux: toplevel closed [ext] (total: {})", state.ext_handles.len());
                     let _ = state.tx.send(ToplevelEvent::Closed);
                 }
 
@@ -288,7 +270,6 @@ impl Dispatch<OrgKdePlasmaWindow, ()> for MonitorState {
 
                 // Skip non-application windows (notifications, tooltips, OSD, etc.)
                 if win.state_flags & KDE_STATE_SKIP_TASKBAR != 0 {
-                    eprintln!("seemux: ignoring kde toplevel with skip_taskbar (flags: {:#x})", win.state_flags);
                     state.kde_windows.remove(proxy);
                     proxy.destroy();
                     return;
@@ -297,7 +278,6 @@ impl Dispatch<OrgKdePlasmaWindow, ()> for MonitorState {
                 win.announced = true;
 
                 if state.initial_done {
-                    eprintln!("seemux: toplevel added [kde] (total: {})", state.kde_windows.len());
                     let _ = state.tx.send(ToplevelEvent::Added);
                 }
             }
@@ -307,7 +287,6 @@ impl Dispatch<OrgKdePlasmaWindow, ()> for MonitorState {
                     .is_some_and(|win| win.announced);
 
                 if was_announced {
-                    eprintln!("seemux: toplevel closed [kde] (total: {})", state.kde_windows.len());
                     let _ = state.tx.send(ToplevelEvent::Closed);
                 }
 
