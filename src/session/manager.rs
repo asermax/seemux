@@ -459,21 +459,19 @@ impl SessionManager {
         self.split_views.get(session_id).and_then(|sv| sv.focused_terminal())
     }
 
-    pub fn sessions_pending_resume(&self) -> Vec<(String, String)> {
-        self.sessions.iter()
-            .filter(|s| !self.sidebar.is_group_collapsed(&s.group_id))
-            .filter_map(|s| {
-                s.claude_session_id.as_ref().map(|cid| (s.id.clone(), cid.clone()))
-            })
+    pub fn take_pending_resumes(&mut self) -> Vec<(String, String)> {
+        let sidebar = &self.sidebar;
+
+        self.sessions.iter_mut()
+            .filter(|s| !sidebar.is_group_collapsed(&s.group_id))
+            .filter_map(|s| s.claude_session_id.take().map(|cid| (s.id.clone(), cid)))
             .collect()
     }
 
-    pub fn sessions_pending_resume_for_group(&self, group_id: &str) -> Vec<(String, String)> {
-        self.sessions.iter()
+    pub fn take_pending_resumes_for_group(&mut self, group_id: &str) -> Vec<(String, String)> {
+        self.sessions.iter_mut()
             .filter(|s| s.group_id == group_id)
-            .filter_map(|s| {
-                s.claude_session_id.as_ref().map(|cid| (s.id.clone(), cid.clone()))
-            })
+            .filter_map(|s| s.claude_session_id.take().map(|cid| (s.id.clone(), cid)))
             .collect()
     }
 

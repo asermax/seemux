@@ -376,11 +376,9 @@ fn setup_common(
     // Spawn deferred terminals when a collapsed group is expanded
     let mgr_for_expand = manager.clone();
     sidebar.set_on_group_expanded(move |group_id| {
-        let mgr = mgr_for_expand.borrow();
-        mgr.spawn_group_sessions(group_id);
+        mgr_for_expand.borrow().spawn_group_sessions(group_id);
 
-        let pending = mgr.sessions_pending_resume_for_group(group_id);
-        drop(mgr);
+        let pending = mgr_for_expand.borrow_mut().take_pending_resumes_for_group(group_id);
         schedule_claude_resumes(&mgr_for_expand, pending, false);
     });
 
@@ -716,7 +714,7 @@ fn schedule_deferred_spawn(manager: &Rc<RefCell<SessionManager>>, grab_focus: bo
         }
 
         // Collapsed group sessions are handled by the on_group_expanded callback.
-        let pending = mgr.borrow().sessions_pending_resume();
+        let pending = mgr.borrow_mut().take_pending_resumes();
         schedule_claude_resumes(&mgr, pending, true);
     });
 }
