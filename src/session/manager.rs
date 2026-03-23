@@ -607,6 +607,14 @@ impl SessionManager {
         }
     }
 
+    pub fn switch_to_visible_index(&mut self, index: usize) {
+        let ordered = self.sidebar.ordered_visible_session_ids();
+
+        if let Some(id) = ordered.get(index).cloned() {
+            self.switch_to(&id);
+        }
+    }
+
     pub fn switch_adjacent(&mut self, forward: bool) {
         let Some(active_id) = &self.active_id else { return };
         let ordered = self.sidebar.ordered_visible_session_ids();

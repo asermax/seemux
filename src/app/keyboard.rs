@@ -198,7 +198,7 @@ pub(crate) fn setup_keyboard_shortcuts(
             };
 
             if let Some(idx) = tab_index {
-                mgr.borrow_mut().switch_to_index(idx);
+                mgr.borrow_mut().switch_to_visible_index(idx);
 
                 if let Some(active) = mgr.borrow().active_id() {
                     notif_for_keys.borrow_mut().mark_read(active);
