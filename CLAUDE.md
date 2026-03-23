@@ -78,6 +78,16 @@ Tests live alongside source code in `#[cfg(test)]` modules within:
 - `src/config.rs` — config loading, serialization
 - `src/notifications/mod.rs` — notification store operations
 
+## Commit Convention
+
+Use conventional commits with the **component being modified** as the scope — not the project name. Derive the scope from the module or area of the codebase being changed (e.g., `keyboard`, `session`, `dropdown`, `sidebar`, `config`, `hooks`). For plugin changes, use the plugin name (e.g., `seemux-hooks`).
+
+Examples:
+- `fix(keyboard): switch tabs by visible index`
+- `feat(dropdown): add animated reveal on toggle`
+- `refactor(session): extract resume scheduling logic`
+- `fix(seemux-hooks): correct hook event JSON format`
+
 ## Debugging
 
 - Logs go to stderr (`eprintln!`)
