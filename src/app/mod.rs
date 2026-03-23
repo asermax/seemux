@@ -334,19 +334,23 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
                 .map(|t| t.elapsed() < Duration::from_millis(500))
                 .unwrap_or(false);
 
-            eprintln!(
-                "seemux: focus lost — toplevel_recent={toplevel_appeared_recently}, recent_keypress={}",
-                dropdown_for_focus.had_recent_keypress(),
-            );
-
             if toplevel_appeared_recently {
                 dropdown_for_focus.enter_dialog_mode();
                 return;
             }
 
-            // Spurious focus loss recovery (wl-copy, popovers)
+            // Spurious focus loss recovery (wl-copy, popovers).
+            // Delayed to avoid racing the toplevel monitor — if a dialog
+            // opens within the grace period, dialog mode will be entered
+            // and the present() is skipped.
             if dropdown_for_focus.had_recent_keypress() {
-                window.present();
+                let dd = dropdown_for_focus.clone();
+                let win = window.clone();
+                glib::timeout_add_local_once(Duration::from_millis(150), move || {
+                    if !dd.in_dialog_mode() && !win.is_active() && *dd.visible() {
+                        win.present();
+                    }
+                });
             }
 
             let current = hide_gen.get().wrapping_add(1);
