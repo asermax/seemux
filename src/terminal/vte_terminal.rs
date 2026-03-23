@@ -1,6 +1,6 @@
 use std::cell::Cell;
 use std::env;
-
+use std::rc::Rc;
 
 use gtk4::gdk;
 use gtk4::glib;
@@ -44,6 +44,8 @@ impl VteTerminal {
             gtk4::Orientation::Vertical,
             terminal.vadjustment().as_ref(),
         );
+
+        Self::setup_scroll_guard(&terminal, &scrollbar);
 
         let container = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         container.set_margin_start(2);
@@ -146,6 +148,148 @@ impl VteTerminal {
     pub fn on_bell(&self, cb: impl Fn() + 'static) {
         self.terminal.connect_bell(move |_term| {
             cb();
+        });
+    }
+
+    /// Prevents the viewport from jumping when VTE's internal state management
+    /// (screen switches, ring growth, set_scrollback_lines) clamps the adjustment
+    /// value. Tracks the user's distance from the bottom and restores it when VTE
+    /// changes the value while the user is scrolled up.
+    fn setup_scroll_guard(terminal: &Terminal, scrollbar: &gtk4::Scrollbar) {
+        let offset_from_bottom = Rc::new(Cell::new(0.0_f64));
+        let user_interacting = Rc::new(Cell::new(false));
+        let scrollbar_active = Rc::new(Cell::new(false));
+        let restoring = Rc::new(Cell::new(false));
+
+        // Detect mouse wheel scrolling (CAPTURE phase — before VTE sees it)
+        let scroll_controller = gtk4::EventControllerScroll::new(
+            gtk4::EventControllerScrollFlags::VERTICAL,
+        );
+        scroll_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+        let ui = user_interacting.clone();
+        scroll_controller.connect_scroll(move |_, _, _| {
+            ui.set(true);
+            glib::Propagation::Proceed
+        });
+
+        terminal.add_controller(scroll_controller);
+
+        // Detect keyboard-initiated scrolling (Shift+PageUp/Down/Home/End)
+        let key_controller = gtk4::EventControllerKey::new();
+        key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+        let ui = user_interacting.clone();
+        key_controller.connect_key_pressed(move |_, keyval, _, state| {
+            if state.contains(gdk::ModifierType::SHIFT_MASK) && matches!(
+                keyval,
+                gdk::Key::Page_Up | gdk::Key::Page_Down |
+                gdk::Key::Home | gdk::Key::End
+            ) {
+                ui.set(true);
+            }
+
+            glib::Propagation::Proceed
+        });
+
+        terminal.add_controller(key_controller);
+
+        // Detect scrollbar drag
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+        let sa = scrollbar_active.clone();
+        gesture.connect_pressed(move |_, _, _, _| { sa.set(true); });
+
+        let sa = scrollbar_active.clone();
+        gesture.connect_released(move |_, _, _, _| { sa.set(false); });
+
+        let sa = scrollbar_active.clone();
+        gesture.connect_cancel(move |_, _| { sa.set(false); });
+
+        scrollbar.add_controller(gesture);
+
+        // Core logic: restore offset-from-bottom when VTE jumps while scrolled up.
+        // We listen to both value_changed (scroll position) and changed (bounds)
+        // because VTE may update bounds without emitting value_changed.
+        let adj = terminal.vadjustment().expect("terminal has vadjustment");
+
+        let restore_scroll = {
+            let offset_from_bottom = offset_from_bottom.clone();
+            let restoring = restoring.clone();
+
+            Rc::new(move |adj: &gtk4::Adjustment| {
+                let offset = offset_from_bottom.get();
+
+                if offset <= 0.0 || restoring.get() {
+                    return;
+                }
+
+                let max_scroll = adj.upper() - adj.page_size();
+
+                // Skip restore when bounds are too small to fit the offset
+                // (alt screen phase). Wait for bounds to return to normal.
+                if max_scroll < offset {
+                    return;
+                }
+
+                let target = max_scroll - offset;
+                let value = adj.value();
+
+                if (target - value).abs() < 1.0 {
+                    return;
+                }
+
+                restoring.set(true);
+                adj.set_value(target);
+                restoring.set(false);
+            })
+        };
+
+        {
+            let restore = restore_scroll.clone();
+            let user_interacting = user_interacting.clone();
+            let scrollbar_active = scrollbar_active.clone();
+            let offset_from_bottom = offset_from_bottom.clone();
+            let restoring = restoring.clone();
+
+            adj.connect_value_changed(move |adj| {
+                if restoring.get() {
+                    return;
+                }
+
+                let value = adj.value();
+                let max_scroll = adj.upper() - adj.page_size();
+
+                if max_scroll <= 0.0 {
+                    return;
+                }
+
+                // VTE's scroll_delta is a double that can land fractionally between
+                // rows, so allow 1 row of tolerance for the at-bottom check.
+                let at_bottom = value >= max_scroll - 1.0;
+
+                let had_interaction = user_interacting.replace(false);
+                let is_user = had_interaction || scrollbar_active.get();
+
+                if at_bottom {
+                    offset_from_bottom.set(0.0);
+                    return;
+                }
+
+                if is_user {
+                    offset_from_bottom.set(max_scroll - value);
+                    return;
+                }
+
+                restore(adj);
+            });
+        }
+
+        // Also restore on bounds changes (VTE may change upper without
+        // emitting value_changed, e.g. after screen switch back to normal)
+        adj.connect_changed(move |adj| {
+            restore_scroll(adj);
         });
     }
 
