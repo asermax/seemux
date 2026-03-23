@@ -11,10 +11,12 @@ A GTK4 terminal multiplexer for Linux with Claude Code integration, inspired by 
 - **Claude Code integration** — real-time session status (Running, Needs Input, Completed, Error) and desktop notifications via a Claude Code plugin, with automatic session resume on restart
 - **Agent Teams support** — tmux shim intercepts Claude Code team commands, spawning subagent sessions as seemux tabs in dedicated team groups
 - **PR detection** — automatically detects PRs created by Claude via `gh pr` and shows a clickable badge on the tab
+- **Running command detection** — shows a Running status pill for long-running terminal commands (3s debounce) and notifies on completion when the tab is backgrounded
+- **System tray** — branded tray icon with notification badge (unread count), click to toggle dropdown or activate window
 - **Dropdown mode** — quake-style terminal toggled via `seemux toggle` or a global shortcut
 - **Editor integration** — Ctrl+Click or right-click file:// links to open in neovim with per-terminal socket reuse
-- **Session persistence** — tabs, groups, splits, working directories, sidebar state, and Claude sessions restored on restart
-- **Notification peek** — tabs with notifications automatically peek out of collapsed groups
+- **Session persistence** — tabs, groups, splits, working directories, sidebar state, and Claude sessions restored on restart; collapsed groups defer terminal spawning until expanded
+- **Tab peek** — tabs with notifications or running commands automatically peek out of collapsed groups
 - **Themes** — Catppuccin Mocha (default) and Dracula
 
 ## Requirements
@@ -75,7 +77,7 @@ Claude Code ──hooks──> seemux-hook.sh ──Unix socket──> seemux �
 
 | Shortcut | Action |
 |----------|--------|
-| Ctrl+T | New tab (inherits active terminal's CWD) |
+| Ctrl+Shift+T | New tab (inherits active terminal's CWD) |
 | Ctrl+Shift+W | Close pane (or tab if single pane) |
 | Ctrl+Tab / Ctrl+Page Down | Next tab |
 | Ctrl+Shift+Tab / Ctrl+Page Up | Previous tab |
@@ -97,6 +99,8 @@ Claude Code ──hooks──> seemux-hook.sh ──Unix socket──> seemux �
 | Ctrl+Shift+G | New group |
 | Ctrl+Alt+Page Down | Next group |
 | Ctrl+Alt+Page Up | Previous group |
+| Ctrl+Shift+] | Collapse active group |
+| Ctrl+Shift+[ | Expand active group |
 
 ### Notifications
 
@@ -104,6 +108,8 @@ Claude Code ──hooks──> seemux-hook.sh ──Unix socket──> seemux �
 |----------|--------|
 | Alt+Shift+Page Down | Next tab with notifications (falls back to next tab) |
 | Alt+Shift+Page Up | Previous tab with notifications (falls back to previous tab) |
+| Ctrl+Shift+Page Down | Next running tab |
+| Ctrl+Shift+Page Up | Previous running tab |
 
 ### Split Panes
 
@@ -136,9 +142,9 @@ Right-click on the terminal area for: Copy, Paste, Split Horizontal, Split Verti
 - **file:// links (text files)**: Open in Editor (neovim), Open with external App
 - **Other URLs**: Open URL
 
-Right-click on a tab for: Rename, Close, Close Others.
+Right-click on a tab for: Close, Close Others.
 
-Right-click on a group header for: Delete Group.
+Right-click on a group header for: Rename Group, Delete Group.
 
 ### Drag and Drop
 
