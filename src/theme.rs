@@ -398,7 +398,7 @@ popover.menu modelbutton {{
 /* Sidebar collapse */
 
 .sidebar-header-row {{
-    padding: 4px 8px 0 12px;
+    padding: 4px 8px 0 0;
 }}
 
 .sidebar-collapsed {{
