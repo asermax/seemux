@@ -443,7 +443,7 @@ fn setup_common(
         mgr_for_expand.borrow().spawn_group_sessions(group_id);
 
         let pending = mgr_for_expand.borrow_mut().take_pending_resumes_for_group(group_id);
-        schedule_claude_resumes(&mgr_for_expand, pending, false);
+        schedule_claude_resumes(&mgr_for_expand, pending, true);
     });
 
     // Wire drag-and-drop tab movement/reordering
