@@ -24,15 +24,22 @@ pub(crate) fn setup_keyboard_shortcuts(
     let notif_for_keys = notification_store.clone();
     let sidebar_for_keys = sidebar.clone();
 
-    key_controller.connect_key_pressed(move |_, key, _keycode, modifiers| {
+    key_controller.connect_key_pressed(move |_, key, keycode, modifiers| {
         let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
         let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
         let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
 
+        // Translate keycode to the base (unshifted) keysym so Ctrl+Shift+[ works
+        // regardless of what shifted character the layout produces
+        let base_key = gtk4::gdk::Display::default()
+            .and_then(|d| d.translate_key(keycode, gtk4::gdk::ModifierType::empty(), 0))
+            .map(|(k, _, _, _)| k);
+        let is_bracket = matches!(base_key, Some(Key::bracketleft) | Some(Key::bracketright));
+
         let number_keys = matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9);
 
         #[allow(clippy::nonminimal_bool)]
-        let is_our_shortcut = (ctrl && shift && matches!(key, Key::B | Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::bracketleft | Key::bracketright | Key::Page_Up | Key::Page_Down))
+        let is_our_shortcut = (ctrl && shift && (matches!(key, Key::B | Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::Page_Up | Key::Page_Down) || is_bracket))
             || (ctrl && !shift && matches!(key, Key::Page_Up | Key::Page_Down))
             || (ctrl && key == Key::Tab)
             || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l | Key::Page_Up | Key::Page_Down))
@@ -79,9 +86,9 @@ pub(crate) fn setup_keyboard_shortcuts(
             return glib::Propagation::Stop;
         }
 
-        if ctrl && shift && matches!(key, Key::bracketleft | Key::bracketright) {
+        if ctrl && shift && is_bracket {
             if let Some(group_id) = mgr.borrow().active_group_id() {
-                if key == Key::bracketleft {
+                if base_key == Some(Key::bracketleft) {
                     sidebar_for_keys.collapse_group(group_id);
                 } else {
                     sidebar_for_keys.expand_group(group_id);
