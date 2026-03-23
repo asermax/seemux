@@ -464,14 +464,14 @@ impl SessionManager {
 
         self.sessions.iter_mut()
             .filter(|s| !sidebar.is_group_collapsed(&s.group_id))
-            .filter_map(|s| s.claude_session_id.take().map(|cid| (s.id.clone(), cid)))
+            .filter_map(|s| s.pending_resume_id.take().map(|cid| (s.id.clone(), cid)))
             .collect()
     }
 
     pub fn take_pending_resumes_for_group(&mut self, group_id: &str) -> Vec<(String, String)> {
         self.sessions.iter_mut()
             .filter(|s| s.group_id == group_id)
-            .filter_map(|s| s.claude_session_id.take().map(|cid| (s.id.clone(), cid)))
+            .filter_map(|s| s.pending_resume_id.take().map(|cid| (s.id.clone(), cid)))
             .collect()
     }
 
@@ -984,7 +984,7 @@ impl SessionManager {
     ) -> String {
         let mut session = crate::session::Session::new(title.to_string());
         session.group_id = group_id.to_string();
-        session.claude_session_id = claude_session_id.map(|s| s.to_string());
+        session.pending_resume_id = claude_session_id.map(|s| s.to_string());
         let id = session.id.clone();
 
         let config = self.config.borrow();
