@@ -385,10 +385,6 @@ window.dropdown-window {{
 
 /* Context menu */
 
-popover.menu scrolledwindow {{
-    max-height: 10000px;
-}}
-
 popover.menu contents {{
     min-width: 180px;
     padding: 4px;
