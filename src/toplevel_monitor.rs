@@ -30,6 +30,15 @@ pub enum ToplevelEvent {
     Closed,
 }
 
+/// KDE `org_kde_plasma_window_management.state` flag for windows that should
+/// not appear in the taskbar — notifications, tooltips, OSD popups, etc.
+const KDE_STATE_SKIP_TASKBAR: u32 = 0x1000;
+
+struct KdeWindowState {
+    announced: bool,
+    state_flags: u32,
+}
+
 pub struct ToplevelMonitor;
 
 impl ToplevelMonitor {
@@ -76,7 +85,7 @@ struct MonitorState {
 
     /// `bool` = whether the handle has been announced via `Added`.
     ext_handles: HashMap<ExtForeignToplevelHandleV1, bool>,
-    kde_windows: HashMap<OrgKdePlasmaWindow, bool>,
+    kde_windows: HashMap<OrgKdePlasmaWindow, KdeWindowState>,
 
     initial_done: bool,
 }
@@ -248,7 +257,7 @@ impl Dispatch<OrgKdePlasmaWindowManagement, ()> for MonitorState {
     ) {
         if let org_kde_plasma_window_management::Event::WindowWithUuid { uuid, .. } = event {
             let window = proxy.get_window_by_uuid(uuid, qh, ());
-            state.kde_windows.insert(window, false);
+            state.kde_windows.insert(window, KdeWindowState { announced: false, state_flags: 0 });
         }
     }
 }
@@ -263,14 +272,29 @@ impl Dispatch<OrgKdePlasmaWindow, ()> for MonitorState {
         _qh: &QueueHandle<Self>,
     ) {
         match event {
-            org_kde_plasma_window::Event::InitialState => {
-                let Some(announced) = state.kde_windows.get_mut(proxy) else { return };
+            // State flags arrive before InitialState, so we capture them first.
+            org_kde_plasma_window::Event::StateChanged { flags } => {
+                if let Some(win) = state.kde_windows.get_mut(proxy) {
+                    win.state_flags = flags;
+                }
+            }
 
-                if *announced {
+            org_kde_plasma_window::Event::InitialState => {
+                let Some(win) = state.kde_windows.get_mut(proxy) else { return };
+
+                if win.announced {
                     return;
                 }
 
-                *announced = true;
+                // Skip non-application windows (notifications, tooltips, OSD, etc.)
+                if win.state_flags & KDE_STATE_SKIP_TASKBAR != 0 {
+                    eprintln!("seemux: ignoring kde toplevel with skip_taskbar (flags: {:#x})", win.state_flags);
+                    state.kde_windows.remove(proxy);
+                    proxy.destroy();
+                    return;
+                }
+
+                win.announced = true;
 
                 if state.initial_done {
                     eprintln!("seemux: toplevel added [kde] (total: {})", state.kde_windows.len());
@@ -279,7 +303,10 @@ impl Dispatch<OrgKdePlasmaWindow, ()> for MonitorState {
             }
 
             org_kde_plasma_window::Event::Unmapped => {
-                if let Some(true) = state.kde_windows.remove(proxy) {
+                let was_announced = state.kde_windows.remove(proxy)
+                    .is_some_and(|win| win.announced);
+
+                if was_announced {
                     eprintln!("seemux: toplevel closed [kde] (total: {})", state.kde_windows.len());
                     let _ = state.tx.send(ToplevelEvent::Closed);
                 }
