@@ -279,7 +279,7 @@ impl SessionManager {
         let pending = pending_redetect.clone();
 
         terminal.on_title_changed(move |title, cwd_uri| {
-            let Some(title) = title else { return };
+            let Some(title) = title.filter(|t| !t.is_empty()) else { return };
 
             let was_git_command = last_git_cmd.replace(is_git_command_title(&title));
 
@@ -866,7 +866,7 @@ impl SessionManager {
                 return;
             }
 
-            let Some(title) = title else { return };
+            let Some(title) = title.filter(|t| !t.is_empty()) else { return };
 
             // Skip — Claude hooks will manage the status for this session.
             // Mark as running so subsequent title changes from Claude's TUI
