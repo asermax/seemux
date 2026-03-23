@@ -218,11 +218,13 @@ impl VteTerminal {
             let offset_from_bottom = offset_from_bottom.clone();
             let restoring = restoring.clone();
 
-            Rc::new(move |adj: &gtk4::Adjustment| {
+            // Returns true when bounds are too small (alt-screen / transient re-render),
+            // signalling callers to skip any post-restore work.
+            Rc::new(move |adj: &gtk4::Adjustment| -> bool {
                 let offset = offset_from_bottom.get();
 
                 if offset <= 0.0 || restoring.get() {
-                    return;
+                    return false;
                 }
 
                 let max_scroll = adj.upper() - adj.page_size();
@@ -230,19 +232,21 @@ impl VteTerminal {
                 // Skip restore when bounds are too small to fit the offset
                 // (alt screen phase). Wait for bounds to return to normal.
                 if max_scroll < offset {
-                    return;
+                    return true;
                 }
 
                 let target = max_scroll - offset;
                 let value = adj.value();
 
                 if (target - value).abs() < 1.0 {
-                    return;
+                    return false;
                 }
 
                 restoring.set(true);
                 adj.set_value(target);
                 restoring.set(false);
+
+                false
             })
         };
 
@@ -272,8 +276,12 @@ impl VteTerminal {
                 let had_interaction = user_interacting.replace(false);
                 let is_user = had_interaction || scrollbar_active.get();
 
-                if at_bottom {
+                if at_bottom && is_user {
                     offset_from_bottom.set(0.0);
+                    return;
+                }
+
+                if at_bottom {
                     return;
                 }
 
@@ -287,9 +295,22 @@ impl VteTerminal {
         }
 
         // Also restore on bounds changes (VTE may change upper without
-        // emitting value_changed, e.g. after screen switch back to normal)
+        // emitting value_changed, e.g. after screen switch back to normal).
+        // After restoring (or confirming the value is already correct), nudge
+        // the adjustment to force VTE to re-sync its rendered content — VTE can
+        // desync its display from the adjustment value during buffer modifications.
+        let restoring_for_changed = restoring.clone();
+
         adj.connect_changed(move |adj| {
-            restore_scroll(adj);
+            let bounds_too_small = restore_scroll(adj);
+
+            if !bounds_too_small {
+                restoring_for_changed.set(true);
+                let v = adj.value();
+                adj.set_value(v + 1.0);
+                adj.set_value(v);
+                restoring_for_changed.set(false);
+            }
         });
     }
 
