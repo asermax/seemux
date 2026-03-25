@@ -88,6 +88,13 @@ Examples:
 - `refactor(session): extract resume scheduling logic`
 - `fix(seemux-hooks): correct hook event JSON format`
 
+## Katachi Framework
+
+- `docs/planning/VISION.md` - Project vision
+- `docs/planning/DELTAS.md` - Feature inventory
+
+Use `/katachi:` commands to work with the framework.
+
 ## Debugging
 
 - Logs go to stderr (`eprintln!`)
