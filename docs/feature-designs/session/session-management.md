@@ -125,7 +125,7 @@ For non-Claude sessions, the `Running` status is driven entirely by VTE title he
 - **Tab switching**: Circular index arithmetic over visible session IDs from the sidebar.
 - **Group switching**: Circular over visible group IDs, activates first session of target group.
 - **Pane navigation**: Delegates to `SplitView::navigate` with a `Direction` enum.
-- **Notification/status jumping**: `find_adjacent_matching` iterates circularly with a predicate (unread count > 0, or non-idle status).
+- **Notification/status jumping**: `find_adjacent_matching` iterates circularly with a predicate (unread count > 0, non-idle `SessionStatus`, or any pane with a running command detected via VTE title heuristics).
 - **Index switching**: `Ctrl+1..9` maps to visible session index.
 
 ### 6. Persistence

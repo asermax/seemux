@@ -323,6 +323,11 @@ impl SplitView {
         self.panes.borrow().values().any(|t| t.needs_spawn())
     }
 
+    /// Returns true if any pane has a running command detected via VTE title heuristics.
+    pub fn has_running_command(&self) -> bool {
+        self.panes.borrow().values().any(|t| t.is_running().get())
+    }
+
     /// Spawn a shell in a specific pane by ID.
     pub fn spawn_pane(&self, pane_id: &str, cwd: Option<&str>, env_vars: &[(&str, &str)]) {
         if let Some(terminal) = self.panes.borrow().get(pane_id)

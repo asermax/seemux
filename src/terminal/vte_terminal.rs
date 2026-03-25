@@ -19,6 +19,7 @@ pub struct VteTerminal {
     container: gtk4::Box,
     terminal: Terminal,
     spawned: Cell<bool>,
+    is_running: Rc<Cell<bool>>,
 }
 
 impl VteTerminal {
@@ -55,7 +56,7 @@ impl VteTerminal {
         container.append(&terminal);
         container.append(&scrollbar);
 
-        Self { container, terminal, spawned: Cell::new(false) }
+        Self { container, terminal, spawned: Cell::new(false), is_running: Rc::new(Cell::new(false)) }
     }
 
     fn apply_colors(terminal: &Terminal, scheme: &ColorScheme) {
@@ -346,6 +347,10 @@ impl VteTerminal {
                 s
             }
         })
+    }
+
+    pub fn is_running(&self) -> &Rc<Cell<bool>> {
+        &self.is_running
     }
 
     pub fn needs_spawn(&self) -> bool {

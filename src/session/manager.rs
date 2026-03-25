@@ -662,8 +662,11 @@ impl SessionManager {
         let ordered = self.sidebar.ordered_session_ids();
 
         let Some(id) = find_adjacent_matching(&ordered, active_id, forward, |id| {
-            self.find_session(id)
-                .is_some_and(|s| !matches!(s.status, SessionStatus::Idle | SessionStatus::Exited))
+            let has_active_status = self.find_session(id)
+                .is_some_and(|s| !matches!(s.status, SessionStatus::Idle | SessionStatus::Exited));
+
+            has_active_status
+                || self.split_views.get(id).is_some_and(|sv| sv.has_running_command())
         }) else { return false };
 
         self.switch_to(&id);
@@ -852,7 +855,7 @@ impl SessionManager {
 
         let mgr = Rc::downgrade(self_ref);
         let sid = session_id.to_string();
-        let running = Rc::new(Cell::new(false));
+        let running = terminal.is_running().clone();
         let badge_visible = Rc::new(Cell::new(false));
         let pending_badge: Rc<Cell<Option<glib::SourceId>>> = Rc::new(Cell::new(None));
         let last_command: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));

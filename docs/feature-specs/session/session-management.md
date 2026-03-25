@@ -49,7 +49,7 @@ The session domain is the central orchestration layer of Seemux. A "session" tie
 | R19 | Non-Claude sessions show "Running" pill with 3-second delay, reset to Idle on prompt return, emit completion notification for background tabs |
 | R20 | Terminal bell events on background sessions produce debounced notifications (2s per session) |
 | R21 | Navigate to next/previous session with unread notifications (circular) |
-| R22 | Navigate to next/previous session with active status (circular) |
+| R22 | Navigate to next/previous session with active status or a running command in any pane (circular) |
 | R23 | Inject SEEMUX_SOCKET and SEEMUX_SESSION_ID env vars; optionally prepend bin dir to PATH |
 
 ## Behaviors
@@ -114,7 +114,7 @@ The session domain is the central orchestration layer of Seemux. A "session" tie
 
 **Acceptance Criteria**:
 - Given sessions with unread notifications, when switch_adjacent_with_notifications is called, then the next session with unreads is activated
-- Given sessions with Running status, when switch_adjacent_running is called, then the next running session is activated
+- Given sessions with Running status or a running command detected via VTE title heuristics, when switch_adjacent_running is called, then the next matching session is activated
 
 ### Session Persistence
 
