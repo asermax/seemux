@@ -239,8 +239,11 @@ impl SessionManager {
         group_id: &str,
         spawn: SpawnAction<'_>,
     ) -> String {
-        let index = self.sessions.len() + 1;
-        let mut session = Session::new(title.unwrap_or(&format!("Tab {index}")).to_string());
+        let default_title = cwd
+            .map(|c| folder_name(c).to_string())
+            .unwrap_or_else(|| "New tab".to_string());
+
+        let mut session = Session::new(title.unwrap_or(&default_title).to_string());
         session.group_id = group_id.to_string();
         session.cwd = cwd.map(|s| s.to_string());
         let id = session.id.clone();
@@ -1102,5 +1105,12 @@ mod tests {
         assert!(!is_git_command_title("vim"));
         assert!(!is_git_command_title("cd foo && cargo test"));
         assert!(!is_git_command_title(""));
+    }
+
+    #[test]
+    fn folder_name_extracts_last_component() {
+        assert_eq!(folder_name("/home/user/projects"), "projects");
+        assert_eq!(folder_name("/"), "/");
+        assert_eq!(folder_name("single"), "single");
     }
 }
