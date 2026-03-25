@@ -726,6 +726,36 @@ impl Sidebar {
         }
 
         self.collapsed_bar.update_active(session_id, true);
+
+        // Defer scroll-into-view until GTK has processed layout changes (peek toggles)
+        let collapsed = self.collapsed.clone();
+        let rows = self.rows.clone();
+        let scroll = self.scroll.clone();
+        let content = self.content.clone();
+        let session_id = session_id.to_string();
+
+        glib::idle_add_local_once(move || {
+            if collapsed.get() {
+                return;
+            }
+
+            let rows = rows.borrow();
+            let Some((row, _)) = rows.get(&session_id) else { return };
+            let Some(parent) = row.widget().parent() else { return };
+            let Some(bounds) = parent.compute_bounds(&content) else { return };
+
+            let adj = scroll.vadjustment();
+            let row_top = bounds.y() as f64;
+            let row_bottom = (bounds.y() + bounds.height()) as f64;
+            let view_top = adj.value();
+            let view_bottom = view_top + adj.page_size();
+
+            if row_top < view_top {
+                adj.set_value(row_top);
+            } else if row_bottom > view_bottom {
+                adj.set_value(row_bottom - adj.page_size());
+            }
+        });
     }
 
     pub fn update_title(&self, session_id: &str, title: &str) {

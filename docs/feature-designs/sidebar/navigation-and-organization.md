@@ -101,7 +101,28 @@ CollapsedBar
 
 **Output**: Tab row appears in the sidebar at the correct position.
 
-### 2. Tab Drag-and-Drop Reorder
+### 2. Tab Activation and Scroll-into-View
+
+**Entry**: `Sidebar::set_active(session_id)` called by `SessionManager::switch_to`.
+
+**Process**:
+1. Mark all rows as inactive; mark the target row as active ("active" CSS class)
+2. If the previously active row was peeking and no longer qualifies, clear its peek
+3. If the new active tab is in a collapsed group, peek it; reconcile group visibility
+4. Update the collapsed bar's active dot
+5. Schedule a deferred idle callback (`glib::idle_add_local_once`) that:
+   a. Guards: returns early if the sidebar is in collapsed (dot-bar) mode
+   b. Looks up the tab row's parent `ListBoxRow` and computes its bounds relative to the scrollable content area via `compute_bounds`
+   c. Compares the row's top/bottom edges against the `ScrolledWindow`'s vertical adjustment (`value` = scroll offset, `page_size` = viewport height)
+   d. If the row is above the viewport, scrolls up so the row's top edge aligns with the viewport top
+   e. If the row is below the viewport, scrolls down so the row's bottom edge aligns with the viewport bottom
+   f. If already visible, does nothing
+
+**Output**: The active tab is visually marked and scrolled into view if it was outside the visible area.
+
+**Why deferred**: The peek toggling in steps 2-3 changes widget visibility, which invalidates layout-based position queries. The idle callback runs after GTK processes pending layout updates, ensuring accurate coordinates.
+
+### 3. Tab Drag-and-Drop Reorder
 
 **Entry**: User drags a tab row.
 
@@ -114,7 +135,7 @@ CollapsedBar
 
 **Output**: The tab appears at the new position; the `SessionManager` is notified via callback to update persistence.
 
-### 3. Group Collapse and Peek
+### 4. Group Collapse and Peek
 
 **Entry**: User clicks a group header, or a session status changes.
 
@@ -132,7 +153,7 @@ CollapsedBar
 
 **Errors**: Peek operations silently no-op for default-group tabs (which have no collapse concept) or if the group is already expanded.
 
-### 4. Sidebar Collapse/Expand
+### 5. Sidebar Collapse/Expand
 
 **Entry**: Toggle action (keyboard shortcut or UI button).
 
@@ -144,7 +165,7 @@ CollapsedBar
 
 **Output**: Sidebar toggles between full tab-row view and minimal dot-bar view.
 
-### 5. Alt-Key Index Overlay
+### 6. Alt-Key Index Overlay
 
 **Entry**: Alt key held down (detected by keyboard handler).
 

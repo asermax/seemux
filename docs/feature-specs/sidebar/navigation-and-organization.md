@@ -52,6 +52,7 @@ The sidebar is Seemux's primary navigation surface. It presents terminal session
 - Given a tab row, when badge count > 0, then badge is visible; when 0, badge is hidden
 - Given a tab row, when notification preview is set, then preview label shows (ellipsized at 25 chars); when cleared, hidden
 - Given a tab row, when set as active, then it gets "active" CSS class and all others lose it
+- Given a tab row set as active that is not fully visible in the sidebar scroll viewport, then the sidebar scrolls the minimum amount to reveal it (top-edge aligned when above, bottom-edge aligned when below)
 
 ### Tab Index Overlay
 
