@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{ApplicationWindow, GestureClick, Overlay, PopoverMenu, Stack, gio, glib};
+use gtk4::{ApplicationWindow, GestureClick, Overlay, PopoverMenu, Stack, gdk, gio, glib};
 
 use crate::notifications::NotificationStore;
 use crate::persistence::StatePersistence;
@@ -179,6 +179,16 @@ pub(crate) fn register_terminal_actions(
     });
     window.add_action(&action);
 
+    // copy-url
+    let action = gio::SimpleAction::new("copy-url", Some(glib::VariantTy::STRING));
+    action.connect_activate(move |_, param| {
+        let Some(url) = param.and_then(|v| v.get::<String>()) else { return };
+        let Some(display) = gdk::Display::default() else { return };
+
+        display.clipboard().set_text(&url);
+    });
+    window.add_action(&action);
+
     // open-url
     let action = gio::SimpleAction::new("open-url", Some(glib::VariantTy::STRING));
     action.connect_activate(move |_, param| {
@@ -333,7 +343,16 @@ pub(crate) fn setup_terminal_context_menu(stack: &Stack) {
             menu.append_section(None, &url_section);
         }
 
-        menu.append(Some("Copy"), Some("win.term-copy"));
+        if let Some(ref url) = url {
+            let copy_item = gio::MenuItem::new(Some("Copy URL"), None);
+            copy_item.set_action_and_target_value(
+                Some("win.copy-url"),
+                Some(&url.to_variant()),
+            );
+            menu.append_item(&copy_item);
+        } else {
+            menu.append(Some("Copy"), Some("win.term-copy"));
+        }
         menu.append(Some("Paste"), Some("win.term-paste"));
 
         let split_section = gio::Menu::new();
