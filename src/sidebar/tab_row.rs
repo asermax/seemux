@@ -6,6 +6,7 @@ use gtk4::gio;
 use gtk4::{Box as GtkBox, Button, GestureClick, Label, Orientation, PopoverMenu, Widget};
 use gtk4::gdk;
 use gtk4::glib;
+use gtk4::glib::clone;
 
 use crate::session::SessionStatus;
 
@@ -25,6 +26,7 @@ pub struct TabRow {
     badge_label: Label,
     index_label: Label,
     close_btn: Button,
+    pr_url: Rc<RefCell<Option<String>>>,
     peeking: Cell<bool>,
     status: Cell<SessionStatus>,
     badge_count: Cell<u32>,
@@ -86,8 +88,36 @@ impl TabRow {
 
         let pr_label = Label::new(None);
         pr_label.add_css_class("tab-pr");
-        pr_label.set_use_markup(true);
         pr_label.set_visible(false);
+
+        let pr_url: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
+        let pr_gesture = GestureClick::new();
+        pr_gesture.set_button(1);
+
+        pr_gesture.connect_pressed(clone!(
+            #[strong] pr_url,
+            move |gesture, _n_press, _x, _y| {
+                if !gesture.current_event_state().contains(gdk::ModifierType::CONTROL_MASK) {
+                    gesture.set_state(gtk4::EventSequenceState::Denied);
+                    return;
+                }
+
+                let url = pr_url.borrow();
+                let Some(url) = url.as_deref() else {
+                    gesture.set_state(gtk4::EventSequenceState::Denied);
+                    return;
+                };
+
+                gesture.set_state(gtk4::EventSequenceState::Claimed);
+
+                if let Some(widget) = gesture.widget() {
+                    let _ = widget.activate_action("win.open-url", Some(&url.to_variant()));
+                }
+            }
+        ));
+
+        pr_label.add_controller(pr_gesture);
 
         let branch_row = GtkBox::new(Orientation::Horizontal, 4);
         branch_row.append(&branch_label);
@@ -136,6 +166,7 @@ impl TabRow {
             badge_label,
             index_label,
             close_btn,
+            pr_url,
             peeking: Cell::new(false),
             status: Cell::new(SessionStatus::Idle),
             badge_count: Cell::new(0),
@@ -206,13 +237,14 @@ impl TabRow {
     pub fn set_pr(&self, pr: Option<(&str, &str)>) {
         match pr {
             Some((number, url)) => {
-                let escaped_url = glib::markup_escape_text(url);
-                self.pr_label.set_markup(
-                    &format!("\u{2014} <a href=\"{escaped_url}\">PR#{number}</a>"),
-                );
+                self.pr_label.set_text(&format!("\u{2014} PR#{number}"));
+                self.pr_label.set_tooltip_text(Some(url));
+                *self.pr_url.borrow_mut() = Some(url.to_string());
                 self.pr_label.set_visible(true);
             }
             None => {
+                self.pr_label.set_tooltip_text(None);
+                *self.pr_url.borrow_mut() = None;
                 self.pr_label.set_visible(false);
             }
         }

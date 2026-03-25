@@ -167,12 +167,13 @@ paned > separator:hover {{
     color: {text_secondary};
 }}
 
-.tab-branch, .tab-pr {{
+.tab-branch {{
     font-size: 10px;
     color: {text_muted};
 }}
 
-.tab-pr a {{
+.tab-pr {{
+    font-size: 10px;
     color: {accent};
 }}
 

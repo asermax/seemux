@@ -47,7 +47,7 @@ The sidebar is Seemux's primary navigation surface. It presents terminal session
 **Acceptance Criteria**:
 - Given a tab row, when CWD is updated, then title shows folder name, folder icon is visible, subtitle shows display path
 - Given a tab row, when a non-empty branch is set, then branch label shows icon + name; when cleared, branch and PR labels hide
-- Given a tab row, when PR number/URL are set, then PR label shows clickable "PR#N" link
+- Given a tab row, when PR number/URL are set, then PR label shows "PR#N" text in accent color; Ctrl+clicking opens the PR URL; hovering shows the URL as a tooltip
 - Given a tab row, when status is Running/NeedsInput/Completed/Error, then status pill is visible with CSS class; when Idle/Exited, pill is hidden
 - Given a tab row, when badge count > 0, then badge is visible; when 0, badge is hidden
 - Given a tab row, when notification preview is set, then preview label shows (ellipsized at 25 chars); when cleared, hidden
