@@ -74,7 +74,7 @@ impl TabRow {
         let subtitle_label = Label::new(None);
         subtitle_label.add_css_class("tab-subtitle");
         subtitle_label.set_xalign(0.0);
-        subtitle_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        subtitle_label.set_ellipsize(gtk4::pango::EllipsizeMode::Start);
         subtitle_label.set_max_width_chars(30);
         subtitle_label.set_visible(false);
 
