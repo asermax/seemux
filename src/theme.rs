@@ -177,6 +177,10 @@ paned > separator:hover {{
     color: {accent};
 }}
 
+.tab-pr.tab-pr--ctrl-hover {{
+    text-decoration: underline;
+}}
+
 .tab-index {{
     font-size: 10px;
     font-weight: 700;

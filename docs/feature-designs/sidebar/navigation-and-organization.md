@@ -293,8 +293,23 @@ CollapsedBar
 - **When** the user holds Alt
 - **Then** indices 1-4 appear on the 3 default tabs and the 1 peeked tab; the hidden tab in the collapsed group receives no index
 
+### Tab Row Shows Pointer Cursor
+
+- **Given** any tab row in the sidebar
+- **When** the user hovers over it
+- **Then** the cursor changes to a pointer hand, indicating clickability
+
+### PR Label Shows Underline on Ctrl+Hover
+
+- **Given** a tab row with a PR link displayed
+- **When** the user holds Ctrl and hovers over the PR label
+- **Then** the PR text gains an underline, indicating Ctrl+click will open the PR URL
+- **When** the user moves the cursor away or releases Ctrl (detected on next mouse movement)
+- **Then** the underline is removed
+
 ## Notes
 
+- **Limitation**: The PR label underline is removed on Ctrl release only when the mouse moves; if the user releases Ctrl while stationary over the label, the underline persists until the next mouse event. This avoids adding a key-event controller for a minor cosmetic edge case.
 - **Uncertainties**: The `expanded_width` field is initialized to 0 and then set by `wire_sidebar_collapse` in a separate wiring step. If `effective_sidebar_width` is called before wiring, it returns 0. This ordering dependency is not enforced by the type system.
 - **Assumptions**: The drag-and-drop "above dragged" guard (skipping indicators on the row directly before the dragged item) relies on GTK widget tree sibling order matching visual order, which holds for `ListBox` children.
 - **Areas needing clarification**: The `on_group_expanded` callback is registered but its consumer is not in the sidebar module -- its purpose (likely scrolling or focusing) would need to be traced through `app/mod.rs` to fully document.

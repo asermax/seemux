@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::gio;
-use gtk4::{Box as GtkBox, Button, GestureClick, Label, Orientation, PopoverMenu, Widget};
+use gtk4::{Box as GtkBox, Button, EventControllerMotion, GestureClick, Label, Orientation, PopoverMenu, Widget};
 use gtk4::gdk;
 use gtk4::glib;
 use gtk4::glib::clone;
@@ -37,6 +37,7 @@ impl TabRow {
         let container = GtkBox::new(Orientation::Horizontal, 6);
         container.add_css_class("tab-row");
         container.set_widget_name(id);
+        container.set_cursor_from_name(Some("pointer"));
 
         // Left rail active indicator
         let active_indicator = GtkBox::new(Orientation::Vertical, 0);
@@ -118,6 +119,28 @@ impl TabRow {
         ));
 
         pr_label.add_controller(pr_gesture);
+
+        let pr_motion = EventControllerMotion::new();
+
+        pr_motion.connect_motion(clone!(
+            #[weak] pr_label,
+            move |controller, _x, _y| {
+                if controller.current_event_state().contains(gdk::ModifierType::CONTROL_MASK) {
+                    pr_label.add_css_class("tab-pr--ctrl-hover");
+                } else {
+                    pr_label.remove_css_class("tab-pr--ctrl-hover");
+                }
+            }
+        ));
+
+        pr_motion.connect_leave(clone!(
+            #[weak] pr_label,
+            move |_controller| {
+                pr_label.remove_css_class("tab-pr--ctrl-hover");
+            }
+        ));
+
+        pr_label.add_controller(pr_motion);
 
         let branch_row = GtkBox::new(Orientation::Horizontal, 4);
         branch_row.append(&branch_label);
