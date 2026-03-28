@@ -179,11 +179,15 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     hooks::setup_stale_pid_detection(&dropdown.manager);
 
     // Poll toplevel events from the Wayland foreign-toplevel-list protocol.
-    // When a new toplevel appears while the dropdown is visible but unfocused,
+    // When a new dialog toplevel appears while the dropdown is visible,
     // enter dialog mode proactively — this catches the case where the GTK
     // focus-loss event arrives before the toplevel event is polled.
     // Also track a timestamp so the focus handler can detect toplevels that
     // arrived just before focus loss (before the next poll tick).
+    //
+    // On KDE, has_parent distinguishes dialogs (Some(true)) from regular apps
+    // (Some(false)). On ext protocol, has_parent is None and we preserve the
+    // existing behavior of entering dialog mode for all toplevels.
     let recent_toplevel: Rc<Cell<Option<Instant>>> = Rc::new(Cell::new(None));
 
     if let Some(rx) = state.take_toplevel_rx() {
@@ -193,7 +197,14 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         glib::timeout_add_local(Duration::from_millis(100), move || {
             while let Ok(event) = rx.try_recv() {
                 match event {
-                    crate::toplevel_monitor::ToplevelEvent::Added => {
+                    crate::toplevel_monitor::ToplevelEvent::Added { has_parent } => {
+                        // Skip KDE regular app windows (no parent) — only dialogs
+                        // (with parent) and ext protocol events (no parent info)
+                        // should trigger dialog mode.
+                        if has_parent == Some(false) {
+                            continue;
+                        }
+
                         recent.set(Some(Instant::now()));
 
                         if *dd.visible() {

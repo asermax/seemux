@@ -58,7 +58,7 @@ Toggle event → `DropdownWindow::toggle()` → if hidden: `show()` → `animate
 
 ### Dialog Mode Entry
 
-External dialog spawns → toplevel Added event via mpsc (100ms poll) → `enter_dialog_mode()`: layer drops to BOTTOM, keyboard to NONE. OR: focus lost + `recent_toplevel` within 500ms → enter dialog mode.
+External window appears → toplevel `Added { has_parent }` event via mpsc (100ms poll). On KDE, `has_parent` distinguishes dialogs (`Some(true)`) from regular apps (`Some(false)`); on ext protocol, `has_parent` is `None` (no parent info). KDE regular apps (`Some(false)`) are skipped. For KDE dialogs and ext events: `recent_toplevel` timestamp is recorded, and `enter_dialog_mode()` is called if visible — layer drops to BOTTOM, keyboard to NONE. OR: focus lost + `recent_toplevel` within 500ms → enter dialog mode.
 
 ### Focus Recovery
 
