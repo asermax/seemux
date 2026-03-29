@@ -124,7 +124,7 @@ The application shell is the outermost layer of seemux. It owns the GTK applicat
 - Ctrl+Alt+PageDown/Up: next/previous group
 - Ctrl+Shift+PageDown/Up: next/previous running session
 - Ctrl+Shift+B: toggle sidebar collapse
-- Ctrl+Shift+[/]: collapse/expand active group
+- Ctrl+Shift+.: toggle active group collapse
 - Ctrl+Shift+G: new group dialog
 
 ### Session Restoration

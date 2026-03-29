@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{ApplicationWindow, EventControllerKey, gdk::Key, glib};
+use gtk4::{ApplicationWindow, EventControllerKey, gdk::Key, gdk::KeyMatch, glib};
 
 use crate::notifications::NotificationStore;
 use crate::session::manager::SessionManager;
@@ -24,22 +24,27 @@ pub(crate) fn setup_keyboard_shortcuts(
     let notif_for_keys = notification_store.clone();
     let sidebar_for_keys = sidebar.clone();
 
-    key_controller.connect_key_pressed(move |_, key, keycode, modifiers| {
+    key_controller.connect_key_pressed(move |controller, key, _keycode, modifiers| {
         let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
         let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
         let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
 
-        // Translate keycode to the base (unshifted) keysym so Ctrl+Shift+[ works
-        // regardless of what shifted character the layout produces
-        let base_key = gtk4::gdk::Display::default()
-            .and_then(|d| d.translate_key(keycode, gtk4::gdk::ModifierType::empty(), 0))
-            .map(|(k, _, _, _)| k);
-        let is_bracket = matches!(base_key, Some(Key::bracketleft) | Some(Key::bracketright));
+        // Layout-independent shortcut matching via KeyEvent::matches().
+        // Use for symbol/punctuation shortcuts that vary across keyboard layouts.
+        // Gated behind modifier check to avoid GObject event fetch on every keypress.
+        let is_period_toggle = ctrl && shift && {
+            let ctrl_shift = gtk4::gdk::ModifierType::CONTROL_MASK | gtk4::gdk::ModifierType::SHIFT_MASK;
+
+            controller.current_event()
+                .and_then(|e| e.downcast_ref::<gtk4::gdk::KeyEvent>().map(|ke| ke.matches(Key::period, ctrl_shift)))
+                .is_some_and(|m| m == KeyMatch::Exact)
+        };
 
         let number_keys = matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9);
 
         #[allow(clippy::nonminimal_bool)]
-        let is_our_shortcut = (ctrl && shift && (matches!(key, Key::B | Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::Page_Up | Key::Page_Down) || is_bracket))
+        let is_our_shortcut = (ctrl && shift && matches!(key, Key::B | Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::Page_Up | Key::Page_Down))
+            || is_period_toggle
             || (ctrl && !shift && matches!(key, Key::Page_Up | Key::Page_Down))
             || (ctrl && key == Key::Tab)
             || (alt && !ctrl && !shift && matches!(key, Key::h | Key::j | Key::k | Key::l | Key::Page_Up | Key::Page_Down))
@@ -86,12 +91,12 @@ pub(crate) fn setup_keyboard_shortcuts(
             return glib::Propagation::Stop;
         }
 
-        if ctrl && shift && is_bracket {
+        if is_period_toggle {
             if let Some(group_id) = mgr.borrow().active_group_id() {
-                if base_key == Some(Key::bracketleft) {
-                    sidebar_for_keys.collapse_group(group_id);
-                } else {
+                if sidebar_for_keys.is_group_collapsed(group_id) {
                     sidebar_for_keys.expand_group(group_id);
+                } else {
+                    sidebar_for_keys.collapse_group(group_id);
                 }
             }
 

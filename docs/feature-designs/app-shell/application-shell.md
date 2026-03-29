@@ -43,7 +43,7 @@ The two modes share ~80% of wiring through `setup_common`. Mode-specific differe
 | app/mod.rs | Window construction, subsystem wiring, restore, signals | Two builders + shared core |
 | app/actions.rs | GIO action dispatch for all operations | String-parameterized actions |
 | app/dialogs.rs | Overlay-based modal forms and confirmations | Overlay instead of GTK Dialog |
-| app/keyboard.rs | Capture-phase shortcut handler | Keycode translation for non-US layouts |
+| app/keyboard.rs | Capture-phase shortcut handler | KeyEvent::matches() for layout-independent shortcuts |
 
 ## Data Flow
 
@@ -77,7 +77,7 @@ State mutation → `mark_dirty()` → 2s debounce → `flush()`. Safety-net: 30s
 
 **Choice**: `EventControllerKey` in capture phase, before VTE consumes events.
 **Why**: VTE terminals consume most keys. Application shortcuts must intercept first.
-**Consequences**: Single large handler enumerating all shortcuts. Keycode-based bracket translation for non-US layouts.
+**Consequences**: Single large handler enumerating all shortcuts. Symbol/punctuation shortcuts use `KeyEvent::matches()` for layout-independent detection.
 
 ### Overlay-Based Dialogs
 
