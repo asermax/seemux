@@ -24,12 +24,19 @@ use wayland_protocols_plasma::plasma_window_management::client::{
     org_kde_plasma_window_management::{self, OrgKdePlasmaWindowManagement},
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToplevelKind {
+    /// KDE window with a parent — dialog, transient, popup.
+    Dialog,
+    /// KDE window without a parent — regular application.
+    RegularApp,
+    /// ext-foreign-toplevel protocol — no parent info available.
+    Unknown,
+}
+
 #[derive(Debug, Clone)]
 pub enum ToplevelEvent {
-    /// A new toplevel appeared. `has_parent` is `Some(true)` for KDE transient/dialog
-    /// windows (have a parent), `Some(false)` for KDE regular apps, and `None` for the
-    /// ext protocol which doesn't provide parent info.
-    Added { has_parent: Option<bool> },
+    Added(ToplevelKind),
     Closed,
 }
 
@@ -215,7 +222,7 @@ impl Dispatch<ExtForeignToplevelHandleV1, ()> for MonitorState {
                 *announced = true;
 
                 if state.initial_done {
-                    let _ = state.tx.send(ToplevelEvent::Added { has_parent: None });
+                    let _ = state.tx.send(ToplevelEvent::Added(ToplevelKind::Unknown));
                 }
             }
 
@@ -288,7 +295,8 @@ impl Dispatch<OrgKdePlasmaWindow, ()> for MonitorState {
                 win.announced = true;
 
                 if state.initial_done {
-                    let _ = state.tx.send(ToplevelEvent::Added { has_parent: Some(win.has_parent) });
+                    let kind = if win.has_parent { ToplevelKind::Dialog } else { ToplevelKind::RegularApp };
+                    let _ = state.tx.send(ToplevelEvent::Added(kind));
                 }
             }
 
