@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{ApplicationWindow, EventControllerKey, gdk::Key, gdk::KeyMatch, glib};
+use gtk4::{ApplicationWindow, EventControllerKey, gdk::Key, glib};
 
 use crate::notifications::NotificationStore;
 use crate::session::manager::SessionManager;
@@ -24,20 +24,17 @@ pub(crate) fn setup_keyboard_shortcuts(
     let notif_for_keys = notification_store.clone();
     let sidebar_for_keys = sidebar.clone();
 
-    key_controller.connect_key_pressed(move |controller, key, _keycode, modifiers| {
+    key_controller.connect_key_pressed(move |_, key, keycode, modifiers| {
         let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
         let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
         let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
 
-        // Layout-independent shortcut matching via KeyEvent::matches().
-        // Use for symbol/punctuation shortcuts that vary across keyboard layouts.
-        // Gated behind modifier check to avoid GObject event fetch on every keypress.
+        // Translate keycode to the base (unshifted) keysym so Ctrl+Shift+. works
+        // regardless of what shifted character the layout produces.
         let is_period_toggle = ctrl && shift && {
-            let ctrl_shift = gtk4::gdk::ModifierType::CONTROL_MASK | gtk4::gdk::ModifierType::SHIFT_MASK;
-
-            controller.current_event()
-                .and_then(|e| e.downcast_ref::<gtk4::gdk::KeyEvent>().map(|ke| ke.matches(Key::period, ctrl_shift)))
-                .is_some_and(|m| m == KeyMatch::Exact)
+            gtk4::gdk::Display::default()
+                .and_then(|d| d.translate_key(keycode, gtk4::gdk::ModifierType::empty(), 0))
+                .is_some_and(|(k, _, _, _)| k == Key::period)
         };
 
         let number_keys = matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9);
