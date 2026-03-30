@@ -380,6 +380,8 @@ impl SessionManager {
         self.split_views.remove(session_id);
         self.sessions.retain(|s| s.id != session_id);
 
+        self.notification_store.borrow_mut().clear_session(session_id);
+
         self.notify_state_changed();
 
         if self.sessions.is_empty() {
