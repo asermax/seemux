@@ -84,6 +84,20 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Complexity**: Medium
 **Description**: Users need to view web content alongside terminal sessions without leaving seemux. This delta adds browser tabs that render web pages inside the terminal, using a terminal-based browser such as Carbonyl. Sessions gain a type distinction (shell vs browser) so the sidebar can display browser-appropriate information (URL and page title instead of working directory, distinct icon). Browser tabs are independent sessions that participate in the layout system, enabling workflows like viewing documentation side-by-side with a coding terminal.
 
+### DLT-005: Fix scroll guard for background terminals
+**Status**: ✗ Defined
+**Depends on**: None
+**Priority**: 2 (High)
+**Complexity**: Easy
+**Description**: When a terminal is following output at the bottom and the user switches to another tab, new output continues arriving but the scroll guard loses track of the "at bottom" state. Switching back reveals the terminal stuck at a stale scroll position instead of showing the latest output. This delta fixes the scroll guard to correctly maintain "stick to bottom" behavior for background terminals receiving output.
+
+### DLT-006: Fix Ctrl+Shift+. shortcut detection
+**Status**: ✗ Defined
+**Depends on**: None
+**Priority**: 2 (High)
+**Complexity**: Easy
+**Description**: The Ctrl+Shift+. keyboard shortcut for toggling group collapse is not intercepted — the keystroke passes through to the terminal, outputting `:` (the shifted period character on the active layout). The current detection uses `translate_key` to resolve the physical keycode to its base keysym, but this approach fails on certain keyboard layouts or compositor configurations where the period key is not correctly resolved. This delta fixes the shortcut detection so that pressing Ctrl+Shift on the physical period key reliably triggers the group collapse toggle regardless of keyboard layout.
+
 ---
 
 ## Notes
