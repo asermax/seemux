@@ -29,7 +29,7 @@ impl VteTerminal {
         let terminal = Terminal::builder()
             .scrollback_lines(config.scrollback_lines)
             .scroll_on_keystroke(true)
-            .scroll_on_output(true)
+            .scroll_on_output(false)
             .audible_bell(false)
             .bold_is_bright(true)
             .build();

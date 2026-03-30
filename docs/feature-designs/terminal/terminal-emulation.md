@@ -60,7 +60,7 @@ Serialization uses `SavedSplitNode` (from `config.rs`), mirroring `SplitTree` bu
 ### Terminal Creation
 
 1. Resolve color scheme from config via `theme::get_scheme` (fallback: Catppuccin Mocha)
-2. Build VTE Terminal with scrollback, scroll-on-output enabled, scroll-on-keystroke, font, colors, bold-is-bright, no bell
+2. Build VTE Terminal with scrollback, scroll-on-output disabled, scroll-on-keystroke, font, colors, bold-is-bright, no bell
 3. Install Shift+Enter key controller (capture phase, feeds kitty escape `\x1b[13;2u`)
 4. Install URL regex matcher + enable OSC 8 hyperlinks
 5. Create scrollbar bound to VTE's vadjustment

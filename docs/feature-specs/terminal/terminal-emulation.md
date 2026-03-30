@@ -38,7 +38,7 @@ Seemux embeds a fully configured VTE4 terminal emulator in each pane, supporting
 ### Terminal Creation and Configuration
 
 **Acceptance Criteria**:
-- Given a Config with font, scrollback, and color scheme settings, when a new VteTerminal is created, then it is configured with the matching Pango font, scrollback lines, scroll-on-keystroke enabled, audible bell disabled, bold-is-bright enabled, and scheme colors applied
+- Given a Config with font, scrollback, and color scheme settings, when a new VteTerminal is created, then it is configured with the matching Pango font, scrollback lines, scroll-on-keystroke enabled, scroll-on-output disabled, audible bell disabled, bold-is-bright enabled, and scheme colors applied
 - Given a newly created VteTerminal, when the widget is retrieved, then it is a horizontal Box containing the VTE terminal (hexpand/vexpand) followed by a vertical scrollbar
 
 ### Shell and Command Spawning
