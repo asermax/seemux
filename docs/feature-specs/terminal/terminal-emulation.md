@@ -27,7 +27,7 @@ Seemux embeds a fully configured VTE4 terminal emulator in each pane, supporting
 | R0 | Provide an embedded VTE4 terminal widget that spawns shells and commands with user-configurable font, scrollback, and color scheme |
 | R1 | Detect and highlight URLs via both OSC 8 hyperlinks and regex matching, with smart resolution of relative paths against the terminal's CWD |
 | R2 | Pass Shift+Enter to the child process using the kitty keyboard protocol escape sequence (`\x1b[13;2u`) |
-| R3 | Scroll guard preserves the user's scroll offset when VTE internally mutates the scroll adjustment, restoring position automatically |
+| R3 | Scroll guard preserves the user's scroll offset when VTE internally mutates the scroll adjustment, restoring position automatically; scroll-on-output keeps at-bottom terminals pinned to the bottom when new output arrives |
 | R4 | Manage an arbitrary binary tree of split panes per session, supporting horizontal and vertical splits at any leaf |
 | R5 | Directional navigation (left, right, up, down) across the split tree, moving focus to the nearest neighbor pane |
 | R6 | Closing a pane promotes its sibling; closing the last pane destroys the session |
@@ -70,6 +70,7 @@ Seemux embeds a fully configured VTE4 terminal emulator in each pane, supporting
 **Acceptance Criteria**:
 - Given the user has scrolled up, when VTE internally changes the scroll adjustment, then the guard restores the original distance from bottom
 - Given the user is at the bottom, when VTE changes the adjustment, then no restoration occurs
+- Given a terminal at the bottom receiving output while in the background, when the user switches back to that terminal, then the terminal is at the bottom showing the latest output
 - Given the user scrolls via mouse wheel, keyboard, or scrollbar, when value_changed fires, then the interaction is recognized as user-initiated and the offset is updated
 - Given the user scrolls back to the bottom, when within 1 row of maximum, then the guard is disabled until the user scrolls up again
 - Given VTE switches to alternate screen with bounds too small for the stored offset, when restoration is attempted, then it is deferred

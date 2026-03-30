@@ -84,13 +84,6 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Complexity**: Medium
 **Description**: Users need to view web content alongside terminal sessions without leaving seemux. This delta adds browser tabs that render web pages inside the terminal, using a terminal-based browser such as Carbonyl. Sessions gain a type distinction (shell vs browser) so the sidebar can display browser-appropriate information (URL and page title instead of working directory, distinct icon). Browser tabs are independent sessions that participate in the layout system, enabling workflows like viewing documentation side-by-side with a coding terminal.
 
-### DLT-005: Fix scroll guard for background terminals
-**Status**: ✗ Defined
-**Depends on**: None
-**Priority**: 2 (High)
-**Complexity**: Easy
-**Description**: When a terminal is following output at the bottom and the user switches to another tab, new output continues arriving but the scroll guard loses track of the "at bottom" state. Switching back reveals the terminal stuck at a stale scroll position instead of showing the latest output. This delta fixes the scroll guard to correctly maintain "stick to bottom" behavior for background terminals receiving output.
-
 ### DLT-006: Fix group expand segfault on Ctrl+Shift+.
 **Status**: ✗ Defined
 **Depends on**: None

@@ -61,7 +61,7 @@ Serialization uses `SavedSplitNode` (from `config.rs`), mirroring `SplitTree` bu
 ### Terminal Creation
 
 1. Resolve color scheme from config via `theme::get_scheme` (fallback: Catppuccin Mocha)
-2. Build VTE Terminal with scrollback, font, colors, bold-is-bright, no bell
+2. Build VTE Terminal with scrollback, scroll-on-output enabled, scroll-on-keystroke, font, colors, bold-is-bright, no bell
 3. Install Shift+Enter key controller (capture phase, feeds kitty escape `\x1b[13;2u`)
 4. Install URL regex matcher + enable OSC 8 hyperlinks
 5. Create scrollbar bound to VTE's vadjustment
@@ -69,6 +69,8 @@ Serialization uses `SavedSplitNode` (from `config.rs`), mirroring `SplitTree` bu
 7. Pack into horizontal Box
 
 ### Scroll Guard
+
+`scroll_on_output` is enabled so VTE natively keeps at-bottom terminals at the bottom when new output arrives (including in background tabs). The scroll guard handles the complementary case: preserving user scroll position during VTE internal adjustments (cursor movement, screen switches, ring growth) that would otherwise jump the viewport.
 
 Three event controllers detect user-initiated scrolling: mouse wheel, keyboard Shift+Page/Home/End, and scrollbar drag — all in capture phase. On `value_changed`:
 
@@ -118,17 +120,17 @@ On `changed` (bounds update): restore, then nudge adjustment +1/-1 to force VTE 
 
 ### Scroll Guard with User-Interaction Detection
 
-**Choice**: Multi-controller guard distinguishing user scrolling from VTE-internal adjustments via capture-phase event interception.
+**Choice**: Multi-controller guard distinguishing user scrolling from VTE-internal adjustments via capture-phase event interception, combined with VTE's native `scroll_on_output` for at-bottom terminals.
 
-**Why**: VTE4 mutates scroll adjustment during screen switches and buffer growth. No "is this a user scroll" API exists.
+**Why**: VTE4 mutates scroll adjustment during screen switches and buffer growth. No "is this a user scroll" API exists. `scroll_on_output` handles the at-bottom-on-new-output case natively; the scroll guard handles cursor-movement and internal adjustment cases.
 
 **Alternatives Considered**:
-- Disabling scroll-on-output: insufficient — VTE still jumps on internal state changes
+- Disabling scroll-on-output entirely: insufficient — VTE still jumps on internal state changes, and at-bottom terminals lose track of position in background tabs
 - Forking VTE to expose user-scroll semantics: rejected as maintenance burden
 - Timer-based debounce: rejected as unreliable
 
 **Consequences**:
-- Pro: Users can scroll up in active terminals without viewport jumping
+- Pro: Users can scroll up in active terminals without viewport jumping; background terminals stay at bottom on new output
 - Con: Intricate implementation (four controllers, four flags, two signal handlers); the +1/-1 nudge is a VTE rendering workaround
 
 ### Safe GTK4 Paned Teardown
