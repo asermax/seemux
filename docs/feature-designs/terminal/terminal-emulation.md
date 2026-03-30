@@ -9,7 +9,7 @@
 
 This design was created from existing code at `src/terminal/`.
 Retrofit date: 2026-03-24
-Decisions discovered: Data-first layout with widget rebuild (DES candidate), Scroll guard approach (ADR candidate), Safe GTK4 Paned teardown (DES candidate)
+Decisions discovered: Data-first layout with widget rebuild (DES candidate), Safe GTK4 Paned teardown (DES candidate)
 
 ---
 
@@ -22,7 +22,6 @@ This document explains the design rationale for terminal emulation and split pan
 Seemux needs a fully functional terminal emulator embedded in GTK4, with arbitrary split pane layouts per session. Key constraints:
 
 - Single-threaded GTK event loop (no Arc/Mutex)
-- VTE4 silently mutates scroll state during screen switches and buffer growth
 - GTK Paned widgets retain internal child references requiring careful teardown
 - Split layouts must serialize to JSON for persistence across restarts
 
@@ -30,7 +29,7 @@ Seemux needs a fully functional terminal emulator embedded in GTK4, with arbitra
 
 Two components with cleanly separated responsibilities:
 
-1. **VteTerminal** — thin wrapper around VTE4 encapsulating configuration, input interception (Shift+Enter), URL detection, scroll guard, and process spawning. Exposes a callback API so callers never interact with VTE4 signals directly.
+1. **VteTerminal** — thin wrapper around VTE4 encapsulating configuration, input interception (Shift+Enter), URL detection, and process spawning. Exposes a callback API so callers never interact with VTE4 signals directly.
 
 2. **SplitView** — manages per-session pane layout using a private binary tree (`SplitTree`) and a flat `HashMap` of pane IDs to terminals. All tree mutations happen on data first; the GTK widget tree is rebuilt on demand.
 
@@ -65,20 +64,7 @@ Serialization uses `SavedSplitNode` (from `config.rs`), mirroring `SplitTree` bu
 3. Install Shift+Enter key controller (capture phase, feeds kitty escape `\x1b[13;2u`)
 4. Install URL regex matcher + enable OSC 8 hyperlinks
 5. Create scrollbar bound to VTE's vadjustment
-6. Install scroll guard controllers
-7. Pack into horizontal Box
-
-### Scroll Guard
-
-`scroll_on_output` is enabled so VTE natively keeps at-bottom terminals at the bottom when new output arrives (including in background tabs). The scroll guard handles the complementary case: preserving user scroll position during VTE internal adjustments (cursor movement, screen switches, ring growth) that would otherwise jump the viewport.
-
-Three event controllers detect user-initiated scrolling: mouse wheel, keyboard Shift+Page/Home/End, and scrollbar drag — all in capture phase. On `value_changed`:
-
-- If user-initiated: record offset-from-bottom (or clear if at bottom)
-- If VTE-initiated and user is scrolled up: restore saved offset
-- A `restoring` flag prevents re-entrant loops
-
-On `changed` (bounds update): restore, then nudge adjustment +1/-1 to force VTE display re-sync.
+6. Pack into horizontal Box
 
 ### Pane Splitting
 
@@ -118,21 +104,6 @@ On `changed` (bounds update): restore, then nudge adjustment +1/-1 to force VTE 
 - Pro: Tree operations are simple; no GTK coupling in data mutations; reliable teardown
 - Con: Every split/close triggers full widget rebuild; pane divider positions not preserved across rebuilds
 
-### Scroll Guard with User-Interaction Detection
-
-**Choice**: Multi-controller guard distinguishing user scrolling from VTE-internal adjustments via capture-phase event interception, combined with VTE's native `scroll_on_output` for at-bottom terminals.
-
-**Why**: VTE4 mutates scroll adjustment during screen switches and buffer growth. No "is this a user scroll" API exists. `scroll_on_output` handles the at-bottom-on-new-output case natively; the scroll guard handles cursor-movement and internal adjustment cases.
-
-**Alternatives Considered**:
-- Disabling scroll-on-output entirely: insufficient — VTE still jumps on internal state changes, and at-bottom terminals lose track of position in background tabs
-- Forking VTE to expose user-scroll semantics: rejected as maintenance burden
-- Timer-based debounce: rejected as unreliable
-
-**Consequences**:
-- Pro: Users can scroll up in active terminals without viewport jumping; background terminals stay at bottom on new output
-- Con: Intricate implementation (four controllers, four flags, two signal handlers); the +1/-1 nudge is a VTE rendering workaround
-
 ### Safe GTK4 Paned Teardown
 
 **Choice**: Recursively set start_child, end_child, focus_child to None before removing Paned widgets, rather than calling unparent() on children.
@@ -149,13 +120,8 @@ On `changed` (bounds update): restore, then nudge adjustment +1/-1 to force VTE 
 
 Given `Split(H, A, Split(V, B, C))` with A focused, navigating Right moves focus to B (first pane of right subtree). Navigation searches ancestor nodes for a sibling in the requested direction, then descends to the nearest leaf.
 
-### Scroll Guard Deferred Restoration
-
-When VTE switches to alternate screen and bounds shrink below stored offset, restoration is deferred until bounds return to normal, preventing incorrect positioning.
-
 ---
 
 ## Notes
 
 - `check_url_at` is a static method taking a raw `vte4::Terminal` reference, slightly breaking the wrapper's encapsulation — pragmatic compromise for action code that has widget access but not wrapper access.
-- The scroll guard's nudge workaround may become unnecessary if VTE fixes the display desync upstream.

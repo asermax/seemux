@@ -60,7 +60,6 @@ A Linux-native terminal multiplexer that organizes Claude Code sessions with vis
 - VTE4-based terminal with configurable font, colors, scrollback
 - Split panes (horizontal/vertical) with directional navigation
 - URL detection (OSC 8 + regex) with Ctrl+Click and context menu
-- Scroll guard preserving position during TUI re-renders
 - Shift+Enter passthrough (kitty protocol)
 
 **Session Management:**

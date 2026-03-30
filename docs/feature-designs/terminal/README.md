@@ -2,7 +2,7 @@
 
 ## Overview
 
-VTE4 wrapper, split pane binary tree, URL detection, scroll guard, and serialization.
+VTE4 wrapper, split pane binary tree, URL detection, and serialization.
 
 ## Sub-Capabilities
 

@@ -8,7 +8,7 @@ System capabilities organized by domain.
 |--------|-------------|
 | [app-shell](app-shell/) | Application lifecycle, window modes, actions, dialogs, keyboard shortcuts |
 | [session](session/) | Session lifecycle, split panes, tab switching, Claude integration |
-| [terminal](terminal/) | VTE4 terminal emulation, split pane tree, URL detection, scroll guard |
+| [terminal](terminal/) | VTE4 terminal emulation, split pane tree, URL detection |
 | [sidebar](sidebar/) | Tab navigation, groups, drag-and-drop, collapsed dot bar, peek behavior |
 | [hooks](hooks/) | Claude Code hook integration, notifications, socket command API |
 | [dropdown](dropdown/) | Quake-style dropdown terminal, layer shell, dialog mode, global shortcuts |

@@ -2,13 +2,13 @@
 
 ## Overview
 
-VTE4 terminal wrapper with configuration, shell/command spawning, URL detection, scroll guard, and binary split pane tree with directional navigation.
+VTE4 terminal wrapper with configuration, shell/command spawning, URL detection, and binary split pane tree with directional navigation.
 
 ## Sub-Capabilities
 
 | Capability | Description | Status |
 |------------|-------------|--------|
-| [terminal-emulation](terminal-emulation.md) | VTE4 terminal, split panes, URL matching, scroll guard, serialization | Current |
+| [terminal-emulation](terminal-emulation.md) | VTE4 terminal, split panes, URL matching, serialization | Current |
 
 ## Related Decisions
 
