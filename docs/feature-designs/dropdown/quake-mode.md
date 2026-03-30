@@ -58,7 +58,7 @@ Toggle event → `DropdownWindow::toggle()` → if hidden: `show()` → `animate
 
 ### Dialog Mode Entry
 
-External window appears → toplevel `Added(ToplevelKind)` event via mpsc (100ms poll). KDE `RegularApp` toplevels are skipped; `Dialog` (KDE windows with a parent) and `Unknown` (ext protocol, no parent info) proceed. For non-skipped events: `recent_toplevel` timestamp is recorded, and `enter_dialog_mode()` is called if visible — layer drops to BOTTOM, keyboard to NONE. OR: focus lost + `recent_toplevel` within 500ms → enter dialog mode.
+External dialog spawns → toplevel Added event via mpsc (100ms poll) → `enter_dialog_mode()`: layer drops to BOTTOM, keyboard to NONE. OR: focus lost + `recent_toplevel` within 500ms → enter dialog mode.
 
 ### Focus Recovery
 

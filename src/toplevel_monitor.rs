@@ -24,19 +24,9 @@ use wayland_protocols_plasma::plasma_window_management::client::{
     org_kde_plasma_window_management::{self, OrgKdePlasmaWindowManagement},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ToplevelKind {
-    /// KDE window with a parent — dialog, transient, popup.
-    Dialog,
-    /// KDE window without a parent — regular application.
-    RegularApp,
-    /// ext-foreign-toplevel protocol — no parent info available.
-    Unknown,
-}
-
 #[derive(Debug, Clone)]
 pub enum ToplevelEvent {
-    Added(ToplevelKind),
+    Added,
     Closed,
 }
 
@@ -47,7 +37,6 @@ const KDE_STATE_SKIP_TASKBAR: u32 = 0x1000;
 struct KdeWindowState {
     announced: bool,
     state_flags: u32,
-    has_parent: bool,
 }
 
 pub struct ToplevelMonitor;
@@ -222,7 +211,7 @@ impl Dispatch<ExtForeignToplevelHandleV1, ()> for MonitorState {
                 *announced = true;
 
                 if state.initial_done {
-                    let _ = state.tx.send(ToplevelEvent::Added(ToplevelKind::Unknown));
+                    let _ = state.tx.send(ToplevelEvent::Added);
                 }
             }
 
@@ -250,7 +239,7 @@ impl Dispatch<OrgKdePlasmaWindowManagement, ()> for MonitorState {
     ) {
         if let org_kde_plasma_window_management::Event::WindowWithUuid { uuid, .. } = event {
             let window = proxy.get_window_by_uuid(uuid, qh, ());
-            state.kde_windows.insert(window, KdeWindowState { announced: false, state_flags: 0, has_parent: false });
+            state.kde_windows.insert(window, KdeWindowState { announced: false, state_flags: 0 });
         }
     }
 }
@@ -265,16 +254,10 @@ impl Dispatch<OrgKdePlasmaWindow, ()> for MonitorState {
         _qh: &QueueHandle<Self>,
     ) {
         match event {
-            // State flags and parent arrive before InitialState, so we capture them first.
+            // State flags arrive before InitialState, so we capture them first.
             org_kde_plasma_window::Event::StateChanged { flags } => {
                 if let Some(win) = state.kde_windows.get_mut(proxy) {
                     win.state_flags = flags;
-                }
-            }
-
-            org_kde_plasma_window::Event::ParentWindow { parent } => {
-                if let Some(win) = state.kde_windows.get_mut(proxy) {
-                    win.has_parent = parent.is_some();
                 }
             }
 
@@ -295,8 +278,7 @@ impl Dispatch<OrgKdePlasmaWindow, ()> for MonitorState {
                 win.announced = true;
 
                 if state.initial_done {
-                    let kind = if win.has_parent { ToplevelKind::Dialog } else { ToplevelKind::RegularApp };
-                    let _ = state.tx.send(ToplevelEvent::Added(kind));
+                    let _ = state.tx.send(ToplevelEvent::Added);
                 }
             }
 

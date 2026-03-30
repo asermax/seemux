@@ -179,7 +179,7 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     hooks::setup_stale_pid_detection(&dropdown.manager);
 
     // Poll toplevel events from the Wayland foreign-toplevel-list protocol.
-    // When a new dialog toplevel appears while the dropdown is visible,
+    // When a new toplevel appears while the dropdown is visible but unfocused,
     // enter dialog mode proactively — this catches the case where the GTK
     // focus-loss event arrives before the toplevel event is polled.
     // Also track a timestamp so the focus handler can detect toplevels that
@@ -193,11 +193,7 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
         glib::timeout_add_local(Duration::from_millis(100), move || {
             while let Ok(event) = rx.try_recv() {
                 match event {
-                    crate::toplevel_monitor::ToplevelEvent::Added(kind) => {
-                        if kind == crate::toplevel_monitor::ToplevelKind::RegularApp {
-                            continue;
-                        }
-
+                    crate::toplevel_monitor::ToplevelEvent::Added => {
                         recent.set(Some(Instant::now()));
 
                         if *dd.visible() {

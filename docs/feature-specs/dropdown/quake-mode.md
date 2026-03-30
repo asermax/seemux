@@ -63,9 +63,7 @@ A quake-style dropdown terminal anchored to the top of the screen, rendered as a
 ### Dialog Mode
 
 **Acceptance Criteria**:
-- Given KDE plasma protocol and a toplevel with a parent (dialog/transient) appears while the dropdown is visible (or focus is lost within 500ms), then dialog mode is entered: layer changes to bottom, keyboard to none
-- Given KDE plasma protocol and a toplevel without a parent (regular app) appears, then dialog mode is NOT entered
-- Given ext-foreign-toplevel protocol (no parent info available), when a toplevel appears (or focus is lost within 500ms of a toplevel), then dialog mode is entered (existing behavior preserved)
+- Given the dropdown is visible, when a toplevel appears (or focus is lost within 500ms of a toplevel), then dialog mode is entered: layer changes to bottom, keyboard to none
 - Given dialog mode is active, when the toplevel closes, then dialog mode exits: layer returns to top, keyboard to exclusive
 - Given dialog mode is active, when the dropdown regains focus, then dialog mode exits
 - Given dialog mode is already active, when enter_dialog_mode is called again, then it is a no-op
@@ -78,7 +76,6 @@ A quake-style dropdown terminal anchored to the top of the screen, rendered as a
 - Given neither protocol available, then start() returns None
 - Given pre-existing toplevels during initial roundtrip, then they are ignored
 - Given KDE windows with SKIP_TASKBAR flag, then they are filtered out
-- Given KDE plasma protocol, toplevel events include parent window info to distinguish dialogs from regular apps
 
 ### Focus Recovery
 
