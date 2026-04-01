@@ -91,6 +91,13 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Complexity**: Easy
 **Description**: The Ctrl+Shift+. shortcut correctly detects the keystroke and collapses sidebar groups, but expanding them back causes a segfault. This delta fixes the expand path so that toggling group collapse via the keyboard shortcut works reliably in both directions.
 
+### DLT-007: Configure Claude binary name for resume and state detection
+**Status**: ✗ Defined
+**Depends on**: None
+**Priority**: 3 (Medium)
+**Complexity**: Easy
+**Description**: Users who invoke Claude Code via a custom binary name (e.g., `claude-dev`, a wrapper, or a symlink) get broken running state tracking and auto-resume because seemux hardcodes `"claude"` when injecting resume commands and detecting Claude process titles. This delta adds a `claude_command` config field (defaulting to `"claude"`) that seemux uses for resume injection and running-state title detection, ensuring these features work correctly regardless of the Claude binary name in use.
+
 ---
 
 ## Notes
