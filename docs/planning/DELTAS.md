@@ -105,6 +105,13 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Complexity**: Easy
 **Description**: Users working with multiple tabs open in the same repository see stale PR information on tabs that have not been individually refreshed. This delta ensures that when any tab's branch and PR status is updated, all other tabs sharing the same repository directory (or a subdirectory of it) are immediately updated to reflect the same state, keeping the sidebar consistent without requiring each tab to refresh independently.
 
+### DLT-009: Filter hook events from background Claude instances
+**Status**: ✗ Defined
+**Depends on**: None
+**Priority**: 2 (High)
+**Complexity**: Medium
+**Description**: When a Claude session inside seemux spawns child processes (agents, background tasks), those children inherit the `SEEMUX_SOCKET` and `SEEMUX_SESSION_ID` environment variables. If a child starts its own Claude instance, that instance sends hook events back to seemux, incorrectly updating the parent tab's status and notifications. This delta adds a mechanism to ensure only the direct Claude session in each tab sends hook events, preventing background or nested Claude instances from polluting the tab's state.
+
 ---
 
 ## Notes
