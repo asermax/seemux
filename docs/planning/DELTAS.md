@@ -84,13 +84,6 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Complexity**: Medium
 **Description**: Users need to view web content alongside terminal sessions without leaving seemux. This delta adds browser tabs that render web pages inside the terminal, using a terminal-based browser such as Carbonyl. Sessions gain a type distinction (shell vs browser) so the sidebar can display browser-appropriate information (URL and page title instead of working directory, distinct icon). Browser tabs are independent sessions that participate in the layout system, enabling workflows like viewing documentation side-by-side with a coding terminal.
 
-### DLT-006: Fix group expand segfault on Ctrl+Shift+.
-**Status**: ✗ Defined
-**Depends on**: None
-**Priority**: 1 (Critical)
-**Complexity**: Easy
-**Description**: The Ctrl+Shift+. shortcut correctly detects the keystroke and collapses sidebar groups, but expanding them back causes a segfault. This delta fixes the expand path so that toggling group collapse via the keyboard shortcut works reliably in both directions.
-
 ### DLT-008: Sync PR status across tabs in the same repository
 **Status**: ✗ Defined
 **Depends on**: None

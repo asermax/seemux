@@ -89,11 +89,11 @@ pub(crate) fn setup_keyboard_shortcuts(
         }
 
         if is_period_toggle {
-            if let Some(group_id) = mgr.borrow().active_group_id() {
-                if sidebar_for_keys.is_group_collapsed(group_id) {
-                    sidebar_for_keys.expand_group(group_id);
+            if let Some(group_id) = mgr.borrow().active_group_id().map(String::from) {
+                if sidebar_for_keys.is_group_collapsed(&group_id) {
+                    sidebar_for_keys.expand_group(&group_id);
                 } else {
-                    sidebar_for_keys.collapse_group(group_id);
+                    sidebar_for_keys.collapse_group(&group_id);
                 }
             }
 
