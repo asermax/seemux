@@ -36,10 +36,13 @@ pub struct Config {
     pub tray_enabled: bool,
     #[serde(default = "default_tray_icon")]
     pub tray_icon: String,
+    #[serde(default = "default_claude_aliases")]
+    pub claude_aliases: Vec<String>,
 }
 
 fn default_tray_enabled() -> bool { true }
 fn default_tray_icon() -> String { "seemux".to_string() }
+fn default_claude_aliases() -> Vec<String> { vec!["claude".to_string()] }
 
 impl Default for Config {
     fn default() -> Self {
@@ -56,6 +59,7 @@ impl Default for Config {
             sidebar_collapsed: false,
             tray_enabled: true,
             tray_icon: "seemux".to_string(),
+            claude_aliases: default_claude_aliases(),
         }
     }
 }
@@ -66,8 +70,14 @@ impl Config {
 
         if path.exists() {
             match fs::read_to_string(&path) {
-                Ok(contents) => match toml::from_str(&contents) {
-                    Ok(config) => return config,
+                Ok(contents) => match toml::from_str::<Config>(&contents) {
+                    Ok(mut config) => {
+                        if !config.claude_aliases.iter().any(|a| a == "claude") {
+                            config.claude_aliases.push("claude".to_string());
+                        }
+
+                        return config;
+                    },
                     Err(e) => eprintln!("Failed to parse config: {e}"),
                 },
                 Err(e) => eprintln!("Failed to read config: {e}"),
@@ -130,6 +140,8 @@ pub struct SavedSession {
     pub group_id: String,
     #[serde(default)]
     pub claude_session_id: Option<String>,
+    #[serde(default)]
+    pub claude_binary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -218,6 +230,7 @@ mod tests {
             sidebar_collapsed: false,
             tray_enabled: true,
             tray_icon: "seemux".to_string(),
+            claude_aliases: vec!["claude".to_string()],
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -250,6 +263,7 @@ mod tests {
                     split_tree: SavedSplitNode::Leaf { cwd: Some("/home/user".to_string()) },
                     group_id: "default".to_string(),
                     claude_session_id: Some("abc-123".to_string()),
+                    claude_binary: None,
                 },
                 SavedSession {
                     title: "Tab 2".to_string(),
@@ -260,6 +274,7 @@ mod tests {
                     },
                     group_id: "group1".to_string(),
                     claude_session_id: None,
+                    claude_binary: Some("claude-dev".to_string()),
                 },
             ],
             groups: vec![
@@ -277,6 +292,8 @@ mod tests {
         assert!(matches!(parsed.sessions[1].split_tree, SavedSplitNode::Split { .. }));
         assert_eq!(parsed.sessions[0].claude_session_id, Some("abc-123".to_string()));
         assert_eq!(parsed.sessions[1].claude_session_id, None);
+        assert_eq!(parsed.sessions[0].claude_binary, None);
+        assert_eq!(parsed.sessions[1].claude_binary, Some("claude-dev".to_string()));
         assert_eq!(parsed.active_session_index, Some(1));
     }
 
@@ -286,5 +303,33 @@ mod tests {
         let parsed: SessionState = serde_json::from_str(json).unwrap();
 
         assert_eq!(parsed.sessions[0].claude_session_id, None);
+    }
+
+    #[test]
+    fn config_claude_aliases_default() {
+        let config = Config::default();
+        assert_eq!(config.claude_aliases, vec!["claude".to_string()]);
+    }
+
+    #[test]
+    fn config_claude_aliases_auto_append() {
+        let toml_str = r#"claude_aliases = ["claude-dev"]"#;
+        let mut parsed: Config = toml::from_str(toml_str).unwrap();
+
+        // Simulate the auto-append logic from Config::load()
+        if !parsed.claude_aliases.iter().any(|a| a == "claude") {
+            parsed.claude_aliases.push("claude".to_string());
+        }
+
+        assert_eq!(parsed.claude_aliases, vec!["claude-dev".to_string(), "claude".to_string()]);
+    }
+
+    #[test]
+    fn session_state_backward_compat_missing_claude_binary() {
+        let json = r#"{"sessions":[{"title":"Tab","split_tree":{"Leaf":{"cwd":null}},"group_id":"default","claude_session_id":"abc"}],"groups":[]}"#;
+        let parsed: SessionState = serde_json::from_str(json).unwrap();
+
+        assert_eq!(parsed.sessions[0].claude_session_id, Some("abc".to_string()));
+        assert_eq!(parsed.sessions[0].claude_binary, None);
     }
 }

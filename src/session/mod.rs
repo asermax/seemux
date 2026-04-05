@@ -11,10 +11,16 @@ pub struct Session {
     pub status: SessionStatus,
     pub claude_pid: Option<u32>,
     pub claude_session_id: Option<String>,
-    /// Set only during session restoration; consumed once to inject `claude --resume`.
+    /// The Claude binary name detected from terminal title (e.g., "claude-dev").
+    #[serde(skip)]
+    pub claude_binary: Option<String>,
+    /// Set only during session restoration; consumed once to inject `<binary> --resume`.
     /// Unlike `claude_session_id` (updated by hook events), this is never touched at runtime.
     #[serde(skip)]
     pub pending_resume_id: Option<String>,
+    /// The binary name to use for resume, set during restoration alongside `pending_resume_id`.
+    #[serde(skip)]
+    pub pending_resume_binary: Option<String>,
     pub created_at: i64,
     pub cwd: Option<String>,
     pub group_id: String,
@@ -62,7 +68,9 @@ impl Session {
             status: SessionStatus::Idle,
             claude_pid: None,
             claude_session_id: None,
+            claude_binary: None,
             pending_resume_id: None,
+            pending_resume_binary: None,
             created_at: glib::DateTime::now_local()
                 .map(|dt| dt.to_unix())
                 .unwrap_or(0),
@@ -86,7 +94,9 @@ mod tests {
         assert_eq!(session.status, SessionStatus::Idle);
         assert_eq!(session.claude_pid, None);
         assert_eq!(session.claude_session_id, None);
+        assert_eq!(session.claude_binary, None);
         assert_eq!(session.pending_resume_id, None);
+        assert_eq!(session.pending_resume_binary, None);
         assert_eq!(session.cwd, None);
         assert_eq!(session.group_id, DEFAULT_GROUP);
         assert!(!session.id.is_empty());

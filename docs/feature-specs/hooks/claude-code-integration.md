@@ -62,7 +62,7 @@ End-to-end event pipeline between Claude Code and Seemux. A Claude Code plugin r
 - Given a session, when `notification` is received, then status becomes NeedsInput with a classified notification body
 - Given a session, when `stop` is received, then status becomes Idle with a notification from last_assistant_message (truncated to 100 chars)
 - Given a session, when `stop-failure` is received, then status becomes Error with a notification from message/error/reason
-- Given a session, when `session-end` is received, then status becomes Idle and Claude PID/session ID are cleared
+- Given a session, when `session-end` is received, then status becomes Idle and Claude PID, session ID, and binary name are cleared
 
 ### Notification Classification
 
@@ -82,7 +82,7 @@ End-to-end event pipeline between Claude Code and Seemux. A Claude Code plugin r
 ### Stale PID Detection
 
 **Acceptance Criteria**:
-- Given a session with a recorded Claude PID, when the 5-second timer fires and the process is dead, then PID is cleared, session ID is cleared, and status is set to Idle
+- Given a session with a recorded Claude PID, when the 5-second timer fires and the process is dead, then PID, session ID, and Claude binary name are cleared, and status is set to Idle
 - Given a session with a live PID, when the timer fires, then no changes are made
 
 ### NotificationStore

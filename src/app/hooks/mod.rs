@@ -100,6 +100,11 @@ pub(crate) fn setup_hook_polling(
                     if let Some(pid) = result.claude_pid {
                         let pid_val = if pid == 0 { None } else { Some(pid) };
                         mgr_for_hooks.borrow_mut().set_claude_pid(&result.session_id, pid_val);
+
+                        // session-end clears the Claude binary name
+                        if pid == 0 {
+                            mgr_for_hooks.borrow_mut().set_claude_binary(&result.session_id, None);
+                        }
                     }
 
                     if let Some(claude_sid) = result.claude_session_id {
@@ -157,6 +162,7 @@ pub(crate) fn setup_stale_pid_detection(manager: &Rc<RefCell<SessionManager>>) {
                 let mut mgr = mgr_for_pid.borrow_mut();
                 mgr.set_claude_pid(&session_id, None);
                 mgr.set_claude_session_id(&session_id, None);
+                mgr.set_claude_binary(&session_id, None);
                 mgr.update_session_status(&session_id, SessionStatus::Idle);
             }
         }

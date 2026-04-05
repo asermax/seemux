@@ -41,11 +41,13 @@ Config (TOML, ~/.config/seemux/config.toml)
 ├── color_scheme
 ├── dropdown_width/height_percent, dropdown_animation_ms
 ├── agent_teams_shim
-└── tray_enabled, tray_icon
+├── tray_enabled, tray_icon
+└── claude_aliases: Vec<String> (default: ["claude"])
 
 SessionState (JSON, ~/.local/state/seemux/sessions.json)
 ├── sessions: Vec<SavedSession>
 │   ├── title, group_id, claude_session_id
+│   ├── claude_binary: Option<String> (persisted projection of runtime field)
 │   └── split_tree: SavedSplitNode (recursive)
 ├── groups: Vec<SavedGroup> (id, name, collapsed)
 └── active_session_index
@@ -106,6 +108,12 @@ All writes use `tempfile::NamedTempFile` in the same directory as the target, th
 **Choice**: `RefCell<Option<Receiver>>` with `take()` semantics.
 **Why**: `mpsc::Receiver` is single-consumer. Take semantics make ownership transfer explicit.
 **Consequences**: Second window cannot receive hook events (acceptable — only one window polls).
+
+### Configurable Claude Binary Aliases
+
+**Choice**: `claude_aliases` config field (Vec, defaults to `["claude"]`) with runtime normalization that appends `"claude"` if missing. The matched binary name is tracked per session as `claude_binary` (runtime on `Session` via `#[serde(skip)]`, persisted on `SavedSession`). Resume injection uses the saved binary with fallback to `"claude"`.
+**Why**: Users invoking Claude Code via wrappers or symlinks (e.g., `claude-dev`) need seemux to recognize those binary names for resume and title detection. Auto-appending `"claude"` prevents misconfiguration. Persisting the matched binary ensures the correct command is used on restart resume.
+**Consequences**: If `Config::save()` is called after normalization, the appended `"claude"` may appear in the config file. Aliases are cloned at terminal wire time, so config changes require new tabs to take effect.
 
 ## System Behavior
 

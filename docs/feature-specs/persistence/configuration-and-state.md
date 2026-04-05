@@ -37,6 +37,7 @@ The persistence domain manages four concerns: TOML configuration loading/saving 
 | R10 | When `agent_teams_shim` is enabled, the tmux shim binary is deployed to the runtime `bin/` directory |
 | R11 | Sidebar width and collapsed state are persisted to config only when they actually change |
 | R12 | Hook and toplevel receivers use take semantics, preventing multiple consumers |
+| R13 | A `claude_aliases` config field (TOML, defaults to `["claude"]`) holds a list of binary names recognized as Claude instances; `"claude"` is always included even if omitted by the user |
 
 ## Behaviors
 
@@ -61,6 +62,7 @@ The persistence domain manages four concerns: TOML configuration loading/saving 
 - Given a valid JSON state file at `~/.local/state/seemux/sessions.json`, when loaded, then sessions, groups, and active index are deserialized
 - Given no state file exists, when loaded, then an empty SessionState is returned
 - Given a state file from an older version missing new fields, when loaded, then deserialization succeeds with serde defaults
+- Given a state file from an older version missing `claude_binary`, when loaded, then all sessions deserialize with `claude_binary = None` without error
 - Given malformed JSON, when loaded, then an error is logged and empty defaults are returned
 
 ### Session State Saving
@@ -69,6 +71,7 @@ The persistence domain manages four concerns: TOML configuration loading/saving 
 - Given multiple sessions with splits, groups, and an active tab, when save_state() is called, then the full topology is captured including recursive split trees with per-leaf CWDs
 - Given sessions reordered in the sidebar, when saved, then sessions are serialized in sidebar display order
 - Given a SessionState ready to save, when saved, then atomic write via temp file + rename is used
+- Given a session with a recorded Claude binary name, when save_state() is called, then the `claude_binary` field is included in the serialized session
 
 ### Debounced Persistence
 
@@ -106,3 +109,10 @@ The persistence domain manages four concerns: TOML configuration loading/saving 
 - Given app startup, when AppState::new(quake) is called, then config is loaded, hook server is started, and shim is conditionally deployed
 - Given quake mode, when AppState::new(true) is called, then the toplevel monitor is also started
 - Given a receiver is taken, when take_hook_rx() is called again, then None is returned (single-claim)
+
+### Claude Binary Aliases
+
+**Acceptance Criteria**:
+- Given no `claude_aliases` in config.toml, when Config::load() is called, then `claude_aliases` defaults to `["claude"]`
+- Given `claude_aliases = ["claude-dev"]` (omitting "claude"), when loaded, then `"claude"` is appended in-memory to the aliases list
+- Given a session with `claude_binary = None` and a saved `claude_session_id`, when seemux restores the session, then it injects `claude --resume <id>` (falls back to default binary)

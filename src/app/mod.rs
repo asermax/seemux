@@ -617,6 +617,7 @@ fn restore_sessions(
                 group,
                 &saved.split_tree,
                 saved.claude_session_id.as_deref(),
+                saved.claude_binary.as_deref(),
             );
             wire_tab_lifecycle(sidebar, manager, notification_store, &id);
         }
@@ -744,12 +745,12 @@ fn register_group(
 }
 
 /// Spawn deferred shells and resume any Claude sessions that were active at shutdown.
-/// Feed `claude --resume` commands into terminals after a short delay.
+/// Feed `<binary> --resume` commands into terminals after a short delay.
 /// When `auto_execute` is true the command runs immediately (trailing newline);
 /// otherwise it is pre-typed for the user to review.
 fn schedule_claude_resumes(
     manager: &Rc<RefCell<SessionManager>>,
-    pending: Vec<(String, String)>,
+    pending: Vec<(String, String, Option<String>)>,
     auto_execute: bool,
 ) {
     if pending.is_empty() { return; }
@@ -758,9 +759,10 @@ fn schedule_claude_resumes(
     let suffix = if auto_execute { "\n" } else { "" };
 
     glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
-        for (session_id, claude_session_id) in &pending {
+        for (session_id, claude_session_id, claude_binary) in &pending {
             if let Some(term) = mgr.borrow().session_terminal(session_id) {
-                term.feed_child(format!("claude --resume {claude_session_id}{suffix}").as_bytes());
+                let binary = claude_binary.as_deref().unwrap_or("claude");
+                term.feed_child(format!("{binary} --resume {claude_session_id}{suffix}").as_bytes());
             }
         }
     });

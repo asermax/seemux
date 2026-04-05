@@ -460,23 +460,38 @@ impl SessionManager {
         }
     }
 
+    pub fn set_claude_binary(&mut self, session_id: &str, binary: Option<String>) {
+        if let Some(session) = self.find_session_mut(session_id) {
+            session.claude_binary = binary;
+            self.notify_state_changed();
+        }
+    }
+
     pub fn session_terminal(&self, session_id: &str) -> Option<Rc<VteTerminal>> {
         self.split_views.get(session_id).and_then(|sv| sv.focused_terminal())
     }
 
-    pub fn take_pending_resumes(&mut self) -> Vec<(String, String)> {
+    pub fn take_pending_resumes(&mut self) -> Vec<(String, String, Option<String>)> {
         let sidebar = &self.sidebar;
 
         self.sessions.iter_mut()
             .filter(|s| !sidebar.is_group_collapsed(&s.group_id))
-            .filter_map(|s| s.pending_resume_id.take().map(|cid| (s.id.clone(), cid)))
+            .filter_map(|s| {
+                s.pending_resume_id.take().map(|cid| {
+                    (s.id.clone(), cid, s.pending_resume_binary.take())
+                })
+            })
             .collect()
     }
 
-    pub fn take_pending_resumes_for_group(&mut self, group_id: &str) -> Vec<(String, String)> {
+    pub fn take_pending_resumes_for_group(&mut self, group_id: &str) -> Vec<(String, String, Option<String>)> {
         self.sessions.iter_mut()
             .filter(|s| s.group_id == group_id)
-            .filter_map(|s| s.pending_resume_id.take().map(|cid| (s.id.clone(), cid)))
+            .filter_map(|s| {
+                s.pending_resume_id.take().map(|cid| {
+                    (s.id.clone(), cid, s.pending_resume_binary.take())
+                })
+            })
             .collect()
     }
 
@@ -862,6 +877,9 @@ impl SessionManager {
         let pending_badge: Rc<Cell<Option<glib::SourceId>>> = Rc::new(Cell::new(None));
         let last_command: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
 
+        // Clone aliases at setup time to avoid borrowing config inside the closure
+        let claude_aliases = self_ref.borrow().config.borrow().claude_aliases.clone();
+
         terminal.on_title_changed(move |title, _cwd_uri| {
             let Some(mgr) = mgr.upgrade() else { return };
             let Ok(m) = mgr.try_borrow() else { return };
@@ -876,11 +894,22 @@ impl SessionManager {
 
             let Some(title) = title.filter(|t| !t.is_empty()) else { return };
 
-            // Skip — Claude hooks will manage the status for this session.
+            // Check if the title's first word matches a configured Claude alias.
             // Mark as running so subsequent title changes from Claude's TUI
             // don't trigger a new command start.
-            if title.to_ascii_lowercase().starts_with("claude") {
+            let title_lower = title.to_ascii_lowercase();
+            let first_word = title_lower.split_whitespace().next().unwrap_or(&title_lower);
+
+            if claude_aliases.iter().any(|a| a.to_ascii_lowercase() == first_word) {
                 running.set(true);
+
+                // Save the matched alias for resume command injection
+                let matched = first_word.to_string();
+                drop(m);
+                if let Ok(mut mgr_mut) = mgr.try_borrow_mut() {
+                    mgr_mut.set_claude_binary(&sid, Some(matched));
+                }
+
                 return;
             }
 
@@ -981,6 +1010,7 @@ impl SessionManager {
                     split_tree,
                     group_id: s.group_id.clone(),
                     claude_session_id: s.claude_session_id.clone(),
+                    claude_binary: s.claude_binary.clone(),
                 })
             }).collect(),
             groups,
@@ -997,10 +1027,13 @@ impl SessionManager {
         group_id: &str,
         split_tree: &crate::config::SavedSplitNode,
         claude_session_id: Option<&str>,
+        claude_binary: Option<&str>,
     ) -> String {
         let mut session = crate::session::Session::new(title.to_string());
         session.group_id = group_id.to_string();
         session.pending_resume_id = claude_session_id.map(|s| s.to_string());
+        session.claude_binary = claude_binary.map(|s| s.to_string());
+        session.pending_resume_binary = session.claude_binary.clone();
         let id = session.id.clone();
 
         let config = self.config.borrow();
