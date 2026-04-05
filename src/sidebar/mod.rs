@@ -30,7 +30,7 @@ pub struct Sidebar {
 
     // Named groups
     groups: Rc<RefCell<Vec<GroupEntry>>>,
-    group_widgets: Rc<RefCell<HashMap<String, TabGroupWidget>>>,
+    group_widgets: Rc<RefCell<HashMap<String, Rc<TabGroupWidget>>>>,
     new_group_btn: Button,
 
     // All tab rows indexed by session ID
@@ -931,7 +931,7 @@ impl Sidebar {
             id: id.to_string(),
             name: name.to_string(),
         });
-        self.group_widgets.borrow_mut().insert(id.to_string(), group_widget);
+        self.group_widgets.borrow_mut().insert(id.to_string(), Rc::new(group_widget));
 
         // Group drop target must be set up after inserting into group_widgets
         self.setup_group_drop_target(id);
@@ -972,13 +972,17 @@ impl Sidebar {
     }
 
     pub fn expand_group(&self, group_id: &str) {
-        if let Some(gw) = self.group_widgets.borrow().get(group_id) {
+        let gw = self.group_widgets.borrow().get(group_id).cloned();
+
+        if let Some(gw) = gw {
             gw.expand();
         }
     }
 
     pub fn collapse_group(&self, group_id: &str) {
-        if let Some(gw) = self.group_widgets.borrow().get(group_id) {
+        let gw = self.group_widgets.borrow().get(group_id).cloned();
+
+        if let Some(gw) = gw {
             gw.collapse();
         }
     }
@@ -1178,7 +1182,7 @@ impl Sidebar {
 fn reconcile_peek_for_group(
     group_id: &str,
     rows: &HashMap<String, (TabRow, String)>,
-    group_widgets: &HashMap<String, TabGroupWidget>,
+    group_widgets: &HashMap<String, Rc<TabGroupWidget>>,
 ) {
     let Some(gw) = group_widgets.get(group_id) else { return };
 
