@@ -8,6 +8,16 @@ pub struct PrInfo {
     pub url: String,
 }
 
+/// Check if a command string contains a git or gh invocation.
+/// Handles `&&` chains, matching any segment that starts with `git ` or `gh `.
+pub fn is_git_command(command: &str) -> bool {
+    command.split("&&").any(|segment| {
+        let trimmed = segment.trim_start();
+
+        trimmed.starts_with("git ") || trimmed.starts_with("gh ")
+    })
+}
+
 /// Run a closure on a background thread and deliver the result to a callback on the main thread.
 /// Uses polling (`try_recv`) to avoid blocking the GTK main loop.
 fn run_async<T: Send + 'static>(
@@ -84,4 +94,32 @@ pub fn detect_pr_async<F: Fn(Option<PrInfo>) + 'static>(cwd: &str, branch: &str,
         },
         callback,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_git_command_detects_simple_commands() {
+        assert!(is_git_command("git push"));
+        assert!(is_git_command("git add ."));
+        assert!(is_git_command("gh pr create"));
+        assert!(is_git_command("gh pr view"));
+    }
+
+    #[test]
+    fn is_git_command_detects_after_double_ampersand() {
+        assert!(is_git_command("cd foo && git push"));
+        assert!(is_git_command("echo done && gh pr create"));
+        assert!(is_git_command("cd foo && git add . && git commit -m 'msg'"));
+    }
+
+    #[test]
+    fn is_git_command_ignores_non_git_commands() {
+        assert!(!is_git_command("cargo build"));
+        assert!(!is_git_command("vim"));
+        assert!(!is_git_command("cd foo && cargo test"));
+        assert!(!is_git_command(""));
+    }
 }

@@ -34,7 +34,7 @@ End-to-end event pipeline between Claude Code and Seemux. A Claude Code plugin r
 | R8 | Plugin registers hooks for all eight Claude Code lifecycle events, each async with 10-second timeout |
 | R9 | Command API supports create-group, create-session, destroy-session, focus-session, list-sessions, and send-input with JSON request/response |
 | R10 | Special non-session events (toggle-dropdown, activate-window, quit) are handled as application-level controls |
-| R11 | post-tool-use events for Bash tool containing `gh pr` trigger branch/PR re-detection |
+| R11 | post-tool-use events for Bash tool containing `git` or `gh` commands trigger branch/PR re-detection |
 | R12 | Socket file is cleaned up on startup (stale) and shutdown (Drop) |
 
 ## Behaviors

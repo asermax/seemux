@@ -116,5 +116,5 @@ External tool sends JSON with `request_id` + `command` → connection thread blo
 ## Notes
 
 - `HookResult.claude_pid` uses `0` as sentinel for "clear PID" — inconsistent with `claude_session_id` which uses `Option<Option<String>>`.
-- `post-tool-use` only consumed for PR detection side effect, not status transitions.
+- `post-tool-use` consumed for branch/PR re-detection side effect (any `git` or `gh` Bash command triggers it), not status transitions.
 - `stopped_sessions` set never garbage-collected for destroyed sessions.
