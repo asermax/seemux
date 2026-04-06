@@ -25,6 +25,9 @@ pub(crate) fn setup_keyboard_shortcuts(
     let sidebar_for_keys = sidebar.clone();
 
     key_controller.connect_key_pressed(move |_, key, keycode, modifiers| {
+        // Wrap the entire handler in catch_unwind to prevent aborting the process
+        // if a RefCell borrow conflict (or any other panic) occurs inside a C callback.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
         let shift = modifiers.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
         let alt = modifiers.contains(gtk4::gdk::ModifierType::ALT_MASK);
@@ -89,11 +92,20 @@ pub(crate) fn setup_keyboard_shortcuts(
         }
 
         if is_period_toggle {
-            if let Some(group_id) = mgr.borrow().active_group_id().map(String::from) {
-                if sidebar_for_keys.is_group_collapsed(&group_id) {
-                    sidebar_for_keys.expand_group(&group_id);
+            // Extract group_id into an owned String BEFORE the if-let so the
+            // RefCell borrow is dropped before expand/collapse_group runs.
+            // expand/collapse triggers on_group_expanded which re-borrows mgr,
+            // so any lingering borrow here would cause a panic.
+            let group_id = {
+                let mgr_ref = mgr.borrow();
+                mgr_ref.active_group_id().map(String::from)
+            };
+
+            if let Some(ref group_id) = group_id {
+                if sidebar_for_keys.is_group_collapsed(group_id) {
+                    sidebar_for_keys.expand_group(group_id);
                 } else {
-                    sidebar_for_keys.collapse_group(&group_id);
+                    sidebar_for_keys.collapse_group(group_id);
                 }
             }
 
@@ -227,7 +239,23 @@ pub(crate) fn setup_keyboard_shortcuts(
             return glib::Propagation::Stop;
         }
 
-        glib::Propagation::Proceed
+            glib::Propagation::Proceed
+        }));
+
+        match result {
+            Ok(propagation) => propagation,
+            Err(panic_payload) => {
+                eprintln!("seemux: panic in keyboard handler (suppressed to avoid abort)");
+
+                if let Some(msg) = panic_payload.downcast_ref::<&str>() {
+                    eprintln!("  message: {msg}");
+                } else if let Some(msg) = panic_payload.downcast_ref::<String>() {
+                    eprintln!("  message: {msg}");
+                }
+
+                glib::Propagation::Proceed
+            }
+        }
     });
 
     let sidebar_for_release = sidebar.clone();
