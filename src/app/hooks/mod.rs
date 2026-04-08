@@ -22,6 +22,7 @@ pub(crate) fn setup_hook_polling(
     sidebar: &Rc<Sidebar>,
     dropdown: Option<Rc<crate::dropdown::DropdownWindow>>,
     window: gtk4::ApplicationWindow,
+    check_window_visible: bool,
 ) {
     let hook_rx = state.take_hook_rx();
     let mgr_for_hooks = manager.clone();
@@ -120,7 +121,12 @@ pub(crate) fn setup_hook_polling(
                             .map(|id| id == result.session_id)
                             .unwrap_or(false);
 
-                        if !is_active {
+                        // In dropdown mode, also check if the window is actually visible —
+                        // when hidden, the user can't see the terminal so badges should still appear.
+                        let should_suppress = is_active && (!check_window_visible
+                            || dropdown.as_ref().is_some_and(|dd| *dd.visible()));
+
+                        if !should_suppress {
                             let notification = crate::notifications::Notification::new(
                                 &result.session_id,
                                 &body,

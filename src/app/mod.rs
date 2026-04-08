@@ -109,7 +109,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     // Create dropdown window (shown via `seemux toggle` CLI command)
     let dropdown = Rc::new(crate::dropdown::DropdownWindow::new(app, state));
 
-    hooks::setup_hook_polling(state, &manager, &notification_store, &sidebar, Some(dropdown), window.clone());
+    hooks::setup_hook_polling(state, &manager, &notification_store, &sidebar, Some(dropdown), window.clone(), false);
     hooks::setup_stale_pid_detection(&manager);
 
     // Keyboard shortcuts
@@ -175,7 +175,7 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
 
     wire_sidebar_collapse(&dropdown.sidebar, &dropdown.paned, &state.config);
 
-    hooks::setup_hook_polling(state, &dropdown.manager, &dropdown.notification_store, &dropdown.sidebar, Some(dropdown.clone()), dropdown.window().clone());
+    hooks::setup_hook_polling(state, &dropdown.manager, &dropdown.notification_store, &dropdown.sidebar, Some(dropdown.clone()), dropdown.window().clone(), true);
     hooks::setup_stale_pid_detection(&dropdown.manager);
 
     // Poll toplevel events from the Wayland foreign-toplevel-list protocol.

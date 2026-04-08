@@ -184,6 +184,11 @@ impl DropdownWindow {
         self.animate(true);
         *self.visible.borrow_mut() = true;
 
+        // Clear notifications for the active session since the user can now see it
+        if let Some(active_id) = self.manager.borrow().active_id() {
+            self.notification_store.borrow_mut().mark_read(active_id);
+        }
+
         if let Some(term) = self.manager.borrow().active_terminal_vte() {
             term.grab_focus();
         }

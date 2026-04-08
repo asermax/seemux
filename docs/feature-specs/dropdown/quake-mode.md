@@ -37,6 +37,7 @@ A quake-style dropdown terminal anchored to the top of the screen, rendered as a
 | R11 | Gracefully degrade when layer-shell is unsupported or global shortcuts portal unavailable |
 | R12 | Filter KDE SKIP_TASKBAR windows from toplevel monitoring |
 | R13 | Cancel stale animations via generation counter on rapid toggling |
+| R14 | Clear notification badges for the active session when the dropdown is shown (hidden-to-visible transition) |
 
 ## Behaviors
 
@@ -44,6 +45,7 @@ A quake-style dropdown terminal anchored to the top of the screen, rendered as a
 
 **Acceptance Criteria**:
 - Given the dropdown is hidden, when toggled, then it slides down with ease-out cubic animation and the terminal receives focus
+- Given the dropdown is hidden and the active session has unread notifications, when shown, then notification badges for the active session are cleared
 - Given the dropdown is visible and not in dialog mode, when toggled, then it slides up and becomes invisible
 - Given the dropdown is in dialog mode, when toggled, then dialog mode is exited (raised, keyboard reclaimed) instead of hiding
 

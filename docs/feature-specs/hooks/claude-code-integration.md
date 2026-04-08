@@ -26,7 +26,7 @@ End-to-end event pipeline between Claude Code and Seemux. A Claude Code plugin r
 | R0 | Receive real-time Claude Code lifecycle events and reflect them as visual session status on each tab |
 | R1 | Unix socket server runs in a background thread, forwarding messages to GTK main thread via mpsc |
 | R2 | Hook handler maps event types (session-start, prompt-submit, pre-tool-use, notification, stop, stop-failure, session-end) to status transitions and optional notifications |
-| R3 | Notifications are only generated for background (non-active) sessions |
+| R3 | Notifications are only generated for background (non-active) sessions; in dropdown mode, notifications for the active session are suppressed only when the dropdown is visible |
 | R4 | Stale notifications after stop/stop-failure for the same turn are suppressed until a new turn begins |
 | R5 | NotificationStore tracks per-session unread counts and latest notification body, emitting a change callback on mutation |
 | R6 | Stale PID detection runs every 5 seconds, resetting status to Idle when a tracked process has exited |
@@ -76,7 +76,7 @@ End-to-end event pipeline between Claude Code and Seemux. A Claude Code plugin r
 ### Notification Suppression
 
 **Acceptance Criteria**:
-- Given the active session, when a hook produces a notification for it, then the notification is discarded
+- Given the active session, when a hook produces a notification for it, then the notification is discarded (unless the dropdown window is hidden, in which case the badge is shown)
 - Given a stop/stop-failure was received for session X, when a subsequent notification arrives for X, then it is discarded until a new turn begins
 
 ### Stale PID Detection

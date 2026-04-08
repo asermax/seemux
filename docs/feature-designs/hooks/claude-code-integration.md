@@ -72,7 +72,7 @@ External tool sends JSON with `request_id` + `command` → connection thread blo
 
 ### Notification Suppression
 
-- **Active session**: notifications for the focused tab are discarded
+- **Active session**: notifications for the focused tab are discarded when the window is visible; in dropdown mode, if the dropdown is hidden, notifications for the active session are shown as badges since the user cannot see the terminal
 - **Post-stop**: `stopped_sessions` HashSet tracks sessions after stop/stop-failure; notifications for these are dropped until a new turn begins (prompt-submit, pre-tool-use, session-start, session-end)
 
 ## Key Decisions

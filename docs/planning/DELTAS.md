@@ -98,18 +98,3 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Complexity**: Medium
 **Description**: When a Claude session inside seemux spawns child processes (agents, background tasks), those children inherit the `SEEMUX_SOCKET` and `SEEMUX_SESSION_ID` environment variables. If a child starts its own Claude instance, that instance sends hook events back to seemux, incorrectly updating the parent tab's status and notifications. This delta adds a mechanism to ensure only the direct Claude session in each tab sends hook events, preventing background or nested Claude instances from polluting the tab's state.
 
-### DLT-010: Fix stale notification badges when dropdown is hidden
-**Status**: ✗ Defined
-**Depends on**: None
-**Priority**: 2 (High)
-**Complexity**: Easy
-**Description**: Notification badges can become stale when the dropdown terminal is hidden — badges that appear on the currently selected tab are never cleared because showing the dropdown does not trigger badge clearing logic. Additionally, the active-tab check that suppresses notifications does not account for window visibility, meaning notifications may be silently discarded for a tab the user cannot actually see. This delta fixes badge clearing to account for dropdown and window visibility state.
-
----
-
-## Notes
-
-- DLT-001 is a prerequisite cleanup that simplifies the session model before introducing layouts
-- DLT-002 has open design questions to resolve during spec: whether layouts are independent entities vs attached to tabs, and how layout activation interacts with single-tab selection
-- DLT-003 depends on integration points with Agent Teams (tmux shim) and editor spawning mechanisms
-- DLT-004 initial implementation idea: use Carbonyl (terminal-based Chromium browser) spawned inside VTE terminals
