@@ -98,3 +98,10 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Complexity**: Medium
 **Description**: When a Claude session inside seemux spawns child processes (agents, background tasks), those children inherit the `SEEMUX_SOCKET` and `SEEMUX_SESSION_ID` environment variables. If a child starts its own Claude instance, that instance sends hook events back to seemux, incorrectly updating the parent tab's status and notifications. This delta adds a mechanism to ensure only the direct Claude session in each tab sends hook events, preventing background or nested Claude instances from polluting the tab's state.
 
+### DLT-011: Clear notification badge on any tab activation
+**Status**: ✗ Defined
+**Depends on**: None
+**Priority**: 3 (Medium)
+**Complexity**: Easy
+**Description**: Notification badges are only cleared when a tab is explicitly clicked, but not when activation happens through other paths like tab closure, session creation, hook focus commands, or session restoration. This delta moves badge clearing into the tab activation logic itself, so that any time a tab becomes active — whether by click, keyboard shortcut, tab close, hook command, or restoration — its notification badge is automatically dismissed.
+
