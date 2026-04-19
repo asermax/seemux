@@ -174,7 +174,6 @@ impl DropdownWindow {
     }
 
     pub fn show(&self) {
-        // Ensure the window is realized and on-screen (first show or after present_hidden)
         if !self.window.is_visible() {
             self.window.set_opacity(0.0);
             crate::layer_shell::set_top_margin(&self.window, -self.target_height);
@@ -197,10 +196,6 @@ impl DropdownWindow {
 
     /// Present the window off-screen without animating — used to start quake mode hidden.
     pub fn present_hidden(&self) {
-        if self.window.is_visible() {
-            return;
-        }
-
         self.window.set_opacity(0.0);
         crate::layer_shell::set_top_margin(&self.window, -self.target_height);
         self.window.set_visible(true);
@@ -279,6 +274,7 @@ impl DropdownWindow {
                 } else {
                     crate::layer_shell::set_top_margin(&window, -target);
                     window.set_opacity(0.0);
+                    window.set_visible(false);
                 }
 
                 return glib::ControlFlow::Break;
