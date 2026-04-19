@@ -1,6 +1,6 @@
 [package]
 name = "seemux"
-version = "0.34.6"
+version = "0.34.7"
 edition = "2024"
 default-run = "seemux"
 
