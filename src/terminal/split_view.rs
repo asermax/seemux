@@ -223,10 +223,25 @@ impl SplitView {
         // to avoid GTK warnings about focus on detached widgets
         stack.grab_focus();
 
+        // Unparent terminal containers directly from their Paned parents.
+        // This avoids recursive unmap signals through the Paned hierarchy
+        // that can crash VTE when terminals have active PTYs.
+        let panes = self.panes.borrow();
+        for terminal in panes.values() {
+            let widget = terminal.widget();
+            if let Some(parent) = widget.parent() {
+                if let Some(paned) = parent.downcast_ref::<Paned>() {
+                    if paned.start_child().is_some_and(|c| c == *widget) {
+                        paned.set_start_child(None::<&Widget>);
+                    } else if paned.end_child().is_some_and(|c| c == *widget) {
+                        paned.set_end_child(None::<&Widget>);
+                    }
+                }
+            }
+        }
+        drop(panes);
+
         if let Some(old) = stack.child_by_name(name) {
-            // Recursively clear Paned children using the proper API
-            // (direct unparent() leaves dangling pointers in Paned internals)
-            Self::clear_paned_children(&old);
             stack.remove(&old);
         }
 
@@ -234,25 +249,6 @@ impl SplitView {
         let new_widget = self.tree.borrow().build_widget(&panes);
         stack.add_named(&new_widget, Some(name));
         stack.set_visible_child_name(name);
-    }
-
-    /// Recursively detach all children from Paned widgets using set_start_child/set_end_child.
-    fn clear_paned_children(widget: &Widget) {
-        let Some(paned) = widget.downcast_ref::<Paned>() else { return };
-
-        if let Some(start) = paned.start_child() {
-            Self::clear_paned_children(&start);
-        }
-
-        if let Some(end) = paned.end_child() {
-            Self::clear_paned_children(&end);
-        }
-
-        // Clear the Paned's internal focus child before detaching,
-        // otherwise GTK warns about set_focus_child on a non-child widget
-        paned.set_focus_child(None::<&Widget>);
-        paned.set_start_child(None::<&Widget>);
-        paned.set_end_child(None::<&Widget>);
     }
 
     /// Split the focused pane.
