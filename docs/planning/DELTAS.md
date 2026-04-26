@@ -112,3 +112,10 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Complexity**: Easy
 **Description**: Notification badges are only cleared when a tab is explicitly clicked, but not when activation happens through other paths like tab closure, session creation, hook focus commands, or session restoration. This delta moves badge clearing into the tab activation logic itself, so that any time a tab becomes active — whether by click, keyboard shortcut, tab close, hook command, or restoration — its notification badge is automatically dismissed.
 
+### DLT-013: Detect URLs wrapped across multiple terminal lines
+**Status**: ✗ Defined
+**Depends on**: None
+**Priority**: 3 (Medium)
+**Complexity**: Medium
+**Description**: Long URLs printed in the terminal often wrap to subsequent lines, but the current URL detection matches each line independently, so a wrapped URL is split into fragments — Ctrl+click and the right-click context menu only operate on the visible portion of one line, producing a broken or incomplete URL. This delta updates URL detection so URLs spanning multiple wrapped terminal lines are recognized as a single contiguous URL, and the full reconstructed URL is what gets opened, copied, or used to resolve a file path.
+
