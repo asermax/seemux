@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::env;
 use std::rc::Rc;
 use std::sync::OnceLock;
@@ -216,19 +217,12 @@ impl VteTerminal {
 
     /// Check for a URL at the given coordinates (in terminal widget space).
     ///
-    /// OSC 8 hyperlinks take priority — VTE associates the URI with each cell
-    /// of the anchor span, so this works for both single-row and wrapped
-    /// hyperlinks without any reconstruction here.
-    ///
-    /// For regex-matched URLs, reconstruct the logical line at the click
-    /// position by probing rows with `text_range_format(Format::Text, ...)`:
-    /// a single-row probe ending in `\n` indicates a hard newline (or the
-    /// buffer's last row); no `\n` means soft-wrapped to the next row. Walk
-    /// up/down to find the logical-line bounds, concatenate the per-row text
-    /// (each trimmed of trailing `\n`) into one `String`, then run the URL
-    /// regex on that string and return the match containing the click's
-    /// byte offset. This recovers the full URL even when its visual
-    /// rendering spans many rows.
+    /// VTE's regex matcher (`check_match_at`) only matches against single
+    /// visual rows, so a soft-wrapped URL is never recognised whole. To
+    /// recover it we reconstruct the logical line ourselves: a row whose
+    /// `text_range_format` output does NOT end in `\n` is soft-wrapped into
+    /// the next row. OSC 8 hyperlinks take a fast path because VTE tags
+    /// every cell of the anchor with the URI directly.
     pub(crate) fn check_url_at(terminal: &Terminal, x: f64, y: f64) -> Option<String> {
         if let Some(url) = terminal.check_hyperlink_at(x, y) {
             return Some(url.to_string());
@@ -251,25 +245,27 @@ impl VteTerminal {
         let row =
             (viewport_top + (y / char_h).floor() as i64).clamp(buffer_top, buffer_last);
 
-        let extract_row = |r: i64| -> String {
-            let (text, _len) = terminal.text_range_format(Format::Text, r, 0, r, column_count - 1);
-            text.map(|g| g.to_string()).unwrap_or_default()
+        let mut row_cache: HashMap<i64, String> = HashMap::new();
+        let probe = |cache: &mut HashMap<i64, String>, r: i64| {
+            cache.entry(r).or_insert_with(|| {
+                let (t, _len) =
+                    terminal.text_range_format(Format::Text, r, 0, r, column_count - 1);
+                t.map(|g| g.to_string()).unwrap_or_default()
+            });
         };
 
         let (top, bot) = logical_line_bounds(row, buffer_top, buffer_last, |r| {
-            !extract_row(r).ends_with('\n')
+            probe(&mut row_cache, r);
+            !row_cache[&r].ends_with('\n')
         });
 
         let mut logical_line = String::new();
         let mut row_byte_starts: Vec<usize> = Vec::with_capacity((bot - top + 1) as usize);
-
         for r in top..=bot {
             row_byte_starts.push(logical_line.len());
-            let mut row_text = extract_row(r);
-            if row_text.ends_with('\n') {
-                row_text.pop();
-            }
-            logical_line.push_str(&row_text);
+            probe(&mut row_cache, r);
+            let text = &row_cache[&r];
+            logical_line.push_str(text.strip_suffix('\n').unwrap_or(text));
         }
 
         let row_index = (row - top) as usize;
@@ -277,11 +273,8 @@ impl VteTerminal {
         let prefix_len = if col > 0 {
             let (prefix_text, _len) =
                 terminal.text_range_format(Format::Text, row, 0, row, col - 1);
-            let mut prefix = prefix_text.map(|g| g.to_string()).unwrap_or_default();
-            if prefix.ends_with('\n') {
-                prefix.pop();
-            }
-            prefix.len()
+            let prefix = prefix_text.map(|g| g.to_string()).unwrap_or_default();
+            prefix.strip_suffix('\n').unwrap_or(&prefix).len()
         } else {
             0
         };
@@ -292,11 +285,9 @@ impl VteTerminal {
         if url.starts_with("www.") {
             Some(format!("https://{url}"))
         } else if url.starts_with("./") || url.starts_with("../") {
-            let cwd = terminal.current_directory_uri().and_then(|uri| {
-                let rest = uri.strip_prefix("file://")?;
-                let slash = rest.find('/')?;
-                Some(rest[slash..].to_string())
-            });
+            let cwd = terminal
+                .current_directory_uri()
+                .and_then(|uri| crate::session::manager::path_from_file_uri(&uri));
 
             if let Some(cwd) = cwd {
                 let path = std::path::Path::new(&cwd).join(url);
@@ -362,74 +353,65 @@ impl VteTerminal {
 mod tests {
     use super::*;
 
-    fn url_re() -> Regex {
-        Regex::new(URL_REGEX).expect("URL_REGEX compiles with regex crate")
-    }
-
-    #[test]
-    fn compiles_url_regex_with_rust_engine() {
-        let _ = url_regex_rust();
-    }
-
     #[test]
     fn returns_url_when_offset_inside_match() {
-        let re = url_re();
+        let re = url_regex_rust();
         let line = "see https://example.com/path here";
         let url_start = line.find("https://").unwrap();
         let url_end = line.find(" here").unwrap();
         let mid = url_start + (url_end - url_start) / 2;
 
         assert_eq!(
-            find_url_in_logical_line(line, mid, &re),
+            find_url_in_logical_line(line, mid, re),
             Some("https://example.com/path"),
         );
     }
 
     #[test]
     fn returns_none_when_offset_outside_match() {
-        let re = url_re();
+        let re = url_regex_rust();
         let line = "see https://example.com/path here";
 
-        assert_eq!(find_url_in_logical_line(line, 0, &re), None);
-        assert_eq!(find_url_in_logical_line(line, line.len() - 1, &re), None);
+        assert_eq!(find_url_in_logical_line(line, 0, re), None);
+        assert_eq!(find_url_in_logical_line(line, line.len() - 1, re), None);
     }
 
     #[test]
     fn selects_url_at_offset_with_multiple_urls() {
-        let re = url_re();
+        let re = url_regex_rust();
         let line = "https://a.example.com https://b.example.com";
         let a_start = 0;
         let a_end = line.find(' ').unwrap();
         let b_start = a_end + 1;
 
         assert_eq!(
-            find_url_in_logical_line(line, a_start + 5, &re),
+            find_url_in_logical_line(line, a_start + 5, re),
             Some("https://a.example.com"),
         );
         assert_eq!(
-            find_url_in_logical_line(line, b_start + 5, &re),
+            find_url_in_logical_line(line, b_start + 5, re),
             Some("https://b.example.com"),
         );
     }
 
     #[test]
     fn returns_none_when_offset_in_whitespace_between_urls() {
-        let re = url_re();
+        let re = url_regex_rust();
         let line = "https://a.example.com https://b.example.com";
         let space_offset = line.find(' ').unwrap();
 
-        assert_eq!(find_url_in_logical_line(line, space_offset, &re), None);
+        assert_eq!(find_url_in_logical_line(line, space_offset, re), None);
     }
 
     #[test]
     fn returns_url_for_wrapped_logical_line() {
-        let re = url_re();
+        let re = url_regex_rust();
         let long = "a".repeat(150);
         let line = format!("prefix https://example.com/very/long/path/{long}/end suffix");
         let url_start = line.find("https://").unwrap();
         let click_offset = url_start + 100;
 
-        let found = find_url_in_logical_line(&line, click_offset, &re).expect("URL found");
+        let found = find_url_in_logical_line(&line, click_offset, re).expect("URL found");
         assert!(found.starts_with("https://example.com/"));
         assert!(found.ends_with("/end"));
         assert!(found.len() > 150);
@@ -437,46 +419,46 @@ mod tests {
 
     #[test]
     fn returns_url_after_multibyte_prefix() {
-        let re = url_re();
+        let re = url_regex_rust();
         let line = "日本語テキスト https://example.com/path text";
         let url_start = line.find("https://").unwrap();
 
         let found =
-            find_url_in_logical_line(&line, url_start + 5, &re).expect("URL found despite CJK");
+            find_url_in_logical_line(line, url_start + 5, re).expect("URL found despite CJK");
         assert_eq!(found, "https://example.com/path");
     }
 
     #[test]
     fn returns_url_for_www_prefix() {
-        let re = url_re();
+        let re = url_regex_rust();
         let line = "go to www.example.com/page now";
         let url_start = line.find("www.").unwrap();
 
         assert_eq!(
-            find_url_in_logical_line(line, url_start + 4, &re),
+            find_url_in_logical_line(line, url_start + 4, re),
             Some("www.example.com/page"),
         );
     }
 
     #[test]
     fn returns_url_for_relative_path() {
-        let re = url_re();
+        let re = url_regex_rust();
         let line = "edit ./src/main.rs please";
         let url_start = line.find("./").unwrap();
 
         assert_eq!(
-            find_url_in_logical_line(line, url_start + 1, &re),
+            find_url_in_logical_line(line, url_start + 1, re),
             Some("./src/main.rs"),
         );
     }
 
     #[test]
     fn returns_none_for_text_with_no_url() {
-        let re = url_re();
+        let re = url_regex_rust();
         let line = "just some text without anything resembling a URL";
 
         for offset in [0, line.len() / 2, line.len() - 1] {
-            assert_eq!(find_url_in_logical_line(line, offset, &re), None);
+            assert_eq!(find_url_in_logical_line(line, offset, re), None);
         }
     }
 
