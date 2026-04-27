@@ -29,7 +29,7 @@ Seemux needs a fully functional terminal emulator embedded in GTK4, with arbitra
 
 Two components with cleanly separated responsibilities:
 
-1. **VteTerminal** — thin wrapper around VTE4 encapsulating configuration, input interception (Shift+Enter), URL detection, and process spawning. Exposes a callback API so callers never interact with VTE4 signals directly.
+1. **VteTerminal** — thin wrapper around VTE4 encapsulating configuration, input interception (Shift+Enter), URL detection, PRIMARY-selection auto-copy and middle-click paste, and process spawning. Exposes a callback API so callers never interact with VTE4 signals directly.
 
 2. **SplitView** — manages per-session pane layout using a private binary tree (`SplitTree`) and a flat `HashMap` of pane IDs to terminals. All tree mutations happen on data first; the GTK widget tree is rebuilt on demand.
 
@@ -63,8 +63,9 @@ Serialization uses `SavedSplitNode` (from `config.rs`), mirroring `SplitTree` bu
 2. Build VTE Terminal with scrollback, scroll-on-output disabled, scroll-on-keystroke, font, colors, bold-is-bright, no bell
 3. Install Shift+Enter key controller (capture phase, feeds kitty escape `\x1b[13;2u`)
 4. Install URL regex matcher + enable OSC 8 hyperlinks
-5. Create scrollbar bound to VTE's vadjustment
-6. Pack into horizontal Box
+5. Connect `selection-changed` to copy PRIMARY when a selection exists; install a button-2 `GestureClick` (default Bubble propagation) that calls `paste_primary()` on press
+6. Create scrollbar bound to VTE's vadjustment
+7. Pack into horizontal Box
 
 ### Pane Splitting
 
@@ -125,3 +126,6 @@ Given `Split(H, A, Split(V, B, C))` with A focused, navigating Right moves focus
 ## Notes
 
 - `check_url_at` is a static method taking a raw `vte4::Terminal` reference, slightly breaking the wrapper's encapsulation — pragmatic compromise for action code that has widget access but not wrapper access.
+- PRIMARY and CLIPBOARD selection buffers are fully independent inside VTE: `copy_primary` / `paste_primary` never touch CLIPBOARD, and `copy_clipboard_format` / `paste_clipboard` never touch PRIMARY. The two existing public CLIPBOARD methods on `VteTerminal` (used by the `win.term-copy` / `win.term-paste` GIO actions) coexist with the wrapper-internal PRIMARY wiring without interference.
+- `paste_primary()` is a documented silent no-op when PRIMARY is empty (or when the Wayland compositor lacks `zwp_primary_selection_v1`), so middle-click in those situations safely produces no input and no log output without an explicit guard.
+- VTE's GTK4 widget does not bind middle-click to paste internally; `setup_middle_click_paste` wires the gesture itself. The gesture uses default (Bubble) propagation and does not claim the event, so VTE still receives the press and can manage its own selection state — which also leaves room for a future delta to refine interaction with terminal mouse-reporting modes (tmux/vim/htop).
