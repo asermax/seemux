@@ -40,6 +40,8 @@ impl VteTerminal {
         Self::apply_colors(&terminal, scheme);
         Self::setup_shift_enter(&terminal);
         Self::setup_url_matching(&terminal);
+        Self::setup_primary_selection_copy(&terminal);
+        Self::setup_middle_click_paste(&terminal);
 
         let scrollbar = gtk4::Scrollbar::new(
             gtk4::Orientation::Vertical,
@@ -93,6 +95,26 @@ impl VteTerminal {
 
         let tag = terminal.match_add_regex(&regex, 0);
         terminal.match_set_cursor_name(tag, "pointer");
+    }
+
+    fn setup_primary_selection_copy(terminal: &Terminal) {
+        terminal.connect_selection_changed(|term| {
+            if term.has_selection() {
+                term.copy_primary();
+            }
+        });
+    }
+
+    fn setup_middle_click_paste(terminal: &Terminal) {
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(2);
+
+        let terminal_clone = terminal.clone();
+        gesture.connect_pressed(move |_, _, _, _| {
+            terminal_clone.paste_primary();
+        });
+
+        terminal.add_controller(gesture);
     }
 
     // -- Public API: operations --
