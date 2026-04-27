@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.0.2 (2026-04-27)
+
+### Bug Fixes
+
+- **ci**: Sync Cargo.lock after semantic-release version bump
+  ([`962cc5d`](https://github.com/asermax/seemux/commit/962cc5d6b0dea4439aa81fa4ef2300ab21eb17c0))
+
+### Chores
+
+- Sync Cargo.lock to v1.0.1
+  ([`5fa4aa4`](https://github.com/asermax/seemux/commit/5fa4aa4162a7fc8ac46c112d21dc6a439715d075))
+
+### Continuous Integration
+
+- **release**: Upgrade actions to latest versions
+  ([`b64204c`](https://github.com/asermax/seemux/commit/b64204c83610cac1bd990d7bf9d405712d1dab3c))
+
+
 ## v1.0.1 (2026-04-27)
 
 ### Bug Fixes
