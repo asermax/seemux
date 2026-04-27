@@ -70,6 +70,8 @@ jobs:
       - name: Update Cargo.lock and amend version commit
         if: steps.release.outputs.released == 'true'
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           cargo update -p seemux --precise ${{ steps.release.outputs.version }}
           git add Cargo.lock
           git commit --amend --no-edit
