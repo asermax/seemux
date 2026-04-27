@@ -33,10 +33,10 @@ jobs:
           shared-key: seemux-ci
 
       - name: Run tests
-        run: cargo test
+        run: cargo test --locked
 
       - name: Run clippy
-        run: cargo clippy
+        run: cargo clippy --locked
 
   release:
     name: Release
@@ -67,6 +67,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         if: steps.release.outputs.released == 'true'
 
+      - name: Update Cargo.lock and amend version commit
+        if: steps.release.outputs.released == 'true'
+        run: |
+          cargo update -p seemux --precise ${{ steps.release.outputs.version }}
+          git add Cargo.lock
+          git commit --amend --no-edit
+          git push --force-with-lease
+
       - uses: Swatinem/rust-cache@v2
         if: steps.release.outputs.released == 'true'
         with:
@@ -74,7 +82,7 @@ jobs:
 
       - name: Build release binary
         if: steps.release.outputs.released == 'true'
-        run: cargo build --release
+        run: cargo build --release --locked
 
       - name: Strip and rename binaries
         if: steps.release.outputs.released == 'true'
