@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.0.1 (2026-04-27)
+
+### Bug Fixes
+
+- **ci**: Remove --locked from quality gates
+  ([`55ef978`](https://github.com/asermax/seemux/commit/55ef978865920a95800d63fd5b5abde510feacaf))
+
+- **ci**: Remove --locked from release build step
+  ([`9a244aa`](https://github.com/asermax/seemux/commit/9a244aaff464f1fdad6a69834419fe1e26947029))
+
+
 ## v1.0.0 (2026-04-27)
 
 ### Bug Fixes
