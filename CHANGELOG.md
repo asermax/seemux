@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.0.3 (2026-04-27)
+
+### Bug Fixes
+
+- Regenerate Cargo.lock from clean state
+  ([`07c8a9f`](https://github.com/asermax/seemux/commit/07c8a9fcc59f19af00fa2e131c71f1e86af762e4))
+
+- **ci**: Configure git identity for Cargo.lock amend step
+  ([`8a6dc04`](https://github.com/asermax/seemux/commit/8a6dc0425e44f23861fc16303096cfba7074be00))
+
+
 ## v1.0.2 (2026-04-27)
 
 ### Bug Fixes
