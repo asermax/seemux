@@ -74,7 +74,7 @@ jobs:
 
       - name: Build release binary
         if: steps.release.outputs.released == 'true'
-        run: cargo build --release --locked
+        run: cargo build --release
 
       - name: Strip and rename binaries
         if: steps.release.outputs.released == 'true'
