@@ -228,7 +228,7 @@ impl VteTerminal {
             return Some(url.to_string());
         }
 
-        let column_count = terminal.column_count() as i64;
+        let column_count = terminal.column_count();
         let char_w = terminal.char_width() as f64;
         let char_h = terminal.char_height() as f64;
 
