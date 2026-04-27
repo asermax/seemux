@@ -63,6 +63,9 @@ Seemux embeds a fully configured VTE4 terminal emulator in each pane, supporting
 - Given output containing "www.example.com", when `check_url_at` is called, then "https://www.example.com" is returned
 - Given output containing "./relative/path" and a known CWD, when `check_url_at` is called, then the path is resolved against the CWD
 - Given output containing a relative path and no known CWD, when `check_url_at` is called, then the raw string is returned
+- Given a URL soft-wrapped across two or more visual rows, when `check_url_at` is called at any pixel covering the URL (including pixels on rows other than the first), then the full reconstructed URL is returned
+- Given a URL on row N followed by a hard newline and unrelated text on row N+1, when `check_url_at` is called over the row-N URL, then only the row-N URL is returned (reconstruction never crosses a hard newline)
+- Given two URLs separated by whitespace on the same logical line, when `check_url_at` is called over one of them, then only the URL whose `[start, end)` byte interval contains the click offset is returned
 
 ### PRIMARY Selection and Middle-Click Paste
 

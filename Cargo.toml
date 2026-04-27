@@ -28,3 +28,4 @@ png = "0.17"
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["staging", "client"] }
 wayland-protocols-plasma = { version = "0.3", features = ["client"] }
+regex = "1"

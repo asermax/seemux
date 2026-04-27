@@ -129,3 +129,21 @@ Given `Split(H, A, Split(V, B, C))` with A focused, navigating Right moves focus
 - PRIMARY and CLIPBOARD selection buffers are fully independent inside VTE: `copy_primary` / `paste_primary` never touch CLIPBOARD, and `copy_clipboard_format` / `paste_clipboard` never touch PRIMARY. The two existing public CLIPBOARD methods on `VteTerminal` (used by the `win.term-copy` / `win.term-paste` GIO actions) coexist with the wrapper-internal PRIMARY wiring without interference.
 - `paste_primary()` is a documented silent no-op when PRIMARY is empty (or when the Wayland compositor lacks `zwp_primary_selection_v1`), so middle-click in those situations safely produces no input and no log output without an explicit guard.
 - VTE's GTK4 widget does not bind middle-click to paste internally; `setup_middle_click_paste` wires the gesture itself. The gesture uses default (Bubble) propagation and does not claim the event, so VTE still receives the press and can manage its own selection state — which also leaves room for a future delta to refine interaction with terminal mouse-reporting modes (tmux/vim/htop).
+
+### URL Detection Across Soft-Wrapped Lines
+
+Long URLs printed in the terminal often wrap across visual rows. VTE's regex matcher only matches against single visual rows, and the URL pattern requires a prefix (`https://`, `www.`, `./`, `../`), so continuation rows of a wrapped URL never match independently. To recover the full URL on click, `check_url_at` reconstructs the logical line at the click position:
+
+1. **Pixel → cell.** `vadjustment().value().round() as i64` gives the viewport's top row (VTE's vadjustment is row-indexed). `char_width()` and `char_height()` map pixel offsets to column and row deltas. Buffer extents come from `vadjustment().lower()`/`.upper()` since vte4 0.10 does not expose `first_row`/`last_row`.
+
+2. **Soft-wrap detection.** A single-row probe `text_range_format(Format::Text, r, 0, r, column_count - 1)` returns the row's content followed by `\n` iff the row ends with a hard newline; for soft-wrapped rows no `\n` is appended. Walking up while the previous row is soft-wrapped (and down while the current row is) yields the logical-line bounds.
+
+3. **Logical line reconstruction.** Per-row probe results are concatenated (each trimmed of trailing `\n`) into one `String`, with each row's starting byte offset recorded.
+
+4. **Click offset.** A second probe `text_range_format(..., row, 0, row, col - 1)` gives the byte length of the click row's prefix. Computing the offset from VTE-provided byte lengths (rather than from cell arithmetic) is correct in the presence of multibyte chars and wide cells (CJK, emoji), where cells, characters, and bytes do not coincide.
+
+5. **Match.** A Rust `regex::Regex` compiled from the same `URL_REGEX` string used for VTE's PCRE2 hover-cursor highlighting is run on the logical line; the URL whose half-open `[start, end)` byte interval contains the click offset is returned. The half-open interval mirrors VTE's per-cell `check_match_at` semantics, preserving boundary behavior for single-row URLs.
+
+OSC 8 hyperlinks remain handled by `check_hyperlink_at` as a fast-path before any reconstruction — VTE associates the OSC 8 URI with each cell of the anchor span, so this works for both single-row and wrapped hyperlinks.
+
+The walk and the URL-finding logic are factored as pure functions (`logical_line_bounds`, `find_url_in_logical_line`) so they are unit-testable without GTK.
