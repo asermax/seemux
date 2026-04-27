@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.4 (2026-04-27)
+
+### Bug Fixes
+
+- **ci**: Use --force instead of --force-with-lease for amend push
+  ([`004d964`](https://github.com/asermax/seemux/commit/004d9648341a66c5278a7bd2b56d21c31b8261a9))
+
+
 ## v1.0.3 (2026-04-27)
 
 ### Bug Fixes
