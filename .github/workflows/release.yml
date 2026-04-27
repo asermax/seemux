@@ -75,7 +75,7 @@ jobs:
           cargo update -p seemux --precise ${{ steps.release.outputs.version }}
           git add Cargo.lock
           git commit --amend --no-edit
-          git push --force-with-lease
+          git push --force
 
       - uses: Swatinem/rust-cache@v2
         if: steps.release.outputs.released == 'true'
