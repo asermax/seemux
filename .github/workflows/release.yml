@@ -33,10 +33,10 @@ jobs:
           shared-key: seemux-ci
 
       - name: Run tests
-        run: cargo test --locked
+        run: cargo test
 
       - name: Run clippy
-        run: cargo clippy --locked
+        run: cargo clippy
 
   release:
     name: Release
