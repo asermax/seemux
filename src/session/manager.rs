@@ -18,6 +18,37 @@ enum SpawnAction<'a> {
     Command(&'a [&'a str]),
 }
 
+/// Per-pane runtime state for browser panes (not serialized directly).
+pub(crate) struct BrowserPaneState {
+    pub url: String,
+    pub page_title: Option<String>,
+    pub debug_port: u16,
+    pub poll_timer: Option<glib::SourceId>,
+    pub consecutive_failures: u32,
+}
+
+/// Normalize a URL: trim whitespace, return None if empty, prepend https:// if no scheme.
+pub(crate) fn normalize_url(url: &str) -> Option<String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.contains("://") {
+        Some(trimmed.to_string())
+    } else {
+        Some(format!("https://{trimmed}"))
+    }
+}
+
+/// Check whether the Carbonyl browser binary is available on PATH.
+pub(crate) fn carbonyl_available() -> bool {
+    std::process::Command::new("which")
+        .arg("carbonyl")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 /// Extract the filesystem path from a `file://[host]/path` URI.
 pub(crate) fn path_from_file_uri(uri: &str) -> Option<String> {
     let (path, _host) = glib::filename_from_uri(uri).ok()?;
@@ -994,12 +1025,15 @@ impl SessionManager {
                     .map(|sv| sv.to_saved(&cwds))
                     .unwrap_or_else(|| crate::config::SavedSplitNode::Leaf {
                         cwd: cwds.get(&s.id).cloned().or_else(|| s.cwd.clone()),
+                        url: None,
+                        page_title: None,
                     });
 
                 Some(SavedSession {
                     title: s.title.clone(),
                     split_tree,
                     group_id: s.group_id.clone(),
+                    session_type: Some(s.session_type),
                     claude_session_id: s.claude_session_id.clone(),
                     claude_binary: s.claude_binary.clone(),
                 })
@@ -1118,5 +1152,24 @@ mod tests {
         assert_eq!(folder_name("/home/user/projects"), "projects");
         assert_eq!(folder_name("/"), "/");
         assert_eq!(folder_name("single"), "single");
+    }
+
+    #[test]
+    fn normalize_url_prepends_https() {
+        assert_eq!(normalize_url("example.com"), Some("https://example.com".to_string()));
+        assert_eq!(normalize_url("https://x.com"), Some("https://x.com".to_string()));
+        assert_eq!(normalize_url("http://test.org"), Some("http://test.org".to_string()));
+    }
+
+    #[test]
+    fn normalize_url_returns_none_for_empty() {
+        assert_eq!(normalize_url(""), None);
+        assert_eq!(normalize_url("  "), None);
+        assert_eq!(normalize_url("\t\n"), None);
+    }
+
+    #[test]
+    fn normalize_url_trims_whitespace() {
+        assert_eq!(normalize_url("  example.com  "), Some("https://example.com".to_string()));
     }
 }

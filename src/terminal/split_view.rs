@@ -168,6 +168,8 @@ impl SplitTree {
         match self {
             SplitTree::Leaf(id) => SavedSplitNode::Leaf {
                 cwd: cwds.get(id).cloned(),
+                url: None,
+                page_title: None,
             },
             SplitTree::Split { orientation, first, second } => SavedSplitNode::Split {
                 orientation: match orientation {
@@ -365,7 +367,7 @@ impl SplitView {
         pane_list: &mut Vec<(String, Option<String>)>,
     ) -> SplitTree {
         match saved {
-            SavedSplitNode::Leaf { cwd } => {
+            SavedSplitNode::Leaf { cwd, .. } => {
                 let pane_id = uuid::Uuid::new_v4().to_string();
                 let terminal = Rc::new(VteTerminal::new_with_config(config));
                 panes.insert(pane_id.clone(), terminal);

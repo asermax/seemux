@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::session::SessionType;
+
 /// Write content to a file atomically using temp file + rename.
 fn atomic_write(path: &Path, contents: &str) -> std::io::Result<()> {
     let parent = path.parent()
@@ -117,7 +119,13 @@ fn config_path() -> PathBuf {
 /// Serializable split tree node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SavedSplitNode {
-    Leaf { cwd: Option<String> },
+    Leaf {
+        cwd: Option<String>,
+        #[serde(default)]
+        url: Option<String>,
+        #[serde(default)]
+        page_title: Option<String>,
+    },
     Split {
         orientation: String,
         first: Box<SavedSplitNode>,
@@ -127,7 +135,7 @@ pub enum SavedSplitNode {
 
 impl Default for SavedSplitNode {
     fn default() -> Self {
-        Self::Leaf { cwd: None }
+        Self::Leaf { cwd: None, url: None, page_title: None }
     }
 }
 
@@ -138,6 +146,8 @@ pub struct SavedSession {
     pub split_tree: SavedSplitNode,
     #[serde(default)]
     pub group_id: String,
+    #[serde(default)]
+    pub session_type: Option<SessionType>,
     #[serde(default)]
     pub claude_session_id: Option<String>,
     #[serde(default)]
@@ -260,8 +270,9 @@ mod tests {
             sessions: vec![
                 SavedSession {
                     title: "Tab 1".to_string(),
-                    split_tree: SavedSplitNode::Leaf { cwd: Some("/home/user".to_string()) },
+                    split_tree: SavedSplitNode::Leaf { cwd: Some("/home/user".to_string()), url: None, page_title: None },
                     group_id: "default".to_string(),
+                    session_type: None,
                     claude_session_id: Some("abc-123".to_string()),
                     claude_binary: None,
                 },
@@ -269,10 +280,11 @@ mod tests {
                     title: "Tab 2".to_string(),
                     split_tree: SavedSplitNode::Split {
                         orientation: "horizontal".to_string(),
-                        first: Box::new(SavedSplitNode::Leaf { cwd: Some("/tmp".to_string()) }),
-                        second: Box::new(SavedSplitNode::Leaf { cwd: None }),
+                        first: Box::new(SavedSplitNode::Leaf { cwd: Some("/tmp".to_string()), url: None, page_title: None }),
+                        second: Box::new(SavedSplitNode::Leaf { cwd: None, url: None, page_title: None }),
                     },
                     group_id: "group1".to_string(),
+                    session_type: Some(SessionType::Browser),
                     claude_session_id: None,
                     claude_binary: Some("claude-dev".to_string()),
                 },
@@ -331,5 +343,28 @@ mod tests {
 
         assert_eq!(parsed.sessions[0].claude_session_id, Some("abc".to_string()));
         assert_eq!(parsed.sessions[0].claude_binary, None);
+    }
+
+    #[test]
+    fn saved_split_node_leaf_backward_compat() {
+        let json = r#"{"Leaf":{"cwd":"/home"}}"#;
+        let parsed: SavedSplitNode = serde_json::from_str(json).unwrap();
+
+        match parsed {
+            SavedSplitNode::Leaf { cwd, url, page_title } => {
+                assert_eq!(cwd, Some("/home".to_string()));
+                assert_eq!(url, None);
+                assert_eq!(page_title, None);
+            },
+            _ => panic!("Expected Leaf"),
+        }
+    }
+
+    #[test]
+    fn saved_session_backward_compat_missing_session_type() {
+        let json = r#"{"sessions":[{"title":"Tab","split_tree":{"Leaf":{"cwd":null}},"group_id":"default"}],"groups":[]}"#;
+        let parsed: SessionState = serde_json::from_str(json).unwrap();
+
+        assert_eq!(parsed.sessions[0].session_type, None);
     }
 }
