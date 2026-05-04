@@ -467,7 +467,18 @@ impl TabRow {
     }
 
     pub fn connect_close<F: Fn() + 'static>(&self, f: F) {
-        self.close_btn.connect_clicked(move |_| f());
+        // Use GestureClick instead of connect_clicked so we can claim the event
+        // on press, preventing the click from reaching the parent container's
+        // tab-switch GestureClick.
+        let gesture = GestureClick::new();
+        gesture.set_button(1);
+        gesture.connect_pressed(move |gesture, _, _, _| {
+            gesture.set_state(gtk4::EventSequenceState::Claimed);
+        });
+        gesture.connect_released(move |_, _, _, _| {
+            f();
+        });
+        self.close_btn.add_controller(gesture);
     }
 
     /// Set up right-click context menu with Close, Close Others.

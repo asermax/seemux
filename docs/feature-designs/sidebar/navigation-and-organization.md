@@ -105,6 +105,8 @@ CollapsedBar
 
 **Entry**: `Sidebar::set_active(session_id)` called by `SessionManager::switch_to`.
 
+**Close button isolation**: The close button on each tab row uses a `GestureClick` that claims the event on press, preventing the click from reaching the parent container's tab-switch `GestureClick`. This ensures closing a tab does not also trigger a tab switch.
+
 **Process**:
 1. Mark all rows as inactive; mark the target row as active ("active" CSS class)
 2. If the previously active row was peeking and no longer qualifies, clear its peek

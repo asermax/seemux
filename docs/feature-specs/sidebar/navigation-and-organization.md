@@ -53,6 +53,7 @@ The sidebar is Seemux's primary navigation surface. It presents terminal session
 - Given a tab row, when badge count > 0, then badge is visible; when 0, badge is hidden
 - Given a tab row, when notification preview is set, then preview label shows (ellipsized at 25 chars); when cleared, hidden
 - Given a tab row, when set as active, then it gets "active" CSS class and all others lose it
+- Given a tab row's close button, when clicked, then the session is destroyed without triggering a tab-switch; the close button uses a GestureClick that claims the event on press to prevent propagation to the parent container's tab-switch GestureClick
 - Given a tab row set as active that is not fully visible in the sidebar scroll viewport, then the sidebar scrolls the minimum amount to reveal it (top-edge aligned when above, bottom-edge aligned when below)
 - Given a browser pane is focused, then the tab row shows a globe icon, page title as title, and URL as subtitle; git branch and PR labels are hidden
 - Given focus switches from a browser pane to a shell pane in the same session, then the tab row reverts to folder icon, CWD-based display, and git branch/PR visibility
