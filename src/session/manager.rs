@@ -45,13 +45,25 @@ pub(crate) fn normalize_url(url: &str) -> Option<String> {
     }
 }
 
-/// Check whether the Carbonyl browser binary is available on PATH.
+/// Check whether the Carbonyl browser binary is available on PATH (result cached).
 pub(crate) fn carbonyl_available() -> bool {
-    std::process::Command::new("which")
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static CACHED: AtomicBool = AtomicBool::new(false);
+    static CHECKED: AtomicBool = AtomicBool::new(false);
+
+    if CHECKED.load(Ordering::Relaxed) {
+        return CACHED.load(Ordering::Relaxed);
+    }
+
+    let available = std::process::Command::new("which")
         .arg("carbonyl")
         .output()
         .map(|o| o.status.success())
-        .unwrap_or(false)
+        .unwrap_or(false);
+
+    CACHED.store(available, Ordering::Relaxed);
+    CHECKED.store(true, Ordering::Relaxed);
+    available
 }
 
 /// Extract the filesystem path from a `file://[host]/path` URI.
@@ -1019,7 +1031,6 @@ impl SessionManager {
             sv.close_focused_pane()
         };
 
-        // Detect browser crash: if pane exited within 2s of creation, notify the app layer
         let browser_crash_msg = self.browser_panes.borrow().get(pane_id)
             .filter(|state| state.created_at.elapsed().as_secs() < 2)
             .map(|state| format!(
@@ -1436,9 +1447,7 @@ impl SessionManager {
     ) {
         let Some(sv) = self.split_views.get(session_id) else { return };
 
-        // Find the terminal for this pane
-        let terminals = sv.collect_terminals();
-        let Some(terminal) = terminals.iter().find(|(pid, _)| pid == pane_id).map(|(_, t)| t.clone()) else {
+        let Some(terminal) = sv.terminal_for_pane(pane_id) else {
             return;
         };
 

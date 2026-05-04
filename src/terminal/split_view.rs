@@ -330,6 +330,11 @@ impl SplitView {
             .collect()
     }
 
+    /// Get a terminal by pane ID.
+    pub fn terminal_for_pane(&self, pane_id: &str) -> Option<Rc<VteTerminal>> {
+        self.panes.borrow().get(pane_id).cloned()
+    }
+
     /// Returns true if any pane has not yet been spawned.
     pub fn needs_spawn(&self) -> bool {
         self.panes.borrow().values().any(|t| t.needs_spawn())
