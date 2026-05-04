@@ -2,6 +2,123 @@
 
 <!-- version list -->
 
+## v1.1.0 (2026-05-04)
+
+### Bug Fixes
+
+- **ci**: Use --force instead of --force-with-lease for amend push
+  ([`004d964`](https://github.com/asermax/seemux/commit/004d9648341a66c5278a7bd2b56d21c31b8261a9))
+
+### Chores
+
+- **deps**: Add minreq HTTP client dependency
+  ([`874d212`](https://github.com/asermax/seemux/commit/874d212769f72ded3fd981dccfb92643ff801431))
+
+- **planning**: Add DLT-004 implementation plan
+  ([`eb770e3`](https://github.com/asermax/seemux/commit/eb770e3fc188a74899977fad8e690425e11f77b5))
+
+- **planning**: Drop DLT-002 dependency and raise priority for DLT-004
+  ([`1df3550`](https://github.com/asermax/seemux/commit/1df35501f7e70ab56ee2f9583a62c8adf3a53c42))
+
+- **planning**: Mark DLT-004 design as complete
+  ([`31f51ef`](https://github.com/asermax/seemux/commit/31f51efd7410a7295276cbd2c412d9d6af1bb69f))
+
+- **planning**: Mark DLT-004 spec as complete
+  ([`e01ea93`](https://github.com/asermax/seemux/commit/e01ea93d69aec906115a96cba7a481dd12d7ced9))
+
+- **planning**: Update DLT-004 status to design phase
+  ([`d2aa492`](https://github.com/asermax/seemux/commit/d2aa492c218b429cfaf46210e61991bc75a9fd7e))
+
+- **planning**: Update DLT-004 status to plan phase
+  ([`7c3f5ad`](https://github.com/asermax/seemux/commit/7c3f5ad79187737c329b8edd661407101a3d80ad))
+
+- **planning**: Update DLT-004 status to spec phase
+  ([`0a968f5`](https://github.com/asermax/seemux/commit/0a968f52157654509e14f54a4047b6b10faca7bd))
+
+### Continuous Integration
+
+- **release**: Use build_command for lockfile sync instead of amend hack
+  ([`e3e3e80`](https://github.com/asermax/seemux/commit/e3e3e80dffe587bade8602a7fedd1cbb94e0b5fe))
+
+### Documentation
+
+- Reconcile DLT-004 browser tabs into feature documentation
+  ([`f643039`](https://github.com/asermax/seemux/commit/f6430398adc65a0df97f32e547c6a32af4f2e3cf))
+
+- **designs**: Add DLT-004 browser tabs design draft
+  ([`a2d5d22`](https://github.com/asermax/seemux/commit/a2d5d2293fa61fe7ee49baf1ed15beac52fc506e))
+
+- **designs**: Complete DLT-004 browser tabs design
+  ([`68d9580`](https://github.com/asermax/seemux/commit/68d9580204df280fecee81c177d41114ac220ba8))
+
+- **designs**: Revise DLT-004 to per-pane browser state model
+  ([`8fd4b9a`](https://github.com/asermax/seemux/commit/8fd4b9a6ad8bff4c78d588372779c62f18705bb7))
+
+- **planning**: Mark DLT-004 batch 1 complete and update status
+  ([`1560dba`](https://github.com/asermax/seemux/commit/1560dba64c445309915d5d43371edeac484173f0))
+
+- **planning**: Mark DLT-004 batch 2 complete
+  ([`a6b20cb`](https://github.com/asermax/seemux/commit/a6b20cba2e34a8569f75919e00be500ec25d5d2b))
+
+- **planning**: Mark DLT-004 batch 3 complete
+  ([`f971485`](https://github.com/asermax/seemux/commit/f971485ad76937de3c8a1d954ea9b617f287ddfa))
+
+- **planning**: Mark DLT-004 batch 4 complete
+  ([`431b989`](https://github.com/asermax/seemux/commit/431b989cc789f000e3e6da50c33831cfc9a528d6))
+
+- **planning**: Mark DLT-004 batch 5 complete
+  ([`331ca7a`](https://github.com/asermax/seemux/commit/331ca7a40dba2c24a7fc173887ca91754972f3ba))
+
+- **planning**: Mark DLT-004 implementation complete
+  ([`53ecc48`](https://github.com/asermax/seemux/commit/53ecc48b5566982387ae1195da3d418160a92129))
+
+- **specs**: Add DLT-004 open web pages in browser tabs spec
+  ([`2e1d66e`](https://github.com/asermax/seemux/commit/2e1d66e19ccfb6bde762dc9309878a8d9bc8baf6))
+
+- **specs**: Refine DLT-004 browser tabs acceptance criteria
+  ([`103cc36`](https://github.com/asermax/seemux/commit/103cc36e79e479dfb71b2619ad6db828b9a0914e))
+
+### Features
+
+- **app**: Add browser tab UI entry points
+  ([`a273eff`](https://github.com/asermax/seemux/commit/a273eff0d496b29e3bc27a855e99bd775186e552))
+
+- **config**: Persist browser pane state in session serialization
+  ([`a2d42c6`](https://github.com/asermax/seemux/commit/a2d42c68ac65a460cab2774731cb095e5dbddd05))
+
+- **session**: Add browser session creation and URL polling
+  ([`28edba4`](https://github.com/asermax/seemux/commit/28edba410c814152f6b9f19aee036fbd05b85a96))
+
+- **session**: Add SessionType enum and browser session constructor
+  ([`8d778e2`](https://github.com/asermax/seemux/commit/8d778e23f6940ce752ce68b0a0ac350d6add090c))
+
+- **session**: Detect browser pane crashes and show error overlay
+  ([`66443e8`](https://github.com/asermax/seemux/commit/66443e815905895642259c4f7dffb214b2fbc3b3))
+
+- **session**: Persist and restore browser panes across restarts
+  ([`c474aa5`](https://github.com/asermax/seemux/commit/c474aa517f6a615fd843b149369f15b8d6b2bbf4))
+
+- **sidebar**: Add browser pane display with globe icon and URL
+  ([`5e19bd2`](https://github.com/asermax/seemux/commit/5e19bd2373d0514746812b243a768a7224f4d1a0))
+
+### Refactoring
+
+- **app**: Extract browser error wiring into shared helpers
+  ([`866b117`](https://github.com/asermax/seemux/commit/866b117b91514d71fdc0f8222e4ddd19ec55bdfb))
+
+- **dialogs**: Extract overlay card creation into shared helper
+  ([`0865d21`](https://github.com/asermax/seemux/commit/0865d21a0a43d77cdc93393560e8a5761e5dee2a))
+
+- **session**: Cache carbonyl availability check and simplify terminal lookup
+  ([`a65cd95`](https://github.com/asermax/seemux/commit/a65cd95d9d3ab054a82abf49ba9767d6caddb97a))
+
+- **session**: Flatten nested if-let in CDP poll loop
+  ([`de93d37`](https://github.com/asermax/seemux/commit/de93d37bda765e494a08ede75a626a9c8da9a333))
+
+- **session**: Move CDP polling to background thread
+  ([`3ae6cd6`](https://github.com/asermax/seemux/commit/3ae6cd69223a753948bc95c7fa411fe55899deb9))
+
+
 ## v1.0.4 (2026-04-27)
 
 ### Bug Fixes
