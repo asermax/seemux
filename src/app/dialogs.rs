@@ -6,6 +6,20 @@ use gtk4::{EventControllerKey, Orientation, Overlay, gdk::Key, glib};
 
 use crate::session::manager::{self, SessionManager};
 
+fn create_overlay_card() -> gtk4::Box {
+    use gtk4::Orientation;
+    let card = gtk4::Box::new(Orientation::Vertical, 12);
+    card.add_css_class("overlay-card");
+    card.set_halign(gtk4::Align::Center);
+    card.set_valign(gtk4::Align::Center);
+    card.set_margin_top(16);
+    card.set_margin_bottom(16);
+    card.set_margin_start(16);
+    card.set_margin_end(16);
+    card.set_width_request(300);
+    card
+}
+
 /// Generic centered entry-form overlay. Both "New Group" and "Rename Group" are thin wrappers.
 fn show_entry_overlay<F: Fn(String) + 'static>(
     overlay: &Overlay,
@@ -18,15 +32,7 @@ fn show_entry_overlay<F: Fn(String) + 'static>(
 ) {
     use gtk4::{Box as GtkBox, Button, Entry, Label};
 
-    let card = GtkBox::new(Orientation::Vertical, 12);
-    card.add_css_class("overlay-card");
-    card.set_halign(gtk4::Align::Center);
-    card.set_valign(gtk4::Align::Center);
-    card.set_margin_top(16);
-    card.set_margin_bottom(16);
-    card.set_margin_start(16);
-    card.set_margin_end(16);
-    card.set_width_request(300);
+    let card = create_overlay_card();
 
     let label = Label::new(Some(label_text));
     label.set_xalign(0.0);
@@ -154,15 +160,7 @@ pub(crate) fn show_confirm_overlay<F: Fn() + 'static>(
 ) {
     use gtk4::{Box as GtkBox, Button, Label};
 
-    let card = GtkBox::new(Orientation::Vertical, 12);
-    card.add_css_class("overlay-card");
-    card.set_halign(gtk4::Align::Center);
-    card.set_valign(gtk4::Align::Center);
-    card.set_margin_top(16);
-    card.set_margin_bottom(16);
-    card.set_margin_start(16);
-    card.set_margin_end(16);
-    card.set_width_request(300);
+    let card = create_overlay_card();
 
     let title_label = Label::new(Some(title));
     title_label.add_css_class("title-3");
@@ -213,15 +211,7 @@ pub(crate) fn show_url_input_overlay<F: Fn(String) + 'static>(
 ) {
     use gtk4::{Box as GtkBox, Button, Entry, Label};
 
-    let card = GtkBox::new(Orientation::Vertical, 12);
-    card.add_css_class("overlay-card");
-    card.set_halign(gtk4::Align::Center);
-    card.set_valign(gtk4::Align::Center);
-    card.set_margin_top(16);
-    card.set_margin_bottom(16);
-    card.set_margin_start(16);
-    card.set_margin_end(16);
-    card.set_width_request(300);
+    let card = create_overlay_card();
 
     let title = Label::new(Some("Open browser tab"));
     title.add_css_class("title-3");
@@ -303,15 +293,7 @@ pub(crate) fn show_browser_error_overlay(
 ) {
     use gtk4::{Box as GtkBox, Button, Label};
 
-    let card = GtkBox::new(Orientation::Vertical, 12);
-    card.add_css_class("overlay-card");
-    card.set_halign(gtk4::Align::Center);
-    card.set_valign(gtk4::Align::Center);
-    card.set_margin_top(16);
-    card.set_margin_bottom(16);
-    card.set_margin_start(16);
-    card.set_margin_end(16);
-    card.set_width_request(300);
+    let card = create_overlay_card();
 
     let title_label = Label::new(Some("Carbonyl Not Found"));
     title_label.add_css_class("title-3");
