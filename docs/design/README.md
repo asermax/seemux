@@ -12,3 +12,4 @@
 | [DES-008](DES-008-generation-counter-cancellation.md) | Generation Counter for Animation/Event Cancellation | Project-wide |
 | [DES-009](DES-009-dnd-shared-state.md) | Drag-and-Drop with Shared Dragging State | Module-specific |
 | [DES-010](DES-010-eprintln-logging.md) | Error Logging via eprintln | Project-wide |
+| [DES-011](DES-011-background-http-polling.md) | Background Thread HTTP Polling with AtomicBool Stop | Project-wide |

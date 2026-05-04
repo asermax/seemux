@@ -2,6 +2,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -22,13 +24,20 @@ const CARBONYL_NOT_FOUND: &str = "Carbonyl is not installed. Install it with:\nn
 /// Base port for Carbonyl's CDP debug endpoint. Well above typical service ports.
 const DEBUG_PORT_BASE: u16 = 19300;
 
+/// Result of a single CDP poll request from the background thread.
+struct PollResult {
+    url: String,
+    title: Option<String>,
+}
+
 /// Per-pane runtime state for browser panes (not serialized directly).
 pub(crate) struct BrowserPaneState {
     pub url: String,
     pub page_title: Option<String>,
     pub debug_port: u16,
-    pub poll_timer: Option<glib::SourceId>,
-    pub consecutive_failures: u32,
+    poll_timer: Option<glib::SourceId>,
+    poll_rx: Option<std::sync::mpsc::Receiver<PollResult>>,
+    stop_poll: Option<Arc<AtomicBool>>,
     pub created_at: std::time::Instant,
 }
 
@@ -243,14 +252,18 @@ impl SessionManager {
 
     /// Stop URL polling and remove browser state for a pane.
     fn stop_url_poll(&self, pane_id: &str) {
-        if let Some(state) = self.browser_panes.borrow_mut().remove(pane_id)
-            && let Some(timer) = state.poll_timer
-        {
-            timer.remove();
+        if let Some(state) = self.browser_panes.borrow_mut().remove(pane_id) {
+            if let Some(flag) = &state.stop_poll {
+                flag.store(true, Ordering::Relaxed);
+            }
+            if let Some(timer) = state.poll_timer {
+                timer.remove();
+            }
         }
     }
 
     /// Start periodic URL polling via CDP /json/list for a browser pane.
+    /// HTTP requests run on a background thread to avoid blocking the GTK main loop.
     fn start_url_poll(&self, pane_id: &str, session_id: &str, debug_port: u16) {
         let pid = pane_id.to_string();
         let sid = session_id.to_string();
@@ -258,77 +271,82 @@ impl SessionManager {
         let browser_panes = self.browser_panes.clone();
         let on_state_changed = self.on_state_changed.clone();
 
-        let source_id = glib::timeout_add_local(
-            std::time::Duration::from_millis(500),
-            move || {
-                let url = format!("http://127.0.0.1:{debug_port}/json/list");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let stop_flag = Arc::new(AtomicBool::new(false));
 
-                let response = match minreq::get(&url).send() {
-                    Ok(r) => r,
-                    Err(_) => {
-                        let Ok(mut panes) = browser_panes.try_borrow_mut() else {
-                            return glib::ControlFlow::Continue;
-                        };
+        // Background thread: polls CDP endpoint every 500ms, sends results to main thread.
+        let flag = stop_flag.clone();
+        std::thread::spawn(move || {
+            let url = format!("http://127.0.0.1:{debug_port}/json/list");
+            while !flag.load(Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                if flag.load(Ordering::Relaxed) {
+                    break;
+                }
 
-                        if let Some(state) = panes.get_mut(&pid) {
-                            state.consecutive_failures += 1;
-                            if state.consecutive_failures >= 10 {
-                                return glib::ControlFlow::Break;
-                            }
-                        }
+                let result = minreq::get(&url).send().ok()
+                    .map(|r| r.into_bytes())
+                    .and_then(|body| {
+                        let targets: Vec<serde_json::Value> = serde_json::from_slice(&body).ok()?;
+                        let target = targets.iter().find(|t| {
+                            t.get("type").and_then(|v| v.as_str()) == Some("page")
+                        })?;
 
-                        return glib::ControlFlow::Continue;
+                        let url = target.get("url").and_then(|v| v.as_str())
+                            .unwrap_or("").to_string();
+                        let title = target.get("title").and_then(|v| v.as_str())
+                            .filter(|t| !t.is_empty())
+                            .map(|t| t.to_string());
+
+                        Some(PollResult { url, title })
+                    });
+
+                if let Some(result) = result {
+                    if tx.send(result).is_err() {
+                        break;
                     }
-                };
+                }
+            }
+        });
 
-                let body = response.into_bytes();
-                // Parse JSON array of CDP targets
-                let targets: Vec<serde_json::Value> = match serde_json::from_slice(&body) {
-                    Ok(t) => t,
-                    Err(_) => return glib::ControlFlow::Continue,
-                };
-
-                let page_target = targets.iter().find(|t| {
-                    t.get("type").and_then(|v| v.as_str()) == Some("page")
-                });
-
-                let Some(target) = page_target else {
+        // Main thread: non-blocking poll for results from the background thread.
+        let source_id = glib::timeout_add_local(
+            std::time::Duration::from_millis(50),
+            move || {
+                let Ok(mut panes) = browser_panes.try_borrow_mut() else {
                     return glib::ControlFlow::Continue;
                 };
 
-                let new_url = target.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let new_title = target.get("title").and_then(|v| v.as_str())
-                    .filter(|t| !t.is_empty())
-                    .map(|t| t.to_string());
+                let Some(state) = panes.get_mut(&pid) else {
+                    return glib::ControlFlow::Break;
+                };
 
-                let url_changed;
-                let title_changed;
+                let rx = match state.poll_rx.as_ref() {
+                    Some(rx) => rx,
+                    None => return glib::ControlFlow::Break,
+                };
 
-                {
-                    let Ok(mut panes) = browser_panes.try_borrow_mut() else {
-                        return glib::ControlFlow::Continue;
-                    };
+                let result = match rx.try_recv() {
+                    Ok(r) => r,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => return glib::ControlFlow::Continue,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => return glib::ControlFlow::Break,
+                };
 
-                    let Some(state) = panes.get_mut(&pid) else {
-                        return glib::ControlFlow::Break;
-                    };
+                let url_changed = state.url != result.url && !result.url.is_empty();
+                let title_changed = state.page_title != result.title;
 
-                    state.consecutive_failures = 0;
-
-                    url_changed = state.url != new_url && !new_url.is_empty();
-                    if url_changed {
-                        state.url = new_url.clone();
-                    }
-
-                    title_changed = state.page_title != new_title;
-                    if title_changed {
-                        state.page_title = new_title.clone();
-                    }
+                if url_changed {
+                    state.url = result.url.clone();
+                }
+                if title_changed {
+                    state.page_title = result.title.clone();
                 }
 
+                drop(panes);
+
                 if url_changed || title_changed {
-                    let display_title = new_title.as_deref().unwrap_or(&new_url);
-                    sidebar.update_browser_display(&sid, display_title, &new_url);
+                    let display_title = result.title.as_deref().unwrap_or(&result.url);
+                    sidebar.update_browser_display(&sid, display_title, &result.url);
 
                     if let Some(ref callback) = on_state_changed {
                         callback();
@@ -339,9 +357,10 @@ impl SessionManager {
             },
         );
 
-        // Store the timer source ID so we can cancel it later
         if let Some(state) = self.browser_panes.borrow_mut().get_mut(pane_id) {
             state.poll_timer = Some(source_id);
+            state.poll_rx = Some(rx);
+            state.stop_poll = Some(stop_flag);
         }
     }
 
@@ -469,7 +488,8 @@ impl SessionManager {
             page_title: None,
             debug_port,
             poll_timer: None,
-            consecutive_failures: 0,
+            poll_rx: None,
+            stop_poll: None,
             created_at: std::time::Instant::now(),
         });
 
@@ -880,7 +900,8 @@ impl SessionManager {
                 page_title: None,
                 debug_port,
                 poll_timer: None,
-                consecutive_failures: 0,
+                poll_rx: None,
+                stop_poll: None,
                 created_at: std::time::Instant::now(),
             });
 
@@ -1471,7 +1492,8 @@ impl SessionManager {
             page_title: page_title.map(|s| s.to_string()),
             debug_port,
             poll_timer: None,
-            consecutive_failures: 0,
+            poll_rx: None,
+            stop_poll: None,
             created_at: std::time::Instant::now(),
         });
 
