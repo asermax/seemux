@@ -4,11 +4,20 @@ use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_GROUP: &str = "default";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SessionType {
+    #[default]
+    Shell,
+    Browser,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
     pub title: String,
     pub status: SessionStatus,
+    #[serde(default)]
+    pub session_type: SessionType,
     pub claude_pid: Option<u32>,
     pub claude_session_id: Option<String>,
     /// The Claude binary name detected from terminal title (e.g., "claude-dev").
@@ -66,6 +75,7 @@ impl Session {
             id: uuid::Uuid::new_v4().to_string(),
             title,
             status: SessionStatus::Idle,
+            session_type: SessionType::Shell,
             claude_pid: None,
             claude_session_id: None,
             claude_binary: None,
@@ -76,6 +86,13 @@ impl Session {
                 .unwrap_or(0),
             cwd: None,
             group_id: DEFAULT_GROUP.to_string(),
+        }
+    }
+
+    pub fn new_browser(title: String) -> Self {
+        Self {
+            session_type: SessionType::Browser,
+            ..Self::new(title)
         }
     }
 }
@@ -92,6 +109,7 @@ mod tests {
 
         assert_eq!(session.title, "Test Tab");
         assert_eq!(session.status, SessionStatus::Idle);
+        assert_eq!(session.session_type, SessionType::Shell);
         assert_eq!(session.claude_pid, None);
         assert_eq!(session.claude_session_id, None);
         assert_eq!(session.claude_binary, None);
@@ -101,6 +119,18 @@ mod tests {
         assert_eq!(session.group_id, DEFAULT_GROUP);
         assert!(!session.id.is_empty());
         assert!(uuid::Uuid::parse_str(&session.id).is_ok());
+    }
+
+    #[test]
+    fn session_type_default_is_shell() {
+        assert_eq!(SessionType::default(), SessionType::Shell);
+    }
+
+    #[test]
+    fn session_new_browser_type() {
+        let session = Session::new_browser("https://example.com".to_string());
+        assert_eq!(session.session_type, SessionType::Browser);
+        assert_eq!(session.title, "https://example.com");
     }
 
     #[test]
