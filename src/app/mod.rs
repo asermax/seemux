@@ -616,6 +616,7 @@ fn restore_sessions(
                 &saved.title,
                 group,
                 &saved.split_tree,
+                saved.session_type,
                 saved.claude_session_id.as_deref(),
                 saved.claude_binary.as_deref(),
             );

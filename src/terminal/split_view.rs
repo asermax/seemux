@@ -13,7 +13,11 @@ pub enum Direction {
 }
 
 use crate::config::{Config, SavedSplitNode};
+use crate::session::manager::BrowserPaneState;
 use crate::terminal::VteTerminal;
+
+/// Per-pane restoration info: (pane_id, cwd, url, page_title).
+type PaneRestoreInfo = (String, Option<String>, Option<String>, Option<String>);
 
 /// Lightweight tree tracking the split layout.
 /// Terminals are stored separately in a flat HashMap, so tree
@@ -164,20 +168,26 @@ impl SplitTree {
         None
     }
 
-    fn to_saved(&self, cwds: &HashMap<String, String>) -> SavedSplitNode {
+    fn to_saved(&self, cwds: &HashMap<String, String>, browser_panes: &HashMap<String, BrowserPaneState>) -> SavedSplitNode {
         match self {
-            SplitTree::Leaf(id) => SavedSplitNode::Leaf {
-                cwd: cwds.get(id).cloned(),
-                url: None,
-                page_title: None,
-            },
+            SplitTree::Leaf(id) => {
+                let (url, page_title) = browser_panes.get(id)
+                    .map(|bp| (Some(bp.url.clone()), bp.page_title.clone()))
+                    .unwrap_or((None, None));
+
+                SavedSplitNode::Leaf {
+                    cwd: cwds.get(id).cloned(),
+                    url,
+                    page_title,
+                }
+            }
             SplitTree::Split { orientation, first, second } => SavedSplitNode::Split {
                 orientation: match orientation {
                     Orientation::Horizontal => "horizontal".to_string(),
                     _ => "vertical".to_string(),
                 },
-                first: Box::new(first.to_saved(cwds)),
-                second: Box::new(second.to_saved(cwds)),
+                first: Box::new(first.to_saved(cwds, browser_panes)),
+                second: Box::new(second.to_saved(cwds, browser_panes)),
             },
         }
     }
@@ -339,13 +349,13 @@ impl SplitView {
     }
 
     /// Convert the entire split tree to serializable form.
-    pub fn to_saved(&self, cwds: &HashMap<String, String>) -> SavedSplitNode {
-        self.tree.borrow().to_saved(cwds)
+    pub fn to_saved(&self, cwds: &HashMap<String, String>, browser_panes: &HashMap<String, BrowserPaneState>) -> SavedSplitNode {
+        self.tree.borrow().to_saved(cwds, browser_panes)
     }
 
     /// Build a SplitView from a saved tree, creating terminals with per-pane CWDs.
-    /// Returns the view and a list of (pane_id, cwd) pairs for spawning shells.
-    pub fn from_saved(saved: &SavedSplitNode, config: &Config) -> (Self, Vec<(String, Option<String>)>) {
+    /// Returns the view and a list of (pane_id, cwd, url, page_title) tuples for spawning.
+    pub fn from_saved(saved: &SavedSplitNode, config: &Config) -> (Self, Vec<PaneRestoreInfo>) {
         let mut panes_map = HashMap::new();
         let mut panes_list = Vec::new();
         let tree = Self::tree_from_saved(saved, config, &mut panes_map, &mut panes_list);
@@ -364,14 +374,14 @@ impl SplitView {
         saved: &SavedSplitNode,
         config: &Config,
         panes: &mut HashMap<String, Rc<VteTerminal>>,
-        pane_list: &mut Vec<(String, Option<String>)>,
+        pane_list: &mut Vec<PaneRestoreInfo>,
     ) -> SplitTree {
         match saved {
-            SavedSplitNode::Leaf { cwd, .. } => {
+            SavedSplitNode::Leaf { cwd, url, page_title } => {
                 let pane_id = uuid::Uuid::new_v4().to_string();
                 let terminal = Rc::new(VteTerminal::new_with_config(config));
                 panes.insert(pane_id.clone(), terminal);
-                pane_list.push((pane_id.clone(), cwd.clone()));
+                pane_list.push((pane_id.clone(), cwd.clone(), url.clone(), page_title.clone()));
                 SplitTree::Leaf(pane_id)
             }
             SavedSplitNode::Split { orientation, first, second } => {

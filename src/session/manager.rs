@@ -1274,6 +1274,7 @@ impl SessionManager {
         }).collect();
 
         let cwds = self.session_cwds.borrow();
+        let browser_panes = self.browser_panes.borrow();
         let ordered_ids = self.sidebar.ordered_session_ids();
 
         let active_session_index = self.active_id.as_ref()
@@ -1288,7 +1289,7 @@ impl SessionManager {
                 let s = sessions_map.get(id.as_str())?;
 
                 let split_tree = self.split_views.get(&s.id)
-                    .map(|sv| sv.to_saved(&cwds))
+                    .map(|sv| sv.to_saved(&cwds, &browser_panes))
                     .unwrap_or_else(|| crate::config::SavedSplitNode::Leaf {
                         cwd: cwds.get(&s.id).cloned().or_else(|| s.cwd.clone()),
                         url: None,
@@ -1317,11 +1318,15 @@ impl SessionManager {
         title: &str,
         group_id: &str,
         split_tree: &crate::config::SavedSplitNode,
+        session_type: Option<crate::session::SessionType>,
         claude_session_id: Option<&str>,
         claude_binary: Option<&str>,
     ) -> String {
         let mut session = crate::session::Session::new(title.to_string());
         session.group_id = group_id.to_string();
+        if let Some(st) = session_type {
+            session.session_type = st;
+        }
         session.pending_resume_id = claude_session_id.map(|s| s.to_string());
         session.claude_binary = claude_binary.map(|s| s.to_string());
         session.pending_resume_binary = session.claude_binary.clone();
@@ -1338,22 +1343,37 @@ impl SessionManager {
 
         // Store pane CWDs before register_session — which calls switch_to → spawn_restored_panes,
         // and must find the CWDs already in place or shells spawn in the default directory.
+        // Also track browser panes for deferred spawn.
+        let mut browser_pane_list: Vec<(String, String, Option<String>)> = Vec::new();
         {
             let mut cwds = self.session_cwds.borrow_mut();
 
-            for (pane_id, cwd) in &panes {
+            for (pane_id, cwd, url, page_title) in &panes {
                 if let Some(c) = cwd {
                     cwds.insert(pane_id.clone(), c.clone());
+                }
+                if let Some(u) = url {
+                    browser_pane_list.push((pane_id.clone(), u.clone(), page_title.clone()));
                 }
             }
         }
 
         self.register_session(session, split_view, None);
 
+        // Spawn browser panes (shells are spawned by spawn_restored_panes)
+        if !browser_pane_list.is_empty() && carbonyl_available() {
+            for (pane_id, url, page_title) in browser_pane_list {
+                self.spawn_restored_browser_pane(&id, &pane_id, &url, page_title.as_deref());
+            }
+        } else if !browser_pane_list.is_empty() {
+            eprintln!("Skipping {} browser pane(s) — Carbonyl not found", browser_pane_list.len());
+        }
+
         id
     }
 
     /// Spawn deferred shells for a restored session with per-pane CWDs.
+    /// Skips panes that already have browser state (those are spawned separately).
     pub fn spawn_restored_panes(&self, session_id: &str) {
         let Some(sv) = self.split_views.get(session_id) else { return };
 
@@ -1362,11 +1382,61 @@ impl SessionManager {
         let env_vars = self.build_env_vars(session_id);
         let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         let cwds = self.session_cwds.borrow();
+        let browser_panes = self.browser_panes.borrow();
 
         for pane_id in sv.pane_ids() {
+            // Skip browser panes — they're spawned via spawn_restored_browser_pane
+            if browser_panes.contains_key(&pane_id) {
+                continue;
+            }
             let cwd = cwds.get(&pane_id).map(|s| s.as_str());
             sv.spawn_pane(&pane_id, cwd, &env_refs);
         }
+    }
+
+    /// Spawn Carbonyl in a restored browser pane, wire signals, and start URL polling.
+    fn spawn_restored_browser_pane(
+        &self,
+        session_id: &str,
+        pane_id: &str,
+        url: &str,
+        page_title: Option<&str>,
+    ) {
+        let Some(sv) = self.split_views.get(session_id) else { return };
+
+        // Find the terminal for this pane
+        let terminals = sv.collect_terminals();
+        let Some(terminal) = terminals.iter().find(|(pid, _)| pid == pane_id).map(|(_, t)| t.clone()) else {
+            return;
+        };
+
+        let debug_port = self.allocate_debug_port();
+        let port_str = debug_port.to_string();
+
+        let env_vars = self.build_env_vars(session_id);
+        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+
+        if self.stack.is_realized() {
+            terminal.spawn_command(
+                &["carbonyl", "--remote-debugging-port", &port_str, url],
+                None,
+                &env_refs,
+            );
+        }
+
+        // Register browser pane state and start URL polling
+        self.browser_panes.borrow_mut().insert(pane_id.to_string(), BrowserPaneState {
+            url: url.to_string(),
+            page_title: page_title.map(|s| s.to_string()),
+            debug_port,
+            poll_timer: None,
+            consecutive_failures: 0,
+        });
+
+        let display_title = page_title.unwrap_or(url);
+        self.sidebar.update_browser_display(session_id, display_title, url);
+
+        self.start_url_poll(pane_id, session_id, debug_port);
     }
 
     fn build_env_vars(&self, session_id: &str) -> Vec<(String, String)> {
