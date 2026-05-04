@@ -776,6 +776,12 @@ impl Sidebar {
         }
     }
 
+    pub fn update_browser_display(&self, session_id: &str, title: &str, url: &str) {
+        if let Some((row, _)) = self.rows.borrow().get(session_id) {
+            row.set_browser_display(title, url);
+        }
+    }
+
     pub fn update_badge(&self, session_id: &str, count: u32) {
         if let Some((row, _)) = self.rows.borrow().get(session_id) {
             row.set_badge_count(count);

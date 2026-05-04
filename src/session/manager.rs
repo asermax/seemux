@@ -303,10 +303,8 @@ impl SessionManager {
                 }
 
                 if url_changed || title_changed {
-                    sidebar.update_subtitle(&sid, &new_url);
-                    if let Some(ref title) = new_title {
-                        sidebar.update_title(&sid, title);
-                    }
+                    let display_title = new_title.as_deref().unwrap_or(&new_url);
+                    sidebar.update_browser_display(&sid, display_title, &new_url);
 
                     if let Some(ref callback) = on_state_changed {
                         callback();
@@ -452,6 +450,9 @@ impl SessionManager {
 
         let session_id = self.register_session(session, split_view, active_hint.as_deref());
 
+        // Set initial browser display (globe icon + URL as both title and subtitle)
+        self.sidebar.update_browser_display(&session_id, url, url);
+
         // Start URL poll after register (needs session ID + sidebar refs)
         self.start_url_poll(&pane_id, &session_id, debug_port);
 
@@ -512,8 +513,13 @@ impl SessionManager {
         let pid = pane_id.to_string();
         let last_cwd: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let cwds = self.session_cwds.clone();
+        let browser_panes_for_cwd = self.browser_panes.clone();
 
         terminal.on_cwd_changed(move |cwd_uri| {
+            // Skip CWD/branch updates for browser panes
+            if browser_panes_for_cwd.borrow().contains_key(&pid) {
+                return;
+            }
             let path = cwd_uri.and_then(|uri| path_from_file_uri(&uri));
 
             let Some(cwd) = path else {
@@ -843,7 +849,7 @@ impl SessionManager {
 
         // Register browser pane state and start URL polling
         {
-            let mgr = self_ref.borrow_mut();
+            let mgr = self_ref.borrow();
             mgr.browser_panes.borrow_mut().insert(new_pane_id.clone(), BrowserPaneState {
                 url: url.to_string(),
                 page_title: None,
@@ -852,6 +858,7 @@ impl SessionManager {
                 consecutive_failures: 0,
             });
 
+            mgr.sidebar.update_browser_display(&active_id, url, url);
             mgr.start_url_poll(&new_pane_id, &active_id, debug_port);
             mgr.notify_state_changed();
         }
@@ -1077,6 +1084,26 @@ impl SessionManager {
 
             if let Ok(m) = mgr.try_borrow() {
                 m.update_focused_pane(&sid, &pid);
+
+                // Update sidebar display based on focused pane type
+                let browser_panes = m.browser_panes.borrow();
+                if let Some(state) = browser_panes.get(&pid) {
+                    let display_title = state.page_title.as_deref().unwrap_or(&state.url);
+                    m.sidebar.update_browser_display(&sid, display_title, &state.url);
+                } else {
+                    drop(browser_panes);
+
+                    let cwds = m.session_cwds.borrow();
+                    if let Some(cwd) = cwds.get(&pid) {
+                        let folder = folder_name(cwd).to_string();
+                        let display = display_path(cwd);
+                        let cwd_owned = cwd.clone();
+                        drop(cwds);
+
+                        m.sidebar.update_cwd(&sid, &folder, &display);
+                        detect_branch_and_pr(&cwd_owned, &m.sidebar, &sid);
+                    }
+                }
             }
         });
 

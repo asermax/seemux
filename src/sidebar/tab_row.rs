@@ -235,11 +235,24 @@ impl TabRow {
     pub fn update_cwd(&self, folder_name: &str, display_path: &str) {
         self.title_label.set_text(folder_name);
         self.title_label.set_tooltip_text(Some(display_path));
+        self.folder_icon.set_text("\u{f07b}");
         self.folder_icon.set_visible(true);
 
         self.subtitle_label.set_text(display_path);
         self.subtitle_label.set_tooltip_text(Some(display_path));
         self.subtitle_label.set_visible(true);
+    }
+
+    pub fn set_browser_display(&self, title: &str, url: &str) {
+        self.folder_icon.set_text("\u{f0ac}");
+        self.folder_icon.set_visible(true);
+        self.title_label.set_text(title);
+        self.title_label.set_tooltip_text(Some(title));
+        self.subtitle_label.set_text(url);
+        self.subtitle_label.set_tooltip_text(Some(url));
+        self.subtitle_label.set_visible(true);
+        self.branch_label.set_visible(false);
+        self.pr_label.set_visible(false);
     }
 
     pub fn set_branch(&self, branch: Option<&str>) {
