@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v1.1.1 (2026-05-04)
+
+### Bug Fixes
+
+- **ci**: Stage Cargo.lock in semantic-release build_command
+  ([`9b51b19`](https://github.com/asermax/seemux/commit/9b51b19a16457d3b352ab8859d4b89c8adaddcfc))
+
+- **session**: Correct carbonyl --remote-debugging-port flag form
+  ([`94bee67`](https://github.com/asermax/seemux/commit/94bee678ddb9d349547dc0ab9d1fe42adc5c2b0d))
+
+### Chores
+
+- Remove obsolete /commit slash command
+  ([`edf4f28`](https://github.com/asermax/seemux/commit/edf4f28751bc3f6cfbf04f80f6d938972d1d0922))
+
+
 ## v1.1.0 (2026-05-04)
 
 ### Bug Fixes
