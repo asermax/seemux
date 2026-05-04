@@ -301,10 +301,10 @@ impl SessionManager {
                         Some(PollResult { url, title })
                     });
 
-                if let Some(result) = result {
-                    if tx.send(result).is_err() {
-                        break;
-                    }
+                if let Some(result) = result
+                    && tx.send(result).is_err()
+                {
+                    break;
                 }
             }
         });
