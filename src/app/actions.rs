@@ -296,9 +296,7 @@ pub(crate) fn register_terminal_actions(
         let Some(url) = manager::normalize_url(&url) else { return };
 
         if let Err(msg) = mgr.borrow_mut().create_browser_session(&url) {
-            let Some(overlay) = sid.container.ancestor(Overlay::static_type())
-                .and_downcast::<Overlay>() else { return };
-            super::dialogs::show_browser_error_overlay(&overlay, &mgr, &msg);
+            show_browser_error_from_sidebar(&sid, &mgr, &msg);
         }
     });
     window.add_action(&action);
@@ -312,12 +310,20 @@ pub(crate) fn register_terminal_actions(
         let Some(url) = manager::normalize_url(&url) else { return };
 
         if let Err(msg) = SessionManager::split_with_browser(&mgr, &url) {
-            let Some(overlay) = sid.container.ancestor(Overlay::static_type())
-                .and_downcast::<Overlay>() else { return };
-            super::dialogs::show_browser_error_overlay(&overlay, &mgr, &msg);
+            show_browser_error_from_sidebar(&sid, &mgr, &msg);
         }
     });
     window.add_action(&action);
+}
+
+fn show_browser_error_from_sidebar(
+    sidebar: &Rc<Sidebar>,
+    manager: &Rc<RefCell<SessionManager>>,
+    message: &str,
+) {
+    let Some(overlay) = sidebar.container.ancestor(Overlay::static_type())
+        .and_downcast::<Overlay>() else { return };
+    super::dialogs::show_browser_error_overlay(&overlay, manager, message);
 }
 
 fn is_text_file(path: &std::path::Path) -> bool {

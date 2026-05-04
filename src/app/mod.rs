@@ -98,13 +98,7 @@ pub fn build_window(app: &Application, state: &Rc<AppState>) {
     manager.borrow_mut().set_on_state_changed(move || p.mark_dirty());
 
     // Wire browser error callback — shows error overlay when Carbonyl crashes quickly after spawn
-    {
-        let overlay_err = overlay.clone();
-        let mgr_err = manager.clone();
-        manager.borrow_mut().set_on_browser_error(move |msg| {
-            dialogs::show_browser_error_overlay(&overlay_err, &mgr_err, &msg);
-        });
-    }
+    wire_browser_error_callback(&manager, &overlay);
 
     // Shared "create new group" logic — used by both sidebar button and Ctrl+Shift+G
     let create_group = make_create_group_action(
@@ -274,13 +268,7 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
     dropdown.manager.borrow_mut().set_on_state_changed(move || p.mark_dirty());
 
     // Wire browser error callback for dropdown window
-    {
-        let overlay_err = dropdown.overlay.clone();
-        let mgr_err = dropdown.manager.clone();
-        dropdown.manager.borrow_mut().set_on_browser_error(move |msg| {
-            dialogs::show_browser_error_overlay(&overlay_err, &mgr_err, &msg);
-        });
-    }
+    wire_browser_error_callback(&dropdown.manager, &dropdown.overlay);
 
     // Shared "create new group" logic — Ctrl+Shift+G and sidebar button
     let create_group = make_create_group_action(
@@ -416,6 +404,14 @@ pub fn build_quake_window(app: &Application, state: &Rc<AppState>) {
 }
 
 // --- Shared helpers ---
+
+fn wire_browser_error_callback(manager: &Rc<RefCell<SessionManager>>, overlay: &Overlay) {
+    let overlay_err = overlay.clone();
+    let mgr_err = manager.clone();
+    manager.borrow_mut().set_on_browser_error(move |msg| {
+        dialogs::show_browser_error_overlay(&overlay_err, &mgr_err, &msg);
+    });
+}
 
 /// Common setup shared by both normal and quake windows: context menu actions,
 /// terminal right-click, notification badge wiring, and DnD tab reordering.
