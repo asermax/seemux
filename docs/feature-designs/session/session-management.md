@@ -144,7 +144,7 @@ For non-Claude sessions, the `Running` status is driven entirely by VTE title he
 ### 6. Persistence
 
 - **Save**: Iterates sessions in sidebar-ordered sequence. For each, serializes title, split tree (via `SplitView::to_saved` with pane CWDs), group ID, and Claude session ID. Also saves group metadata (id, name, collapsed) and active session index.
-- **Restore**: `restore_session_with_splits` recreates session with split tree from `SavedSplitNode`, wires VTE signals, stores pane CWDs, registers session. Shell spawning is deferred until `spawn_deferred` (for non-collapsed groups) or `switch_to` (for individual sessions).
+- **Restore**: `restore_session_with_splits` recreates session with split tree from `SavedSplitNode`, wires VTE signals, stores pane CWDs, **pre-registers browser pane placeholders** in `browser_panes` (so `spawn_restored_panes` skips them), registers session. Shell spawning is deferred until `spawn_deferred` (for non-collapsed groups) or `switch_to` (for individual sessions). Browser panes are spawned separately via `spawn_restored_browser_pane` after registration.
 
 ### 7. Error Paths
 
@@ -158,7 +158,7 @@ For non-Claude sessions, the `Running` status is driven entirely by VTE title he
 1. **Entry**: `create_browser_session(url)` or `split_with_browser(self_ref, url)`.
 2. **Pre-check**: Carbonyl availability checked via cached `which carbonyl` result. If not found, error overlay shown (DES-007) and no session created.
 3. **Process**: Creates `Session` with `SessionType::Browser`, creates `SplitView` with single Leaf (or splits existing pane for split path), allocates debug port from counter (starting at 19300).
-4. **Spawn**: All three browser entry paths (`create_browser_session`, `split_with_browser`, `spawn_restored_browser_pane`) route through a single `spawn_carbonyl_for(terminal, session_id, url)` helper that allocates the debug port, builds env vars, and runs `VteTerminal::spawn_command(["carbonyl", "--remote-debugging-port=<port>", url])`. The `=` form is required: with the space-separated form, Chromium's argument parser routes the URL as a second positional target and exits via `headless_shell.cc`.
+4. **Spawn**: All three browser entry paths (`create_browser_session`, `split_with_browser`, `spawn_restored_browser_pane`) route through a single `spawn_carbonyl_for(terminal, session_id, url)` helper that allocates the debug port, builds env vars, and runs `VteTerminal::spawn_command(["carbonyl", "--remote-debugging-port=<port>", "--bitmap", "--zoom=<browser_zoom>", url])`. The `=` form is required for `--remote-debugging-port`: with the space-separated form, Chromium's argument parser routes the URL as a second positional target and exits via `headless_shell.cc`. The `--bitmap` flag treats each cell as a pixel instead of a 2x4 half-block quadrant, improving rendering resolution. The `--zoom` level is configurable via `browser_zoom` in config (default 1.5).
 5. **Signal wiring**: Connects VTE child-exited → `close_pane` (DES-002), title-changed (page titles), pane_focus, bell, status handlers.
 6. **Browser state**: Registers `BrowserPaneState` in `browser_panes` HashMap, starts URL poll via background thread (DES-011).
 7. **Sidebar**: Initial display shows globe icon with URL as both title and subtitle.

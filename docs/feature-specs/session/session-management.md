@@ -150,6 +150,7 @@ The session domain is the central orchestration layer of Seemux. A "session" tie
 - Given a URL, when a browser session is created, then Carbonyl is spawned inside the VTE terminal with that URL
 - Given the Carbonyl binary is not found, when a browser session is attempted, then an error overlay is shown and no session is created
 - Given a browser session, when created, then per-pane URL and title tracking starts via background HTTP polling
+- Given a browser session is created, then Carbonyl is launched with --bitmap flag (for 1:1 pixel-to-cell rendering) and --zoom flag (using config.browser_zoom value, default 1.5)
 
 ### Browser Pane Split (R25)
 
@@ -175,5 +176,5 @@ The session domain is the central orchestration layer of Seemux. A "session" tie
 
 **Acceptance Criteria**:
 - Given a browser session with a current URL, when state is saved, then the session type, URL, and page title are persisted
-- Given saved state with a browser session, when restored and Carbonyl is available, then the browser pane is restored with the saved URL
+- Given saved state with a browser session, when restored and Carbonyl is available, then the browser pane is restored with the saved URL; browser pane placeholders are pre-registered in the browser_panes HashMap before session registration to prevent spawn_restored_panes from incorrectly spawning shells into browser panes
 - Given saved state with a browser session, when restored and Carbonyl is not available, then the browser pane is skipped (logged to stderr) and other panes restore normally

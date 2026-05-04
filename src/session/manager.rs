@@ -265,8 +265,15 @@ impl SessionManager {
         if self.stack.is_realized() {
             // Use the `=` form: with `--remote-debugging-port <port>`, Chromium
             // parses the URL as a second target and exits via headless_shell.cc.
+            // --bitmap treats each cell as a pixel instead of a 2x4 half-block quadrant,
+            // dramatically improving rendering resolution.
+            let zoom = self.config.borrow().browser_zoom;
             terminal.spawn_command(
-                &["carbonyl", &format!("--remote-debugging-port={debug_port}"), url],
+                &["carbonyl",
+                  &format!("--remote-debugging-port={debug_port}"),
+                  "--bitmap",
+                  &format!("--zoom={zoom}"),
+                  url],
                 None,
                 &env_refs,
             );
@@ -1422,6 +1429,23 @@ impl SessionManager {
                 if let Some(u) = url {
                     browser_pane_list.push((pane_id.clone(), u.clone(), page_title.clone()));
                 }
+            }
+        }
+
+        // Pre-register browser pane placeholders so spawn_restored_panes (called by
+        // register_session → switch_to) skips them instead of spawning shells.
+        if !browser_pane_list.is_empty() {
+            let mut browser_panes = self.browser_panes.borrow_mut();
+            for (pane_id, url, page_title) in &browser_pane_list {
+                browser_panes.insert(pane_id.clone(), BrowserPaneState {
+                    url: url.clone(),
+                    page_title: page_title.clone(),
+                    debug_port: 0,
+                    poll_timer: None,
+                    poll_rx: None,
+                    stop_poll: None,
+                    created_at: std::time::Instant::now(),
+                });
             }
         }
 

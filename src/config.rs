@@ -40,11 +40,14 @@ pub struct Config {
     pub tray_icon: String,
     #[serde(default = "default_claude_aliases")]
     pub claude_aliases: Vec<String>,
+    #[serde(default = "default_browser_zoom")]
+    pub browser_zoom: f32,
 }
 
 fn default_tray_enabled() -> bool { true }
 fn default_tray_icon() -> String { "seemux".to_string() }
 fn default_claude_aliases() -> Vec<String> { vec!["claude".to_string()] }
+fn default_browser_zoom() -> f32 { 1.5 }
 
 impl Default for Config {
     fn default() -> Self {
@@ -62,6 +65,7 @@ impl Default for Config {
             tray_enabled: true,
             tray_icon: "seemux".to_string(),
             claude_aliases: default_claude_aliases(),
+            browser_zoom: default_browser_zoom(),
         }
     }
 }
@@ -241,6 +245,7 @@ mod tests {
             tray_enabled: true,
             tray_icon: "seemux".to_string(),
             claude_aliases: vec!["claude".to_string()],
+            browser_zoom: 1.5,
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
