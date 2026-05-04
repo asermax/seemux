@@ -41,6 +41,20 @@ pub(crate) struct BrowserPaneState {
     pub created_at: std::time::Instant,
 }
 
+impl BrowserPaneState {
+    fn new(url: String, page_title: Option<String>, debug_port: u16) -> Self {
+        Self {
+            url,
+            page_title,
+            debug_port,
+            poll_timer: None,
+            poll_rx: None,
+            stop_poll: None,
+            created_at: std::time::Instant::now(),
+        }
+    }
+}
+
 /// Normalize a URL: trim whitespace, return None if empty, prepend https:// if no scheme.
 pub(crate) fn normalize_url(url: &str) -> Option<String> {
     let trimmed = url.trim();
@@ -503,15 +517,9 @@ impl SessionManager {
         let split_view = SplitView::new(terminal, pane_id.clone());
 
         // Register browser pane state and start URL polling
-        self.browser_panes.borrow_mut().insert(pane_id.clone(), BrowserPaneState {
-            url: url.to_string(),
-            page_title: None,
-            debug_port,
-            poll_timer: None,
-            poll_rx: None,
-            stop_poll: None,
-            created_at: std::time::Instant::now(),
-        });
+        self.browser_panes.borrow_mut().insert(pane_id.clone(), BrowserPaneState::new(
+            url.to_string(), None, debug_port,
+        ));
 
         let session_id = self.register_session(session, split_view, active_hint.as_deref());
 
@@ -905,15 +913,9 @@ impl SessionManager {
         // Register browser pane state and start URL polling
         {
             let mgr = self_ref.borrow();
-            mgr.browser_panes.borrow_mut().insert(new_pane_id.clone(), BrowserPaneState {
-                url: url.to_string(),
-                page_title: None,
-                debug_port,
-                poll_timer: None,
-                poll_rx: None,
-                stop_poll: None,
-                created_at: std::time::Instant::now(),
-            });
+            mgr.browser_panes.borrow_mut().insert(new_pane_id.clone(), BrowserPaneState::new(
+                url.to_string(), None, debug_port,
+            ));
 
             mgr.sidebar.update_browser_display(&active_id, url, url);
             mgr.start_url_poll(&new_pane_id, &active_id, debug_port);
@@ -1437,15 +1439,9 @@ impl SessionManager {
         if !browser_pane_list.is_empty() {
             let mut browser_panes = self.browser_panes.borrow_mut();
             for (pane_id, url, page_title) in &browser_pane_list {
-                browser_panes.insert(pane_id.clone(), BrowserPaneState {
-                    url: url.clone(),
-                    page_title: page_title.clone(),
-                    debug_port: 0,
-                    poll_timer: None,
-                    poll_rx: None,
-                    stop_poll: None,
-                    created_at: std::time::Instant::now(),
-                });
+                browser_panes.insert(pane_id.clone(), BrowserPaneState::new(
+                    url.clone(), page_title.clone(), 0,
+                ));
             }
         }
 
@@ -1502,15 +1498,9 @@ impl SessionManager {
         let debug_port = self.spawn_carbonyl_for(&terminal, session_id, url);
 
         // Register browser pane state and start URL polling
-        self.browser_panes.borrow_mut().insert(pane_id.to_string(), BrowserPaneState {
-            url: url.to_string(),
-            page_title: page_title.map(|s| s.to_string()),
-            debug_port,
-            poll_timer: None,
-            poll_rx: None,
-            stop_poll: None,
-            created_at: std::time::Instant::now(),
-        });
+        self.browser_panes.borrow_mut().insert(pane_id.to_string(), BrowserPaneState::new(
+            url.to_string(), page_title.map(|s| s.to_string()), debug_port,
+        ));
 
         let display_title = page_title.unwrap_or(url);
         self.sidebar.update_browser_display(session_id, display_title, url);
