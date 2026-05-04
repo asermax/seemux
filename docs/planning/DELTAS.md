@@ -78,7 +78,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Description**: When a process spawns a child tab (such as an editor or a Claude teammate), users must manually arrange it alongside the originating tab. This delta automatically places spawned child tabs into a layout adjacent to their parent, reducing manual arrangement for common workflows like editing files or monitoring teammates.
 
 ### DLT-004: Open web pages in browser tabs
-**Status**: ✗ Defined
+**Status**: ⧗ Spec
 **Depends on**: None
 **Priority**: 2 (High)
 **Complexity**: Medium
