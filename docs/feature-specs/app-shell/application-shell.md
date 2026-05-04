@@ -27,8 +27,8 @@ The application shell is the outermost layer of seemux. It owns the GTK applicat
 | R1 | CLI: normal (no args), quake (`--quake`), or command (`toggle` via socket) |
 | R2 | Normal mode: windowed app with resizable sidebar-paned layout, overlay dialogs, quit-on-last-tab-closed |
 | R3 | Quake mode: dropdown with auto-hide, dialog-mode detection, global shortcut, respawn tab on last close |
-| R4 | GIO actions for terminal ops: copy, paste, split-h, split-v, close pane/tab, open-url, edit-file |
-| R5 | Right-click context menu adapts to content under cursor (URL, file, plain text) |
+| R4 | GIO actions for terminal ops: copy, paste, split-h, split-v, close pane/tab, open-url, edit-file, open-in-browser, open-in-browser-split |
+| R5 | Right-click context menu adapts to content under cursor (URL, file, plain text); detected non-file URLs include "Open in browser tab" and "Open in browser split" options |
 | R6 | Ctrl+Click on URLs opens them (text files in editor, others in browser) |
 | R7 | Overlay dialogs: new group, rename group, confirm group deletion; dismissible via Cancel/Escape |
 | R8 | Keyboard shortcuts in capture phase: Ctrl+Shift (copy/paste/new/close/split/sidebar/group), Alt+hjkl (pane nav), Alt/Ctrl+1-9 (tab index), Ctrl+Tab (cycle), PageUp/Down variants |
@@ -49,6 +49,8 @@ The application shell is the outermost layer of seemux. It owns the GTK applicat
 | R23 | Hook polling (100ms) dispatches events, commands, and application-level controls |
 | R24 | Stale PID detection every 5 seconds |
 | R25 | Optional system tray icon with unread count updates |
+| R26 | Ctrl+Shift+O opens a URL input modal for creating browser tabs; auto-prepends https:// if no protocol |
+| R27 | Browser tabs created from URL input modal or by right-clicking a detected URL |
 
 ## Behaviors
 
@@ -89,7 +91,7 @@ The application shell is the outermost layer of seemux. It owns the GTK applicat
 
 **Acceptance Criteria**:
 - Given right-click over plain text, then Copy/Paste/Split-H/Split-V/Close
-- Given right-click over HTTP URL, then additionally "Open URL"
+- Given right-click over HTTP URL, then additionally "Open URL", "Open in browser tab", and "Open in browser split"
 - Given right-click over file:// text file, then "Open in Editor" and "Open with external App"
 - Given right-click over file:// non-text, then "Open with external App" only
 
@@ -125,6 +127,7 @@ The application shell is the outermost layer of seemux. It owns the GTK applicat
 - Ctrl+Shift+PageDown/Up: next/previous running session
 - Ctrl+Shift+B: toggle sidebar collapse
 - Ctrl+Shift+.: toggle active group collapse
+- Ctrl+Shift+O: open URL input modal for browser tab
 - Ctrl+Shift+G: new group dialog
 
 ### Session Restoration
@@ -140,3 +143,17 @@ The application shell is the outermost layer of seemux. It owns the GTK applicat
 
 **Acceptance Criteria**:
 - Given SIGTERM/SIGHUP, then atomic flag set, next 100ms poll persists state and quits
+
+### URL Input Modal (R26)
+
+**Acceptance Criteria**:
+- Given Ctrl+Shift+O pressed, then URL input modal appears centered in the overlay with blank text field
+- Given the modal, when user types URL and submits, then a browser session is created
+- Given the modal, when URL lacks protocol (e.g., "example.com"), then https:// is prepended automatically
+- Given the modal, when user submits empty input or presses Escape/Cancel, then modal dismissed with no session created
+
+### Browser Error Overlay (R27)
+
+**Acceptance Criteria**:
+- Given Carbonyl is not installed, when a browser session is attempted, then an error overlay shows with installation instructions
+- Given a browser pane that crashes within 2 seconds of creation, then an error overlay shows crash details (URL and debug port)

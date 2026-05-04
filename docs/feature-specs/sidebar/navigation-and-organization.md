@@ -24,7 +24,7 @@ The sidebar is Seemux's primary navigation surface. It presents terminal session
 | ID | Requirement |
 |----|-------------|
 | R0 | Display terminal sessions as navigable tab rows organized into a default section and named groups |
-| R1 | Each tab row displays: title, subtitle/path, folder icon, git branch, PR link, status pill, notification preview, unread badge, close button, index overlay |
+| R1 | Each tab row displays: title, subtitle/path, folder icon (shell panes) or globe icon (browser panes), git branch (shell panes only), PR link, status pill, notification preview, unread badge, close button, index overlay |
 | R2 | Support expanded mode (full tab rows) and collapsed dot-bar mode (colored circles) |
 | R3 | Named groups have a collapsible header with toggle, name label, add-tab button, and context menu |
 | R4 | Collapsed groups use "peek" behavior to keep important tabs visible (active, running, or with unread badges) |
@@ -54,6 +54,9 @@ The sidebar is Seemux's primary navigation surface. It presents terminal session
 - Given a tab row, when notification preview is set, then preview label shows (ellipsized at 25 chars); when cleared, hidden
 - Given a tab row, when set as active, then it gets "active" CSS class and all others lose it
 - Given a tab row set as active that is not fully visible in the sidebar scroll viewport, then the sidebar scrolls the minimum amount to reveal it (top-edge aligned when above, bottom-edge aligned when below)
+- Given a browser pane is focused, then the tab row shows a globe icon, page title as title, and URL as subtitle; git branch and PR labels are hidden
+- Given focus switches from a browser pane to a shell pane in the same session, then the tab row reverts to folder icon, CWD-based display, and git branch/PR visibility
+- Given focus switches from a shell pane to a browser pane, then the tab row switches to globe icon, URL, and page title
 
 ### Tab Index Overlay
 

@@ -41,8 +41,8 @@ The two modes share ~80% of wiring through `setup_common`. Mode-specific differe
 | main.rs | GTK_IM_MODULE workaround, CLI dispatch, app lifecycle | Thread-local for cross-callback state |
 | cli.rs | Tri-modal arg parsing | Socket fire-and-forget for toggle |
 | app/mod.rs | Window construction, subsystem wiring, restore, signals | Two builders + shared core |
-| app/actions.rs | GIO action dispatch for all operations | String-parameterized actions |
-| app/dialogs.rs | Overlay-based modal forms and confirmations | Overlay instead of GTK Dialog |
+| app/actions.rs | GIO action dispatch for all operations | String-parameterized actions (DES-004); includes `open-in-browser` and `open-in-browser-split` |
+| app/dialogs.rs | Overlay-based modal forms and confirmations | Overlay instead of GTK Dialog (DES-007); includes `show_url_input_overlay` and `show_browser_error_overlay` |
 | app/keyboard.rs | Capture-phase shortcut handler | KeyEvent::matches() for layout-independent shortcuts |
 
 ## Data Flow
@@ -111,6 +111,18 @@ Given user opened file_a from terminal A creating editor E → user opens file_b
 ### Alt-Hold Tab Index Overlay
 
 Alt pressed → `show_tab_indices()` displays 1-9 overlays → Alt released → overlays hidden. Window focus loss also hides overlays (handles Alt+Tab swallowing the release).
+
+### URL Input Modal
+
+`Ctrl+Shift+O` pressed → `show_url_input_overlay()` creates centered card (DES-007) with blank URL entry, Cancel and Open buttons. Enter/Open calls `normalize_url()` (auto-prepend `https://`) and activates `win.open-in-browser` action. Escape/Cancel/empty input dismisses overlay.
+
+### Browser Error Overlay
+
+Carbonyl not found during session/split creation → `show_browser_error_overlay()` displays "Carbonyl Not Found" with install instructions. Browser pane crashes within 2s → `on_browser_error` callback shows error overlay with URL and debug port.
+
+### Browser Context Menu Items
+
+Right-click on detected non-file URL → context menu includes "Open in browser tab" (activates `win.open-in-browser`, creates new session) and "Open in browser split" (activates `win.open-in-browser-split`, creates browser pane in current session). These items do not appear for `file://` URLs (which show "Open in Editor" instead).
 
 ---
 

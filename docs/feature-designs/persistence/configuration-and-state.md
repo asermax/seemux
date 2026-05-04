@@ -47,8 +47,10 @@ Config (TOML, ~/.config/seemux/config.toml)
 SessionState (JSON, ~/.local/state/seemux/sessions.json)
 ├── sessions: Vec<SavedSession>
 │   ├── title, group_id, claude_session_id
+│   ├── session_type: Option<SessionType> (defaults to Shell, backward compat via serde default)
 │   ├── claude_binary: Option<String> (persisted projection of runtime field)
 │   └── split_tree: SavedSplitNode (recursive)
+│       └── Leaf nodes include: url: Option<String>, page_title: Option<String>
 ├── groups: Vec<SavedGroup> (id, name, collapsed)
 └── active_session_index
 
@@ -76,6 +78,10 @@ Window close, SIGTERM, or SIGHUP trigger immediate `save_now()`. Signal handling
 ### Atomic Write Path
 
 All writes use `tempfile::NamedTempFile` in the same directory as the target, then `persist()` (POSIX `rename(2)`), guaranteeing atomicity.
+
+### Browser Pane Restoration
+
+On restore, for each `SavedSplitNode::Leaf` with a `url` field: if Carbonyl is available (cached check), spawn Carbonyl with the saved URL, allocate a debug port, wire signals, start URL poll (DES-011), and register `BrowserPaneState`. If Carbonyl is not available, skip that individual pane (warning to stderr) — other panes in the same session (including other shell panes) restore normally. The session is not destroyed due to missing browser panes.
 
 ## Key Decisions
 

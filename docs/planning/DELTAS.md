@@ -77,13 +77,6 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Complexity**: Medium
 **Description**: When a process spawns a child tab (such as an editor or a Claude teammate), users must manually arrange it alongside the originating tab. This delta automatically places spawned child tabs into a layout adjacent to their parent, reducing manual arrangement for common workflows like editing files or monitoring teammates.
 
-### DLT-004: Open web pages in browser tabs
-**Status**: ✓ Implementation
-**Depends on**: None
-**Priority**: 2 (High)
-**Complexity**: Medium
-**Description**: Users need to view web content alongside terminal sessions without leaving seemux. This delta adds browser tabs that render web pages inside the terminal, using a terminal-based browser such as Carbonyl. Sessions gain a type distinction (shell vs browser) so the sidebar can display browser-appropriate information (URL and page title instead of working directory, distinct icon). Browser tabs are independent sessions that participate in the layout system, enabling workflows like viewing documentation side-by-side with a coding terminal.
-
 ### DLT-008: Sync PR status across tabs in the same repository
 **Status**: ✗ Defined
 **Depends on**: None

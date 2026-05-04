@@ -38,6 +38,8 @@ The persistence domain manages four concerns: TOML configuration loading/saving 
 | R11 | Sidebar width and collapsed state are persisted to config only when they actually change |
 | R12 | Hook and toplevel receivers use take semantics, preventing multiple consumers |
 | R13 | A `claude_aliases` config field (TOML, defaults to `["claude"]`) holds a list of binary names recognized as Claude instances; `"claude"` is always included even if omitted by the user |
+| R14 | Browser pane state (url, page_title) persisted per leaf node; session_type persisted per session |
+| R15 | Browser pane restoration skips panes when Carbonyl is unavailable, with warning logged to stderr; other panes in the session restore normally |
 
 ## Behaviors
 
@@ -63,6 +65,7 @@ The persistence domain manages four concerns: TOML configuration loading/saving 
 - Given no state file exists, when loaded, then an empty SessionState is returned
 - Given a state file from an older version missing new fields, when loaded, then deserialization succeeds with serde defaults
 - Given a state file from an older version missing `claude_binary`, when loaded, then all sessions deserialize with `claude_binary = None` without error
+- Given a state file from an older version missing session_type/url/page_title fields, when loaded, then all sessions default to Shell type and browser fields are None
 - Given malformed JSON, when loaded, then an error is logged and empty defaults are returned
 
 ### Session State Saving
@@ -72,6 +75,7 @@ The persistence domain manages four concerns: TOML configuration loading/saving 
 - Given sessions reordered in the sidebar, when saved, then sessions are serialized in sidebar display order
 - Given a SessionState ready to save, when saved, then atomic write via temp file + rename is used
 - Given a session with a recorded Claude binary name, when save_state() is called, then the `claude_binary` field is included in the serialized session
+- Given a browser session with URL and page title, when save_state() is called, then session_type, url, and page_title are included in the serialized session
 
 ### Debounced Persistence
 

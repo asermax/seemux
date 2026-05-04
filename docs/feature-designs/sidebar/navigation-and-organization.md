@@ -307,6 +307,12 @@ CollapsedBar
 - **When** the user moves the cursor away or releases Ctrl (detected on next mouse movement)
 - **Then** the underline is removed
 
+### Browser Tab Row Shows Browser Metadata
+
+- **Given** a browser pane is focused in a session, **when** the sidebar tab row is displayed, **then** it shows a globe icon (replacing the folder icon), the page title as the title, and the current URL as the subtitle; git branch and PR labels are hidden.
+- **Given** a session with mixed shell and browser panes, **when** focus switches from a browser pane to a shell pane, **then** the tab row reverts to folder icon, CWD-based display, and git branch/PR visibility. **When** focus switches back to the browser pane, **then** it returns to globe icon display.
+- **Given** a browser pane's URL or title changes (reported via `update_browser_display`), **when** that pane is focused, **then** the sidebar immediately reflects the new values.
+
 ## Notes
 
 - **Limitation**: The PR label underline is removed on Ctrl release only when the mouse moves; if the user releases Ctrl while stationary over the label, the underline persists until the next mouse event. This avoids adding a key-event controller for a minor cosmetic edge case.

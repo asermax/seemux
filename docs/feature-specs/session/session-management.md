@@ -51,6 +51,8 @@ The session domain is the central orchestration layer of Seemux. A "session" tie
 | R21 | Navigate to next/previous session with unread notifications (circular) |
 | R22 | Navigate to next/previous session with active status or a running command in any pane (circular) |
 | R23 | Inject SEEMUX_SOCKET and SEEMUX_SESSION_ID env vars; optionally prepend bin dir to PATH |
+| R24 | Sessions support a type distinction (Shell vs Browser, set at creation) that determines spawning behavior; sidebar display adapts to the focused pane's type (not the session type) |
+| R25 | Browser sessions spawn Carbonyl inside VTE; track URL and page title via background HTTP polling of CDP endpoint; browser pane exit closes the pane (session survives if other panes exist, consistent with shell pane behavior); browser panes can coexist with shell panes in the same session via split |
 
 ## Behaviors
 
@@ -134,3 +136,44 @@ The session domain is the central orchestration layer of Seemux. A "session" tie
 **Acceptance Criteria**:
 - Given any session spawning a shell, then SEEMUX_SOCKET and SEEMUX_SESSION_ID are set
 - Given agent_teams_shim enabled, then the bin directory is prepended to PATH
+
+### Session Types (R24, R25)
+
+**Acceptance Criteria**:
+- Given a session is created, then it has an explicit type (Shell or Browser) set at creation time
+- Given a browser session, when listed in the session manager, then it participates in all session operations: group assignment, sidebar display, tab switching, drag-and-drop, notifications
+- Given a session with SessionType::Shell, when a browser pane is added via split, then the session type remains Shell (SessionType reflects creation origin, not current composition)
+
+### Browser Session Creation (R25)
+
+**Acceptance Criteria**:
+- Given a URL, when a browser session is created, then Carbonyl is spawned inside the VTE terminal with that URL
+- Given the Carbonyl binary is not found, when a browser session is attempted, then an error overlay is shown and no session is created
+- Given a browser session, when created, then per-pane URL and title tracking starts via background HTTP polling
+
+### Browser Pane Split (R25)
+
+**Acceptance Criteria**:
+- Given a session, when split_with_browser is called, then a browser pane is added alongside the existing pane(s)
+- Given a session with both shell and browser panes, when the user navigates between panes, then the sidebar updates to reflect the focused pane's metadata
+
+### Browser Pane Lifecycle (R25)
+
+**Acceptance Criteria**:
+- Given a browser pane exits (user quit, crash, kill), then the pane closes; if other panes exist, the session survives
+- Given a browser pane that is the last pane exits, then the session is destroyed
+- Given a browser pane that crashes within 2 seconds of creation, then an error overlay is shown on the pane with crash details
+
+### URL and Title Tracking (R25)
+
+**Acceptance Criteria**:
+- Given a browser pane, when the URL changes, then the sidebar updates and persistence is marked dirty (DES-003)
+- Given a browser pane, when the page title changes, then the sidebar updates and persistence is marked dirty
+- Given a browser pane, when CDP polling fails repeatedly, then the background thread stops and the sidebar retains last known values
+
+### Browser Session Persistence (R15, R25)
+
+**Acceptance Criteria**:
+- Given a browser session with a current URL, when state is saved, then the session type, URL, and page title are persisted
+- Given saved state with a browser session, when restored and Carbonyl is available, then the browser pane is restored with the saved URL
+- Given saved state with a browser session, when restored and Carbonyl is not available, then the browser pane is skipped (logged to stderr) and other panes restore normally

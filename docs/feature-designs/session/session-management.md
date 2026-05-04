@@ -36,18 +36,22 @@ SessionManager (1)
 ├── split_views: HashMap<id, SplitView>  -- one split tree per session
 ├── active_id: Option<String>        -- currently focused session
 ├── session_cwds: HashMap<pane_id, path>  -- per-pane CWD tracking
+├── browser_panes: RefCell<HashMap<pane_id, BrowserPaneState>>  -- per-pane browser state
+├── next_debug_port: Cell<u16>       -- counter starting at 19300
 ├── bell_timestamps: HashMap<session_id, unix_ts>  -- debounce state
 ├── stack: GTK Stack                 -- page container for terminal widgets
 ├── sidebar: Sidebar                 -- tab list and group UI
 ├── config: Config                   -- terminal and app settings
 ├── notification_store: NotificationStore  -- unread count per session
 ├── on_empty: Callback               -- fires when last session destroyed
-└── on_state_changed: Callback       -- fires on any state mutation
+├── on_state_changed: Callback       -- fires on any state mutation
+└── on_browser_error: Callback<String>  -- fires when browser pane crashes early
 
 Session
 ├── id: String (UUID)
 ├── title: String
 ├── status: SessionStatus {Idle, Running, NeedsInput, Completed, Error, Exited}
+├── session_type: SessionType {Shell, Browser}  -- set at creation, reflects origin
 ├── claude_pid: Option<u32>
 ├── claude_session_id: Option<String>
 ├── pending_resume_id: Option<String>  -- transient, serde-skipped
@@ -59,6 +63,15 @@ SplitView (1 per session)
 ├── tree: SplitTree {Leaf(pane_id) | Split{orientation, first, second}}
 ├── panes: HashMap<pane_id, VteTerminal>  -- flat terminal storage
 └── focused_pane_id: String
+
+BrowserPaneState (per-pane, in SessionManager)
+├── url: String
+├── page_title: Option<String>
+├── debug_port: u16
+├── poll_timer: Option<glib::SourceId>  -- GTK timer for try_recv
+├── poll_rx: Option<mpsc::Receiver<PollResult>>  -- from background thread
+├── stop_poll: Option<Arc<AtomicBool>>  -- signals thread termination
+└── created_at: Instant  -- used for crash detection (< 2s = crash)
 
 SessionState (persistence)
 ├── sessions: Vec<SavedSession>  -- ordered by sidebar position
@@ -139,6 +152,30 @@ For non-Claude sessions, the `Running` status is driven entirely by VTE title he
 - `try_borrow` failure on `Rc<RefCell<SessionManager>>`: signal handler silently returns (prevents panic from re-entrant access).
 - Config file parse failure: falls back to defaults, logs to stderr.
 - Session state parse failure: starts fresh with no sessions, logs to stderr.
+
+### 8. Browser Session Creation
+
+1. **Entry**: `create_browser_session(url)` or `split_with_browser(self_ref, url)`.
+2. **Pre-check**: Carbonyl availability checked via cached `which carbonyl` result. If not found, error overlay shown (DES-007) and no session created.
+3. **Process**: Creates `Session` with `SessionType::Browser`, creates `SplitView` with single Leaf (or splits existing pane for split path), allocates debug port from counter (starting at 19300).
+4. **Spawn**: `VteTerminal::spawn_command(["carbonyl", "--remote-debugging-port", port, url])` — Carbonyl runs inside VTE like any command.
+5. **Signal wiring**: Connects VTE child-exited → `close_pane` (DES-002), title-changed (page titles), pane_focus, bell, status handlers.
+6. **Browser state**: Registers `BrowserPaneState` in `browser_panes` HashMap, starts URL poll via background thread (DES-011).
+7. **Sidebar**: Initial display shows globe icon with URL as both title and subtitle.
+8. **URL normalization**: `normalize_url(url)` trims whitespace, returns None if empty, prepends `https://` if no `://` scheme present.
+
+### 9. URL + Title Tracking (per pane, DES-011)
+
+1. **Background thread** (spawned at pane creation): Loops every 500ms — HTTP GET to `http://127.0.0.1:{debug_port}/json/list`, parses JSON array, finds first target where `type == "page"`, extracts `url` and `title` fields, sends `PollResult` through mpsc channel. Stops when `AtomicBool` flag is set.
+2. **Main thread** (GTK timer, 50ms): Non-blocking `try_recv()` from channel. On result: compares URL and title against current `BrowserPaneState`. If changed and pane is focused: updates sidebar display and marks persistence dirty (DES-003).
+3. **Failure handling**: Background thread silently retries on HTTP failure. If channel disconnects (thread exited), GTK timer returns `Break`.
+
+### 10. Browser Pane Destruction
+
+1. **Entry**: Carbonyl process exits → VTE `child-exited` signal → `close_pane`.
+2. **Crash detection**: If `created_at.elapsed() < 2s`, treated as crash → `on_browser_error` callback fires with error message.
+3. **Cleanup**: Set `AtomicBool` stop flag (terminates background thread), remove GTK poll timer, remove `BrowserPaneState` from HashMap, remove CWD entry.
+4. **Session continuity**: If other panes exist, rebuild widget tree and focus surviving pane. If last pane, `destroy_session`.
 
 ## Key Decisions
 
@@ -235,6 +272,34 @@ For non-Claude sessions, the `Running` status is driven entirely by VTE title he
 ### Deferred Spawning on Group Expand
 
 - **Given** a collapsed group with 5 restored sessions, **when** the user expands the group, **then** shells for those 5 sessions are spawned. **When** the user switches to one of those sessions, **then** the terminal is ready with the correct CWD.
+
+### Browser Pane Exits in Split Session
+
+- **Given** a session with both shell and browser panes, **when** Carbonyl exits, **then** the browser pane closes, the shell pane continues, the sidebar updates to show shell metadata (folder icon + CWD + git branch), and the URL poll background thread is stopped.
+
+### Browser Pane Exits in Browser-Only Session
+
+- **Given** a browser-only session (single pane), **when** Carbonyl exits, **then** the last pane closes, the session is destroyed, and focus moves to the next appropriate session.
+
+### Browser Pane Crash
+
+- **Given** a browser pane that crashes within 2 seconds of creation, **when** close_pane runs, **then** an error overlay is shown with crash details (URL, debug port) via `on_browser_error` callback, before the standard pane cleanup.
+
+### Carbonyl Not Found
+
+- **Given** Carbonyl is not in PATH, **when** a browser session or split is attempted, **then** an error overlay appears with installation instructions. No session or pane is created. Availability is cached after first check.
+
+### Restore Browser Pane
+
+- **Given** a saved browser pane with URL, **when** restoring and Carbonyl is available, **then** the browser is re-spawned with the saved URL and URL polling starts. **When** Carbonyl is not available, the pane is skipped (warning to stderr) and other panes in the session restore normally.
+
+### Multiple Browser Panes
+
+- **Given** multiple browser panes across sessions, **then** each has its own CDP debug port, background poll thread, and `BrowserPaneState`. Closing one browser pane does not affect others.
+
+### Pane Focus Change in Mixed Session
+
+- **Given** a session with both shell and browser panes, **when** focus changes between panes, **then** the sidebar tab row updates to reflect the focused pane's type: globe icon + page title + URL for browser panes, folder icon + CWD + git branch for shell panes.
 
 ## Notes
 
