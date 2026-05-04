@@ -286,6 +286,38 @@ pub(crate) fn register_terminal_actions(
         super::wire_tab_lifecycle(&sid, &mgr, &notif, &id);
     });
     window.add_action(&action);
+
+    // open-in-browser — create browser session with given URL
+    let mgr = manager.clone();
+    let sid = sidebar.clone();
+    let action = gio::SimpleAction::new("open-in-browser", Some(glib::VariantTy::STRING));
+    action.connect_activate(move |_, param| {
+        let Some(url) = param.and_then(|v| v.get::<String>()) else { return };
+        let Some(url) = manager::normalize_url(&url) else { return };
+
+        if let Err(msg) = mgr.borrow_mut().create_browser_session(&url) {
+            let Some(overlay) = sid.container.ancestor(Overlay::static_type())
+                .and_downcast::<Overlay>() else { return };
+            super::dialogs::show_browser_error_overlay(&overlay, &mgr, &msg);
+        }
+    });
+    window.add_action(&action);
+
+    // open-in-browser-split — add browser pane to current session
+    let mgr = manager.clone();
+    let sid = sidebar.clone();
+    let action = gio::SimpleAction::new("open-in-browser-split", Some(glib::VariantTy::STRING));
+    action.connect_activate(move |_, param| {
+        let Some(url) = param.and_then(|v| v.get::<String>()) else { return };
+        let Some(url) = manager::normalize_url(&url) else { return };
+
+        if let Err(msg) = SessionManager::split_with_browser(&mgr, &url) {
+            let Some(overlay) = sid.container.ancestor(Overlay::static_type())
+                .and_downcast::<Overlay>() else { return };
+            super::dialogs::show_browser_error_overlay(&overlay, &mgr, &msg);
+        }
+    });
+    window.add_action(&action);
 }
 
 fn is_text_file(path: &std::path::Path) -> bool {
@@ -338,6 +370,20 @@ pub(crate) fn setup_terminal_context_menu(stack: &Stack) {
                     Some(&url.to_variant()),
                 );
                 url_section.append_item(&item);
+
+                let browser_tab = gio::MenuItem::new(Some("Open in browser tab"), None);
+                browser_tab.set_action_and_target_value(
+                    Some("win.open-in-browser"),
+                    Some(&url.to_variant()),
+                );
+                url_section.append_item(&browser_tab);
+
+                let browser_split = gio::MenuItem::new(Some("Open in browser split"), None);
+                browser_split.set_action_and_target_value(
+                    Some("win.open-in-browser-split"),
+                    Some(&url.to_variant()),
+                );
+                url_section.append_item(&browser_split);
             }
 
             menu.append_section(None, &url_section);

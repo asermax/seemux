@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{ApplicationWindow, EventControllerKey, gdk::Key, glib};
+use gtk4::{ApplicationWindow, EventControllerKey, Overlay, gdk::Key, glib};
 
 use crate::notifications::NotificationStore;
 use crate::session::manager::SessionManager;
@@ -43,7 +43,7 @@ pub(crate) fn setup_keyboard_shortcuts(
         let number_keys = matches!(key, Key::_1 | Key::_2 | Key::_3 | Key::_4 | Key::_5 | Key::_6 | Key::_7 | Key::_8 | Key::_9);
 
         #[allow(clippy::nonminimal_bool)]
-        let is_our_shortcut = (ctrl && shift && matches!(key, Key::B | Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::Page_Up | Key::Page_Down))
+        let is_our_shortcut = (ctrl && shift && matches!(key, Key::B | Key::C | Key::V | Key::T | Key::W | Key::N | Key::H | Key::E | Key::G | Key::O | Key::Page_Up | Key::Page_Down))
             || is_period_toggle
             || (ctrl && !shift && matches!(key, Key::Page_Up | Key::Page_Down))
             || (ctrl && key == Key::Tab)
@@ -88,6 +88,25 @@ pub(crate) fn setup_keyboard_shortcuts(
 
         if ctrl && shift && key == Key::B {
             sidebar_for_keys.set_sidebar_collapsed(!sidebar_for_keys.is_sidebar_collapsed());
+            return glib::Propagation::Stop;
+        }
+
+        if ctrl && shift && key == Key::O {
+            if let Some(overlay) = sidebar_for_keys.container.ancestor(Overlay::static_type())
+                .and_downcast::<Overlay>()
+            {
+                let mgr_overlay = mgr.clone();
+                let mgr_cb = mgr.clone();
+                let sid_cb = sidebar_for_keys.clone();
+                super::dialogs::show_url_input_overlay(&overlay, &mgr_overlay, move |url| {
+                    if let Err(msg) = mgr_cb.borrow_mut().create_browser_session(&url)
+                        && let Some(ov) = sid_cb.container.ancestor(Overlay::static_type())
+                            .and_downcast::<Overlay>()
+                    {
+                        super::dialogs::show_browser_error_overlay(&ov, &mgr_cb, &msg);
+                    }
+                });
+            }
             return glib::Propagation::Stop;
         }
 
