@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v1.2.0 (2026-05-04)
+
+### Bug Fixes
+
+- **config**: Use default_browser_zoom in test
+  ([`929e799`](https://github.com/asermax/seemux/commit/929e799eb0f27f0f8df338850690eeb305b23da6))
+
+- **sidebar**: Isolate close button click from tab-switch gesture
+  ([`94f3b32`](https://github.com/asermax/seemux/commit/94f3b32225966d55af1e8c062cca60fe17cf3504))
+
+### Features
+
+- **session**: Improve browser rendering and fix restore race
+  ([`9004ca3`](https://github.com/asermax/seemux/commit/9004ca3f0fc3dd003209244f742e8171a66c3782))
+
+### Refactoring
+
+- **session**: Extract BrowserPaneState constructor
+  ([`1c4127d`](https://github.com/asermax/seemux/commit/1c4127d05cc2598ee808b2539fd3bc83cc313efc))
+
+
 ## v1.1.1 (2026-05-04)
 
 ### Bug Fixes
