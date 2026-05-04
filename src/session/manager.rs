@@ -156,9 +156,13 @@ pub struct SessionManager {
     config: Rc<RefCell<Config>>,
     notification_store: Rc<RefCell<NotificationStore>>,
     on_empty: Option<Box<dyn Fn()>>,
-    on_state_changed: Option<Box<dyn Fn()>>,
+    on_state_changed: Option<Rc<dyn Fn()>>,
     /// Shared CWD tracking — updated by terminal CWD signal, read at save time
     session_cwds: Rc<RefCell<HashMap<String, String>>>,
+    /// Per-pane browser state — URL, title, debug port, poll timer
+    browser_panes: Rc<RefCell<HashMap<String, BrowserPaneState>>>,
+    /// Next available CDP debug port (incremented per browser pane)
+    next_debug_port: Cell<u16>,
     socket_path: PathBuf,
     /// Per-session bell debounce — tracks last bell timestamp (unix seconds)
     bell_timestamps: Rc<RefCell<HashMap<String, i64>>>,
@@ -185,6 +189,8 @@ impl SessionManager {
             on_empty: None,
             on_state_changed: None,
             session_cwds: Rc::new(RefCell::new(HashMap::new())),
+            browser_panes: Rc::new(RefCell::new(HashMap::new())),
+            next_debug_port: Cell::new(19300),
             socket_path,
             bell_timestamps: Rc::new(RefCell::new(HashMap::new())),
         }))
@@ -195,12 +201,125 @@ impl SessionManager {
     }
 
     pub fn set_on_state_changed<F: Fn() + 'static>(&mut self, f: F) {
-        self.on_state_changed = Some(Box::new(f));
+        self.on_state_changed = Some(Rc::new(f));
     }
 
     fn notify_state_changed(&self) {
         if let Some(ref callback) = self.on_state_changed {
             callback();
+        }
+    }
+
+    /// Allocate a unique CDP debug port for a browser pane.
+    fn allocate_debug_port(&self) -> u16 {
+        let port = self.next_debug_port.get();
+        self.next_debug_port.set(port + 1);
+        port
+    }
+
+    /// Stop URL polling and remove browser state for a pane.
+    fn stop_url_poll(&self, pane_id: &str) {
+        if let Some(state) = self.browser_panes.borrow_mut().remove(pane_id) {
+            if let Some(timer) = state.poll_timer {
+                timer.remove();
+            }
+        }
+    }
+
+    /// Start periodic URL polling via CDP /json/list for a browser pane.
+    fn start_url_poll(&self, pane_id: &str, session_id: &str, debug_port: u16) {
+        let pid = pane_id.to_string();
+        let sid = session_id.to_string();
+        let sidebar = self.sidebar.clone();
+        let browser_panes = self.browser_panes.clone();
+        let on_state_changed = self.on_state_changed.clone();
+
+        let source_id = glib::timeout_add_local(
+            std::time::Duration::from_millis(500),
+            move || {
+                let url = format!("http://127.0.0.1:{debug_port}/json/list");
+
+                let response = match minreq::get(&url).send() {
+                    Ok(r) => r,
+                    Err(_) => {
+                        let Ok(mut panes) = browser_panes.try_borrow_mut() else {
+                            return glib::ControlFlow::Continue;
+                        };
+
+                        if let Some(state) = panes.get_mut(&pid) {
+                            state.consecutive_failures += 1;
+                            if state.consecutive_failures >= 10 {
+                                return glib::ControlFlow::Break;
+                            }
+                        }
+
+                        return glib::ControlFlow::Continue;
+                    }
+                };
+
+                let body = response.into_bytes();
+                // Parse JSON array of CDP targets
+                let targets: Vec<serde_json::Value> = match serde_json::from_slice(&body) {
+                    Ok(t) => t,
+                    Err(_) => return glib::ControlFlow::Continue,
+                };
+
+                let page_target = targets.iter().find(|t| {
+                    t.get("type").and_then(|v| v.as_str()) == Some("page")
+                });
+
+                let Some(target) = page_target else {
+                    return glib::ControlFlow::Continue;
+                };
+
+                let new_url = target.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let new_title = target.get("title").and_then(|v| v.as_str())
+                    .filter(|t| !t.is_empty())
+                    .map(|t| t.to_string());
+
+                let url_changed;
+                let title_changed;
+
+                {
+                    let Ok(mut panes) = browser_panes.try_borrow_mut() else {
+                        return glib::ControlFlow::Continue;
+                    };
+
+                    let Some(state) = panes.get_mut(&pid) else {
+                        return glib::ControlFlow::Break;
+                    };
+
+                    state.consecutive_failures = 0;
+
+                    url_changed = state.url != new_url && !new_url.is_empty();
+                    if url_changed {
+                        state.url = new_url.clone();
+                    }
+
+                    title_changed = state.page_title != new_title;
+                    if title_changed {
+                        state.page_title = new_title.clone();
+                    }
+                }
+
+                if url_changed || title_changed {
+                    sidebar.update_subtitle(&sid, &new_url);
+                    if let Some(ref title) = new_title {
+                        sidebar.update_title(&sid, title);
+                    }
+
+                    if let Some(ref callback) = on_state_changed {
+                        callback();
+                    }
+                }
+
+                glib::ControlFlow::Continue
+            },
+        );
+
+        // Store the timer source ID so we can cancel it later
+        if let Some(state) = self.browser_panes.borrow_mut().get_mut(pane_id) {
+            state.poll_timer = Some(source_id);
         }
     }
 
@@ -289,6 +408,54 @@ impl SessionManager {
         let split_view = SplitView::new(terminal, pane_id);
 
         self.register_session(session, split_view, active_hint.as_deref())
+    }
+
+    /// Create a new browser session running Carbonyl with the given URL.
+    pub fn create_browser_session(&mut self, url: &str) -> Result<String, String> {
+        if !carbonyl_available() {
+            return Err("Carbonyl is not installed. Install it with:\nnpm install -g carbonyl".to_string());
+        }
+
+        let session = Session::new_browser(url.to_string());
+        let id = session.id.clone();
+
+        let env_vars = self.build_env_vars(&id);
+        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+
+        let pane_id = uuid::Uuid::new_v4().to_string();
+        let terminal = VteTerminal::new_with_config(&self.config.borrow());
+
+        let debug_port = self.allocate_debug_port();
+        let port_str = debug_port.to_string();
+
+        if self.stack.is_realized() {
+            terminal.spawn_command(
+                &["carbonyl", "--remote-debugging-port", &port_str, url],
+                None,
+                &env_refs,
+            );
+        }
+
+        self.wire_vte_signals(&terminal, &id, &pane_id);
+
+        let active_hint = self.active_id.as_deref().map(|s| s.to_string());
+        let split_view = SplitView::new(terminal, pane_id.clone());
+
+        // Register browser pane state and start URL polling
+        self.browser_panes.borrow_mut().insert(pane_id.clone(), BrowserPaneState {
+            url: url.to_string(),
+            page_title: None,
+            debug_port,
+            poll_timer: None,
+            consecutive_failures: 0,
+        });
+
+        let session_id = self.register_session(session, split_view, active_hint.as_deref());
+
+        // Start URL poll after register (needs session ID + sidebar refs)
+        self.start_url_poll(&pane_id, &session_id, debug_port);
+
+        Ok(session_id)
     }
 
     /// Wire VTE signals to update tab title, subtitle, git branch, and PR.
@@ -383,12 +550,18 @@ impl SessionManager {
         let group_siblings = self.sidebar.group_id_for_session(session_id)
             .map(|gid| self.sidebar.ordered_session_ids_in_group(&gid));
 
-        // Clean up pane CWDs before removing the split view
+        // Clean up pane CWDs and browser state before removing the split view
         if let Some(sv) = self.split_views.get(session_id) {
             let mut cwds = self.session_cwds.borrow_mut();
 
             for pane_id in sv.pane_ids() {
                 cwds.remove(&pane_id);
+            }
+
+            drop(cwds);
+
+            for pane_id in sv.pane_ids() {
+                self.stop_url_poll(&pane_id);
             }
         }
 
@@ -621,6 +794,71 @@ impl SessionManager {
         true
     }
 
+    /// Split the focused pane in the active session with a new browser pane running Carbonyl.
+    /// Static method — needs Rc<RefCell<Self>> to wire child-exited on the new pane (DES-002).
+    pub fn split_with_browser(self_ref: &Rc<RefCell<Self>>, url: &str) -> Result<(), String> {
+        if !carbonyl_available() {
+            return Err("Carbonyl is not installed. Install it with:\nnpm install -g carbonyl".to_string());
+        }
+
+        let (active_id, new_pane_id, new_vt, debug_port) = {
+            let mgr = self_ref.borrow();
+            let Some(active_id) = mgr.active_id.clone() else { return Ok(()) };
+            let Some(sv) = mgr.split_views.get(&active_id) else { return Ok(()) };
+
+            let config = mgr.config.borrow();
+            let (new_pane_id, new_vt) = sv.split(gtk4::Orientation::Horizontal, &config);
+            drop(config);
+
+            let debug_port = mgr.allocate_debug_port();
+            let port_str = debug_port.to_string();
+
+            let env_vars = mgr.build_env_vars(&active_id);
+            let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+
+            new_vt.spawn_command(
+                &["carbonyl", "--remote-debugging-port", &port_str, url],
+                None,
+                &env_refs,
+            );
+
+            // Rebuild widget tree
+            sv.rebuild_in_stack(&mgr.stack, &active_id);
+
+            // Wire title/CWD signals on the new terminal
+            mgr.wire_vte_signals(&new_vt, &active_id, &new_pane_id);
+
+            (active_id, new_pane_id, new_vt.clone(), debug_port)
+        };
+
+        // Focus the new pane
+        let vt = new_vt.clone();
+        glib::idle_add_local_once(move || { vt.grab_focus(); });
+
+        // Wire child-exited, focus tracking, bell, status via static methods
+        Self::wire_pane_child_exited(self_ref, &active_id, &new_pane_id, &new_vt);
+        Self::wire_pane_focus(self_ref, &active_id, &new_pane_id, &new_vt);
+        Self::wire_pane_bell(self_ref, &active_id, &new_vt);
+        Self::wire_pane_status(self_ref, &active_id, &new_vt);
+
+        // Register browser pane state and start URL polling
+        {
+            let mgr = self_ref.borrow_mut();
+            mgr.browser_panes.borrow_mut().insert(new_pane_id.clone(), BrowserPaneState {
+                url: url.to_string(),
+                page_title: None,
+                debug_port,
+                poll_timer: None,
+                consecutive_failures: 0,
+            });
+
+            mgr.start_url_poll(&new_pane_id, &active_id, debug_port);
+            mgr.notify_state_changed();
+        }
+
+        Ok(())
+    }
+
     /// Close the focused pane in the active session. Returns true if the session should be destroyed.
     pub fn close_active_pane(&mut self) -> bool {
         let Some(active_id) = self.active_id.clone() else { return false };
@@ -761,6 +999,7 @@ impl SessionManager {
         };
 
         self.session_cwds.borrow_mut().remove(pane_id);
+        self.stop_url_poll(pane_id);
 
         if should_destroy {
             self.destroy_session(session_id);
