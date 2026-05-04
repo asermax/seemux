@@ -18,6 +18,10 @@ enum SpawnAction<'a> {
     Command(&'a [&'a str]),
 }
 
+const CARBONYL_NOT_FOUND: &str = "Carbonyl is not installed. Install it with:\nnpm install -g carbonyl";
+/// Base port for Carbonyl's CDP debug endpoint. Well above typical service ports.
+const DEBUG_PORT_BASE: u16 = 19300;
+
 /// Per-pane runtime state for browser panes (not serialized directly).
 pub(crate) struct BrowserPaneState {
     pub url: String,
@@ -25,6 +29,7 @@ pub(crate) struct BrowserPaneState {
     pub debug_port: u16,
     pub poll_timer: Option<glib::SourceId>,
     pub consecutive_failures: u32,
+    pub created_at: std::time::Instant,
 }
 
 /// Normalize a URL: trim whitespace, return None if empty, prepend https:// if no scheme.
@@ -161,8 +166,10 @@ pub struct SessionManager {
     session_cwds: Rc<RefCell<HashMap<String, String>>>,
     /// Per-pane browser state — URL, title, debug port, poll timer
     browser_panes: Rc<RefCell<HashMap<String, BrowserPaneState>>>,
-    /// Next available CDP debug port (incremented per browser pane)
+    /// Next available CDP debug port (incremented per browser pane, starts at DEBUG_PORT_BASE)
     next_debug_port: Cell<u16>,
+    /// Callback fired when a browser pane crashes shortly after creation.
+    on_browser_error: Option<Rc<dyn Fn(String)>>,
     socket_path: PathBuf,
     /// Per-session bell debounce — tracks last bell timestamp (unix seconds)
     bell_timestamps: Rc<RefCell<HashMap<String, i64>>>,
@@ -190,7 +197,8 @@ impl SessionManager {
             on_state_changed: None,
             session_cwds: Rc::new(RefCell::new(HashMap::new())),
             browser_panes: Rc::new(RefCell::new(HashMap::new())),
-            next_debug_port: Cell::new(19300),
+            next_debug_port: Cell::new(DEBUG_PORT_BASE),
+            on_browser_error: None,
             socket_path,
             bell_timestamps: Rc::new(RefCell::new(HashMap::new())),
         }))
@@ -202,6 +210,10 @@ impl SessionManager {
 
     pub fn set_on_state_changed<F: Fn() + 'static>(&mut self, f: F) {
         self.on_state_changed = Some(Rc::new(f));
+    }
+
+    pub fn set_on_browser_error<F: Fn(String) + 'static>(&mut self, f: F) {
+        self.on_browser_error = Some(Rc::new(f));
     }
 
     fn notify_state_changed(&self) {
@@ -219,10 +231,10 @@ impl SessionManager {
 
     /// Stop URL polling and remove browser state for a pane.
     fn stop_url_poll(&self, pane_id: &str) {
-        if let Some(state) = self.browser_panes.borrow_mut().remove(pane_id) {
-            if let Some(timer) = state.poll_timer {
-                timer.remove();
-            }
+        if let Some(state) = self.browser_panes.borrow_mut().remove(pane_id)
+            && let Some(timer) = state.poll_timer
+        {
+            timer.remove();
         }
     }
 
@@ -411,7 +423,7 @@ impl SessionManager {
     /// Create a new browser session running Carbonyl with the given URL.
     pub fn create_browser_session(&mut self, url: &str) -> Result<String, String> {
         if !carbonyl_available() {
-            return Err("Carbonyl is not installed. Install it with:\nnpm install -g carbonyl".to_string());
+            return Err(CARBONYL_NOT_FOUND.to_string());
         }
 
         let session = Session::new_browser(url.to_string());
@@ -446,6 +458,7 @@ impl SessionManager {
             debug_port,
             poll_timer: None,
             consecutive_failures: 0,
+            created_at: std::time::Instant::now(),
         });
 
         let session_id = self.register_session(session, split_view, active_hint.as_deref());
@@ -804,7 +817,7 @@ impl SessionManager {
     /// Static method — needs Rc<RefCell<Self>> to wire child-exited on the new pane (DES-002).
     pub fn split_with_browser(self_ref: &Rc<RefCell<Self>>, url: &str) -> Result<(), String> {
         if !carbonyl_available() {
-            return Err("Carbonyl is not installed. Install it with:\nnpm install -g carbonyl".to_string());
+            return Err(CARBONYL_NOT_FOUND.to_string());
         }
 
         let (active_id, new_pane_id, new_vt, debug_port) = {
@@ -856,6 +869,7 @@ impl SessionManager {
                 debug_port,
                 poll_timer: None,
                 consecutive_failures: 0,
+                created_at: std::time::Instant::now(),
             });
 
             mgr.sidebar.update_browser_display(&active_id, url, url);
@@ -1005,11 +1019,29 @@ impl SessionManager {
             sv.close_focused_pane()
         };
 
+        // Detect browser crash: if pane exited within 2s of creation, notify the app layer
+        let browser_crash_msg = self.browser_panes.borrow().get(pane_id)
+            .filter(|state| state.created_at.elapsed().as_secs() < 2)
+            .map(|state| format!(
+                "Carbonyl exited unexpectedly.\nURL: {}\nDebug port: {}",
+                state.url, state.debug_port
+            ));
+
         self.session_cwds.borrow_mut().remove(pane_id);
         self.stop_url_poll(pane_id);
 
         if should_destroy {
             self.destroy_session(session_id);
+        }
+
+        if let Some(msg) = browser_crash_msg {
+            if let Some(ref callback) = self.on_browser_error {
+                callback(msg);
+            }
+            return;
+        }
+
+        if should_destroy {
             return;
         }
 
@@ -1431,6 +1463,7 @@ impl SessionManager {
             debug_port,
             poll_timer: None,
             consecutive_failures: 0,
+            created_at: std::time::Instant::now(),
         });
 
         let display_title = page_title.unwrap_or(url);
