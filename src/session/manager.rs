@@ -250,6 +250,31 @@ impl SessionManager {
         port
     }
 
+    /// Allocate a CDP debug port and spawn carbonyl in `terminal` for `url`.
+    ///
+    /// Returns the allocated port so the caller can register browser pane state
+    /// and start URL polling.
+    fn spawn_carbonyl_for(&self, terminal: &VteTerminal, session_id: &str, url: &str) -> u16 {
+        let debug_port = self.allocate_debug_port();
+        let env_vars = self.build_env_vars(session_id);
+        let env_refs: Vec<(&str, &str)> = env_vars
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+
+        if self.stack.is_realized() {
+            // Use the `=` form: with `--remote-debugging-port <port>`, Chromium
+            // parses the URL as a second target and exits via headless_shell.cc.
+            terminal.spawn_command(
+                &["carbonyl", &format!("--remote-debugging-port={debug_port}"), url],
+                None,
+                &env_refs,
+            );
+        }
+
+        debug_port
+    }
+
     /// Stop URL polling and remove browser state for a pane.
     fn stop_url_poll(&self, pane_id: &str) {
         if let Some(state) = self.browser_panes.borrow_mut().remove(pane_id) {
@@ -460,22 +485,10 @@ impl SessionManager {
         let session = Session::new_browser(url.to_string());
         let id = session.id.clone();
 
-        let env_vars = self.build_env_vars(&id);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-
         let pane_id = uuid::Uuid::new_v4().to_string();
         let terminal = VteTerminal::new_with_config(&self.config.borrow());
 
-        let debug_port = self.allocate_debug_port();
-        let port_str = debug_port.to_string();
-
-        if self.stack.is_realized() {
-            terminal.spawn_command(
-                &["carbonyl", "--remote-debugging-port", &port_str, url],
-                None,
-                &env_refs,
-            );
-        }
+        let debug_port = self.spawn_carbonyl_for(&terminal, &id, url);
 
         self.wire_vte_signals(&terminal, &id, &pane_id);
 
@@ -861,17 +874,7 @@ impl SessionManager {
             let (new_pane_id, new_vt) = sv.split(gtk4::Orientation::Horizontal, &config);
             drop(config);
 
-            let debug_port = mgr.allocate_debug_port();
-            let port_str = debug_port.to_string();
-
-            let env_vars = mgr.build_env_vars(&active_id);
-            let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-
-            new_vt.spawn_command(
-                &["carbonyl", "--remote-debugging-port", &port_str, url],
-                None,
-                &env_refs,
-            );
+            let debug_port = mgr.spawn_carbonyl_for(&new_vt, &active_id, url);
 
             // Rebuild widget tree
             sv.rebuild_in_stack(&mgr.stack, &active_id);
@@ -1472,19 +1475,7 @@ impl SessionManager {
             return;
         };
 
-        let debug_port = self.allocate_debug_port();
-        let port_str = debug_port.to_string();
-
-        let env_vars = self.build_env_vars(session_id);
-        let env_refs: Vec<(&str, &str)> = env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-
-        if self.stack.is_realized() {
-            terminal.spawn_command(
-                &["carbonyl", "--remote-debugging-port", &port_str, url],
-                None,
-                &env_refs,
-            );
-        }
+        let debug_port = self.spawn_carbonyl_for(&terminal, session_id, url);
 
         // Register browser pane state and start URL polling
         self.browser_panes.borrow_mut().insert(pane_id.to_string(), BrowserPaneState {
