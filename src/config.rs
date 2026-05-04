@@ -245,7 +245,7 @@ mod tests {
             tray_enabled: true,
             tray_icon: "seemux".to_string(),
             claude_aliases: vec!["claude".to_string()],
-            browser_zoom: 1.5,
+            browser_zoom: default_browser_zoom(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
