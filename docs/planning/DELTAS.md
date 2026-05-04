@@ -79,8 +79,8 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 
 ### DLT-004: Open web pages in browser tabs
 **Status**: ✗ Defined
-**Depends on**: DLT-002
-**Priority**: 3 (Medium)
+**Depends on**: None
+**Priority**: 2 (High)
 **Complexity**: Medium
 **Description**: Users need to view web content alongside terminal sessions without leaving seemux. This delta adds browser tabs that render web pages inside the terminal, using a terminal-based browser such as Carbonyl. Sessions gain a type distinction (shell vs browser) so the sidebar can display browser-appropriate information (URL and page title instead of working directory, distinct icon). Browser tabs are independent sessions that participate in the layout system, enabling workflows like viewing documentation side-by-side with a coding terminal.
 
