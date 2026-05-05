@@ -286,7 +286,7 @@ impl SessionManager {
                 &["carbonyl",
                   &format!("--remote-debugging-port={debug_port}"),
                   "--bitmap",
-                  &format!("--zoom={zoom}"),
+                  &format!("--zoom={}", (zoom * 100.0).round() as u16),
                   url],
                 None,
                 &env_refs,
