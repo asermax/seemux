@@ -98,12 +98,19 @@ pub(crate) fn setup_keyboard_shortcuts(
                 let mgr_overlay = mgr.clone();
                 let mgr_cb = mgr.clone();
                 let sid_cb = sidebar_for_keys.clone();
+                let notif_cb = notif_for_keys.clone();
                 super::dialogs::show_url_input_overlay(&overlay, &mgr_overlay, move |url| {
-                    if let Err(msg) = mgr_cb.borrow_mut().create_browser_session(&url)
-                        && let Some(ov) = sid_cb.container.ancestor(Overlay::static_type())
-                            .and_downcast::<Overlay>()
-                    {
-                        super::dialogs::show_browser_error_overlay(&ov, &mgr_cb, &msg);
+                    match mgr_cb.borrow_mut().create_browser_session(&url) {
+                        Ok(id) => {
+                            super::wire_tab_lifecycle(&sid_cb, &mgr_cb, &notif_cb, &id);
+                        },
+                        Err(msg) => {
+                            if let Some(ov) = sid_cb.container.ancestor(Overlay::static_type())
+                                .and_downcast::<Overlay>()
+                            {
+                                super::dialogs::show_browser_error_overlay(&ov, &mgr_cb, &msg);
+                            }
+                        },
                     }
                 });
             }

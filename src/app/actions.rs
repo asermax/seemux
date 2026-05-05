@@ -290,13 +290,15 @@ pub(crate) fn register_terminal_actions(
     // open-in-browser — create browser session with given URL
     let mgr = manager.clone();
     let sid = sidebar.clone();
+    let notif = notification_store.clone();
     let action = gio::SimpleAction::new("open-in-browser", Some(glib::VariantTy::STRING));
     action.connect_activate(move |_, param| {
         let Some(url) = param.and_then(|v| v.get::<String>()) else { return };
         let Some(url) = manager::normalize_url(&url) else { return };
 
-        if let Err(msg) = mgr.borrow_mut().create_browser_session(&url) {
-            show_browser_error_from_sidebar(&sid, &mgr, &msg);
+        match mgr.borrow_mut().create_browser_session(&url) {
+            Ok(id) => super::wire_tab_lifecycle(&sid, &mgr, &notif, &id),
+            Err(msg) => show_browser_error_from_sidebar(&sid, &mgr, &msg),
         }
     });
     window.add_action(&action);
