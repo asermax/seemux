@@ -296,7 +296,9 @@ pub(crate) fn register_terminal_actions(
         let Some(url) = param.and_then(|v| v.get::<String>()) else { return };
         let Some(url) = manager::normalize_url(&url) else { return };
 
-        match mgr.borrow_mut().create_browser_session(&url) {
+        let result = mgr.borrow_mut().create_browser_session(&url);
+
+        match result {
             Ok(id) => super::wire_tab_lifecycle(&sid, &mgr, &notif, &id),
             Err(msg) => show_browser_error_from_sidebar(&sid, &mgr, &msg),
         }

@@ -100,7 +100,9 @@ pub(crate) fn setup_keyboard_shortcuts(
                 let sid_cb = sidebar_for_keys.clone();
                 let notif_cb = notif_for_keys.clone();
                 super::dialogs::show_url_input_overlay(&overlay, &mgr_overlay, move |url| {
-                    match mgr_cb.borrow_mut().create_browser_session(&url) {
+                    let result = mgr_cb.borrow_mut().create_browser_session(&url);
+
+                    match result {
                         Ok(id) => {
                             super::wire_tab_lifecycle(&sid_cb, &mgr_cb, &notif_cb, &id);
                         },
