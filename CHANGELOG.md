@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.2.2 (2026-05-05)
+
+### Bug Fixes
+
+- **browser**: Drop manager borrow before wiring tab lifecycle
+  ([`fbe803c`](https://github.com/asermax/seemux/commit/fbe803c4bdde49b451113cef2b79530f2675b10a))
+
+
 ## v1.2.1 (2026-05-05)
 
 ### Bug Fixes
