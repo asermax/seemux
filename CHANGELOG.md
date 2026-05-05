@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.2.1 (2026-05-05)
+
+### Bug Fixes
+
+- **browser**: Convert zoom multiplier to percentage for carbonyl
+  ([`2f76369`](https://github.com/asermax/seemux/commit/2f76369a4671c92eff1d82884951bfbed8d621d0))
+
+- **session**: Wire lifecycle for browser tab creation
+  ([`ea27013`](https://github.com/asermax/seemux/commit/ea270133e9c61528e689d4877970f9b9c0dbddef))
+
+
 ## v1.2.0 (2026-05-04)
 
 ### Bug Fixes
