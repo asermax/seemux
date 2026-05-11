@@ -8,6 +8,10 @@ default-run = "seemux"
 name = "seemux-tmux-shim"
 path = "src/bin/seemux_tmux_shim.rs"
 
+[[bin]]
+name = "seemux-tmux-debug-shim"
+path = "src/bin/seemux_tmux_debug_shim.rs"
+
 [build-dependencies]
 glib-build-tools = "0.21"
 
