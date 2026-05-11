@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.1 (2026-05-11)
+
+### Bug Fixes
+
+- **tmux-shim**: Prefer --agent-name over stashed pane title
+  ([`f5537bf`](https://github.com/asermax/seemux/commit/f5537bf8905b56a3997c4203fb25e72ff945cf3d))
+
+
 ## v1.3.0 (2026-05-11)
 
 ### Documentation
