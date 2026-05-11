@@ -100,3 +100,4 @@ Use `/katachi:` commands to work with the framework.
 - Logs go to stderr (`eprintln!`)
 - GTK debug: `G_MESSAGES_DEBUG=all`
 - Stale PID detection runs every 5 seconds
+- Tmux shim protocol capture: see `docs/feature-designs/agent-teams/tmux-shim-debugging.md` when Claude Code's tmux protocol shifts and teammate spawn breaks
