@@ -272,12 +272,15 @@ fn create_teammate_session(
         .unwrap_or("default")
         .to_string();
 
-    // Title preference: stashed `select-pane -T` title → --agent-name → "teammate"
+    // Title preference: --agent-name → stashed `select-pane -T` title → "teammate".
+    // Always pop the stashed entry so it doesn't bleed into a later pane reuse.
     let stashed_title = with_locked_map(pending_titles_path, |map| map.remove(target_pane));
 
-    let title = stashed_title
-        .or_else(|| if agent_name.is_empty() { None } else { Some(agent_name) })
-        .unwrap_or_else(|| "teammate".to_string());
+    let title = if !agent_name.is_empty() {
+        agent_name
+    } else {
+        stashed_title.unwrap_or_else(|| "teammate".to_string())
+    };
 
     let argv = vec!["sh".to_string(), "-c".to_string(), full_command.to_string()];
 

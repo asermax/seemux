@@ -33,11 +33,12 @@ Claude Code Agent Teams uses tmux as its multiplexer backend. The tmux shim is a
 | R8 | On display-message with `#{pane_id}`, return `%0` and ensure the lead pane entry exists |
 | R9 | On display-message with `#{session_name}:#{window_index}`, return `seemux:0` |
 | R10 | On list-panes, return all pane IDs from the map sorted numerically |
-| R11 | No-op for layout/selection commands: select-pane, set-option, select-layout, resize-pane, has-session |
+| R11 | No-op for layout/cosmetic commands: set-option, select-layout, resize-pane, has-session |
 | R12 | Log unhandled subcommands to stderr and return success |
 | R13 | Provide seemux-env subcommand for toggling `$TMUX` environment variable |
 | R14 | Deploy shim binary as `tmux` in runtime bin directory, preferring symlink with copy fallback |
 | R15 | Feature gated behind `agent_teams_shim` config flag (default: false); when enabled, runtime bin dir is prepended to PATH |
+| R16 | On select-pane with `-T <title>`, stash `(pane_id → title)` in `pending-titles.json` (file-locked); other select-pane forms are no-ops |
 
 ## Behaviors
 
@@ -63,7 +64,10 @@ Claude Code Agent Teams uses tmux as its multiplexer backend. The tmux shim is a
 
 **Acceptance Criteria**:
 - Given pane `%1` is `__pending__`, when `send-keys` has a Claude launch command with `--team-name my-team --agent-name writer`, then a group "Team: my-team" is created, a session titled "writer" is created with the command, and the pane map is updated
-- Given no `--agent-name` flag, then session title defaults to "teammate"
+- Given a `--agent-name` flag is present, then session title is taken from `--agent-name` (preferred over any stashed `select-pane -T` title)
+- Given no `--agent-name` flag but a stashed title from an earlier `select-pane -T` on the same pane, then the stashed title is used
+- Given neither `--agent-name` nor a stashed title, then session title defaults to "teammate"
+- Given a stashed title exists for the pane, then it is popped from `pending-titles.json` whether or not it was used, so it cannot bleed into a later pane reuse
 
 ### Raw Input Forwarding
 
