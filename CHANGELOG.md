@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v1.3.0 (2026-05-11)
+
+### Documentation
+
+- **agent-teams**: Add tmux-shim debugging procedure
+  ([`b2e7a6d`](https://github.com/asermax/seemux/commit/b2e7a6d20615dd4bcf7d2ca23526e5fa3938dfc4))
+
+- **deltas**: Add DLT-012 for pi.dev integration parity
+  ([`aa2341d`](https://github.com/asermax/seemux/commit/aa2341da03f953a64da9621f83f37017e7526a5d))
+
+### Features
+
+- **tmux-shim**: Handle new Claude Code agent-teams tmux protocol
+  ([`e9250cd`](https://github.com/asermax/seemux/commit/e9250cd6b6c58f5c80ee5969aab03fa71cde2c22))
+
+### Refactoring
+
+- **tmux-shim**: Extract debug capture into separate binary
+  ([`5e0ce93`](https://github.com/asermax/seemux/commit/5e0ce93b458917fb4c662b7e8ef232afd3f77c6d))
+
+
 ## v1.2.2 (2026-05-05)
 
 ### Bug Fixes
