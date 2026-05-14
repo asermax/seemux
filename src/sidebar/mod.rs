@@ -350,14 +350,15 @@ impl Sidebar {
                 list.insert(row.widget(), 0);
             }
 
-            // Expand target group if collapsed
+            *current_group = target_group.clone();
+            drop(rows_ref);
+
+            // Expand target group if collapsed — must run after dropping the rows
+            // borrow because on_toggle re-borrows rows.
             if target_group != DEFAULT_GROUP
                 && let Some(gw) = group_widgets.borrow().get(target_group.as_str()) {
                     gw.expand();
                 }
-
-            *current_group = target_group.clone();
-            drop(rows_ref);
 
             if let Some(ref callback) = *on_moved.borrow() {
                 callback(session_id, target_group.clone(), 0);
@@ -424,14 +425,15 @@ impl Sidebar {
                 list.append(row.widget());
             }
 
-            // Expand target group if collapsed
+            *current_group = target_group.clone();
+            drop(rows_ref);
+
+            // Expand target group if collapsed — must run after dropping the rows
+            // borrow because on_toggle re-borrows rows.
             if target_group != DEFAULT_GROUP
                 && let Some(gw) = group_widgets.borrow().get(target_group.as_str()) {
                     gw.expand();
                 }
-
-            *current_group = target_group.clone();
-            drop(rows_ref);
 
             if let Some(ref callback) = *on_moved.borrow() {
                 callback(session_id, target_group.clone(), -1);
@@ -606,14 +608,15 @@ impl Sidebar {
             // Insert at computed position
             target_list.insert(dragged_row.widget(), insert_index);
 
-            // Expand target group if collapsed
+            *current_group = target_group.clone();
+            drop(rows_ref);
+
+            // Expand target group if collapsed — must run after dropping the rows
+            // borrow because on_toggle re-borrows rows.
             if target_group != DEFAULT_GROUP
                 && let Some(gw) = group_widgets.borrow().get(target_group.as_str()) {
                     gw.expand();
                 }
-
-            *current_group = target_group.clone();
-            drop(rows_ref);
 
             if let Some(ref callback) = *on_moved.borrow() {
                 callback(dragged_id, target_group, insert_index);
