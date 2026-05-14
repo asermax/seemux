@@ -80,6 +80,14 @@ impl VteTerminal {
         let font = pango::FontDescription::from_string(&config.font_description());
         terminal.set_font(Some(&font));
 
+        // DEC Private Mode 2027: opt into VTE's emoji-sequence handling so
+        // clusters like 🇨🇱 render as a single glyph instead of overlapping
+        // regional indicators. Silently ignored by stock VTE; requires a VTE
+        // build that includes the wip/egmont/emoji-sequences patches.
+        if config.enable_emoji_sequences {
+            terminal.feed(b"\x1b[?2027h");
+        }
+
         Self::apply_colors(&terminal, scheme);
         Self::setup_shift_enter(&terminal);
         Self::setup_url_matching(&terminal);

@@ -42,6 +42,8 @@ pub struct Config {
     pub claude_aliases: Vec<String>,
     #[serde(default = "default_browser_zoom")]
     pub browser_zoom: f32,
+    #[serde(default)]
+    pub enable_emoji_sequences: bool,
 }
 
 fn default_tray_enabled() -> bool { true }
@@ -66,6 +68,7 @@ impl Default for Config {
             tray_icon: "seemux".to_string(),
             claude_aliases: default_claude_aliases(),
             browser_zoom: default_browser_zoom(),
+            enable_emoji_sequences: false,
         }
     }
 }
@@ -246,6 +249,7 @@ mod tests {
             tray_icon: "seemux".to_string(),
             claude_aliases: vec!["claude".to_string()],
             browser_zoom: default_browser_zoom(),
+            enable_emoji_sequences: false,
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
