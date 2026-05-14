@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.2 (2026-05-14)
+
+### Bug Fixes
+
+- **sidebar**: Release rows borrow before expanding drop target
+  ([`926381f`](https://github.com/asermax/seemux/commit/926381f373d479d37197defaf2ae839171b575f8))
+
+
 ## v1.3.1 (2026-05-11)
 
 ### Bug Fixes
