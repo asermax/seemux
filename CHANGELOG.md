@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0 (2026-05-14)
+
+### Features
+
+- **terminal**: Opt into VTE emoji-sequence rendering (mode 2027)
+  ([`c5b695c`](https://github.com/asermax/seemux/commit/c5b695c36b525db1c5f309a3f7fb203d373dcbfd))
+
+
 ## v1.3.2 (2026-05-14)
 
 ### Bug Fixes
