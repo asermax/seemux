@@ -105,3 +105,10 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Complexity**: Medium
 **Description**: Seemux currently surfaces real-time status pills, notification badges, and resume-on-restart only for Claude Code sessions, leaving pi.dev sessions running inside seemux tabs as plain terminals with no integration. This delta ships a pi.dev extension (analogous to the existing Claude Code plugin) that hooks into pi's native lifecycle and forwards the same eight events (session start, prompt submit, pre/post tool use, notification, stop, stop failure, session end) to seemux's Unix socket, plus any hook-handler adjustments needed to accept pi's payload shape. The result is that a pi session in a seemux tab behaves the same way a Claude session does — same status transitions, same notification suppression rules, same stale-PID cleanup, same resume on restart.
 
+### DLT-013: Propagate teammate exit signal back to Claude Code
+**Status**: ✗ Defined
+**Depends on**: None
+**Priority**: 2 (High)
+**Complexity**: Medium
+**Description**: Claude Code needs to detect when a teammate agent is killed so it can update its internal state about which teammates are still active. Currently, when a user closes a teammate tab in seemux, Claude Code never receives notification and continues waiting for output from a session that no longer exists. This delta ensures that closing a teammate tab propagates the exit signal back to the spawning Claude Code instance, allowing it to recognize the teammate is dead and clean up its internal tracking. Critical for agent teams workflows where Claude Code must maintain accurate state of running teammates.
+
