@@ -185,10 +185,6 @@ pub(crate) fn setup_keyboard_shortcuts(
         {
             mgr.borrow_mut().switch_adjacent(key == Key::Page_Down);
 
-            if let Some(active) = mgr.borrow().active_id() {
-                notif_for_keys.borrow_mut().mark_read(active);
-            }
-
             return glib::Propagation::Stop;
         }
 
@@ -205,29 +201,17 @@ pub(crate) fn setup_keyboard_shortcuts(
                 mgr.borrow_mut().switch_adjacent(forward);
             }
 
-            if let Some(active) = mgr.borrow().active_id() {
-                notif_for_keys.borrow_mut().mark_read(active);
-            }
-
             return glib::Propagation::Stop;
         }
 
         if ctrl && alt && !shift && matches!(key, Key::Page_Down | Key::Page_Up) {
             mgr.borrow_mut().switch_adjacent_group(key == Key::Page_Down);
 
-            if let Some(active) = mgr.borrow().active_id() {
-                notif_for_keys.borrow_mut().mark_read(active);
-            }
-
             return glib::Propagation::Stop;
         }
 
         if ctrl && shift && !alt && matches!(key, Key::Page_Down | Key::Page_Up) {
             mgr.borrow_mut().switch_adjacent_running(key == Key::Page_Down);
-
-            if let Some(active) = mgr.borrow().active_id() {
-                notif_for_keys.borrow_mut().mark_read(active);
-            }
 
             return glib::Propagation::Stop;
         }
@@ -249,20 +233,12 @@ pub(crate) fn setup_keyboard_shortcuts(
             if let Some(idx) = tab_index {
                 mgr.borrow_mut().switch_to_visible_index(idx);
 
-                if let Some(active) = mgr.borrow().active_id() {
-                    notif_for_keys.borrow_mut().mark_read(active);
-                }
-
                 return glib::Propagation::Stop;
             }
         }
 
         if ctrl && key == Key::Tab {
             mgr.borrow_mut().switch_adjacent(!shift);
-
-            if let Some(active) = mgr.borrow().active_id() {
-                notif_for_keys.borrow_mut().mark_read(active);
-            }
 
             return glib::Propagation::Stop;
         }

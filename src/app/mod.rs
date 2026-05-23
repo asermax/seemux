@@ -466,12 +466,10 @@ fn setup_common(
         mgr_for_dnd.borrow_mut().move_session_to_position(&session_id, &new_group, position);
     });
 
-    // Wire collapsed bar dot clicks to switch tab + mark notifications read
+    // Wire collapsed bar dot clicks to switch tab
     let mgr_for_dot = manager.clone();
-    let notif_for_dot = notification_store.clone();
     sidebar.collapsed_bar().set_on_dot_click(move |session_id| {
         mgr_for_dot.borrow_mut().switch_to(&session_id);
-        notif_for_dot.borrow_mut().mark_read(&session_id);
     });
 
     // Poll signal flags to save state on SIGTERM / SIGHUP
@@ -581,17 +579,15 @@ fn restore_sidebar_collapsed(
 pub(crate) fn wire_tab_lifecycle(
     sidebar: &Rc<Sidebar>,
     manager: &Rc<RefCell<SessionManager>>,
-    notification_store: &Rc<RefCell<NotificationStore>>,
+    _notification_store: &Rc<RefCell<NotificationStore>>,
     session_id: &str,
 ) {
     // Click to select + auto-read notifications
     let mgr = manager.clone();
-    let notif = notification_store.clone();
     sidebar.wire_tab_click(session_id, move |id| {
         if let Ok(mut m) = mgr.try_borrow_mut() {
             m.switch_to(&id);
         }
-        notif.borrow_mut().mark_read(&id);
     });
 
     let mgr = manager.clone();
