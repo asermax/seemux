@@ -92,7 +92,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Description**: When a Claude session inside seemux spawns child processes (agents, background tasks), those children inherit the `SEEMUX_SOCKET` and `SEEMUX_SESSION_ID` environment variables. If a child starts its own Claude instance, that instance sends hook events back to seemux, incorrectly updating the parent tab's status and notifications. This delta adds a mechanism to ensure only the direct Claude session in each tab sends hook events, preventing background or nested Claude instances from polluting the tab's state.
 
 ### DLT-011: Clear notification badge on tab activation and session cleanup
-**Status**: ⧗ Design
+**Status**: ✓ Design
 **Depends on**: None
 **Priority**: 3 (Medium)
 **Complexity**: Easy
