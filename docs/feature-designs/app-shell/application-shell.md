@@ -53,7 +53,7 @@ The two modes share ~80% of wiring through `setup_common`. Mode-specific differe
 
 ### Window Construction
 
-Both builders follow: create widgets → wire sidebar collapse → create SessionManager → create Overlay → create StatePersistence → `setup_common` (actions, context menus, badges, DnD, signals) → restore sessions → wire state-change callback (AFTER restore) → setup hook polling → setup keyboard → present.
+Both builders follow: create widgets → wire sidebar collapse → create SessionManager → create Overlay → create StatePersistence → `setup_common` (actions, context menus, badges — clearing centralized in `SessionManager::switch_to`, DnD, signals) → restore sessions → wire state-change callback (AFTER restore) → setup hook polling → setup keyboard → present.
 
 Quake mode additionally: layer-shell setup, toplevel monitor polling, global shortcut registration, focus-loss handling with generation counters.
 

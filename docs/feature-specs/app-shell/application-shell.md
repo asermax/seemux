@@ -38,7 +38,7 @@ The application shell is the outermost layer of seemux. It owns the GTK applicat
 | R12 | Persist state on window close, SIGTERM, SIGHUP via atomic flag + GTK poll |
 | R13 | Sidebar collapse/expand with position memory and drag handle locking |
 | R14 | GTK_IM_MODULE workaround for dead keys on Wayland with GTK 4.20+ |
-| R15 | Notification integration: badge/preview updates, tab peek, tray count, collapsed-bar dot clicks |
+| R15 | Notification integration: badge/preview updates, tab peek, tray count, collapsed-bar dot clicks; badge clearing is automatic on tab activation |
 | R16 | DnD tab movement callbacks from sidebar to session manager |
 | R17 | Quake dialog mode via Wayland toplevel monitoring |
 | R18 | Generation-counted delayed hide (300ms) and spurious-focus-loss recovery (150ms) |

@@ -28,7 +28,7 @@ End-to-end event pipeline between Claude Code and Seemux. A Claude Code plugin r
 | R2 | Hook handler maps event types (session-start, prompt-submit, pre-tool-use, notification, stop, stop-failure, session-end) to status transitions and optional notifications |
 | R3 | Notifications are only generated for background (non-active) sessions; in dropdown mode, notifications for the active session are suppressed only when the dropdown is visible |
 | R4 | Stale notifications after stop/stop-failure for the same turn are suppressed until a new turn begins |
-| R5 | NotificationStore tracks per-session unread counts and latest notification body, emitting a change callback on mutation |
+| R5 | NotificationStore tracks per-session unread counts and latest notification body, emitting a change callback on mutation; notification badges are automatically cleared whenever a session becomes active |
 | R6 | Stale PID detection runs every 5 seconds, resetting status to Idle when a tracked process has exited |
 | R7 | Hook script is a no-op when `$SEEMUX_SOCKET` is unset |
 | R8 | Plugin registers hooks for all eight Claude Code lifecycle events, each async with 10-second timeout |
@@ -99,7 +99,7 @@ End-to-end event pipeline between Claude Code and Seemux. A Claude Code plugin r
 - Given `create-group` with a `name`, when a matching group exists, then the existing group ID is returned; otherwise a new group is created
 - Given `create-session` with optional title/cwd/group_id/argv, then a new session is created and its ID is returned
 - Given `destroy-session` with a `session_id`, then the session is destroyed
-- Given `focus-session` with a `session_id`, then the session is activated
+- Given `focus-session` with a `session_id`, then the session is activated (which automatically clears its notification badge)
 - Given `list-sessions` with optional `group_id`, then session IDs are returned in sidebar order
 - Given `send-input` with `session_id` and `text`, then the text is fed to the VTE terminal
 - Given an unknown command, then an error response is returned

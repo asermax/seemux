@@ -39,7 +39,7 @@ A four-stage pipeline spanning two process boundaries:
 | HookHandler | `notifications/hook_handler.rs` | Stateless event → status/notification mapping |
 | Hook polling | `app/hooks/mod.rs` | 100ms timer, suppression logic, stale PID detection |
 | Command dispatcher | `app/hooks/commands.rs` | Session/group CRUD via socket commands |
-| NotificationStore | `notifications/mod.rs` | Per-session unread counts, change callback |
+| NotificationStore | `notifications/mod.rs` | Per-session unread counts, change callback; `mark_read` is triggered automatically by `SessionManager::switch_to` on every tab activation |
 
 ## Modeling
 

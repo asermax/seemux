@@ -124,7 +124,7 @@ For non-Claude sessions, the `Running` status is driven entirely by VTE title he
 ### 3. Session Destruction
 
 1. **Entry**: `destroy_session` receives session ID.
-2. **Process**: Captures group siblings (for focus redirection) before removal. Cleans up pane CWDs, bell timestamps, GTK stack child, sidebar tab, split view, and session from the vec.
+2. **Process**: Captures group siblings (for focus redirection) before removal. Cleans up pane CWDs, bell timestamps, GTK stack child. Clears notification state from the store (via `clear_session`) before removing the sidebar tab, ensuring the badge transitions to zero while the row still exists. Then removes the split view and session from the vec.
 3. **Focus redirection**: If the destroyed session was active, finds the best next focus: previous sibling in group, next sibling, first visible tab, or first tab in any group.
 4. **Output**: Fires `on_empty` if no sessions remain; fires `on_state_changed` otherwise.
 
@@ -135,7 +135,7 @@ For non-Claude sessions, the `Running` status is driven entirely by VTE title he
 
 ### 5. Navigation
 
-- **Tab switching**: Circular index arithmetic over visible session IDs from the sidebar.
+- **Tab switching**: Circular index arithmetic over visible session IDs from the sidebar. The `switch_to` method centralizes notification badge clearing — every tab activation (click, keyboard, hook command, restoration, new tab creation) automatically calls `mark_read` on the target session, eliminating the need for callers to handle badge clearing individually.
 - **Group switching**: Circular over visible group IDs, activates first session of target group.
 - **Pane navigation**: Delegates to `SplitView::navigate` with a `Direction` enum.
 - **Notification/status jumping**: `find_adjacent_matching` iterates circularly with a predicate (unread count > 0, non-idle `SessionStatus`, or any pane with a running command detected via VTE title heuristics).

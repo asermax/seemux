@@ -72,6 +72,7 @@ The session domain is the central orchestration layer of Seemux. A "session" tie
 - Given no previous sibling but a next sibling, when destroyed, then focus moves to the next sibling
 - Given the group is empty after destruction, then focus moves to the first visible tab or first tab in any group
 - Given the last session is destroyed, then the on_empty callback fires
+- Given a session with unread notifications, when it is destroyed, then notification state is cleared from the store before the sidebar tab is removed
 
 ### Session Switching
 
@@ -80,6 +81,7 @@ The session domain is the central orchestration layer of Seemux. A "session" tie
 - Given multiple groups, when switch_adjacent_group(forward), then first session of next group is activated
 - Given a visible index, when switch_to_visible_index is called, then that session is activated
 - Given a session in a collapsed group, when switched to, then deferred shells are spawned first
+- Given a session with unread notifications, when it is activated via any path, then its notification badge is automatically cleared
 
 ### Split Pane Management
 
