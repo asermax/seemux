@@ -650,11 +650,11 @@ impl SessionManager {
             self.stack.remove(&child);
         }
 
+        self.notification_store.borrow_mut().clear_session(session_id);
+
         self.sidebar.remove_tab(session_id);
         self.split_views.remove(session_id);
         self.sessions.retain(|s| s.id != session_id);
-
-        self.notification_store.borrow_mut().clear_session(session_id);
 
         self.notify_state_changed();
 
@@ -791,6 +791,7 @@ impl SessionManager {
         self.active_id = Some(session_id.to_string());
         self.stack.set_visible_child_name(session_id);
         self.sidebar.set_active(session_id);
+        self.notification_store.borrow_mut().mark_read(session_id);
         self.notify_state_changed();
 
         if let Some(sv) = self.split_views.get(session_id)
