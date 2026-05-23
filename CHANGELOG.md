@@ -2,6 +2,66 @@
 
 <!-- version list -->
 
+## v1.5.0 (2026-05-23)
+
+### Documentation
+
+- **deltas**: Add DLT-011 spec for centralized notification badge clearing
+  ([`0725007`](https://github.com/asermax/seemux/commit/0725007417ea6dfaab9a06b31ddaaa73d36605fa))
+
+- **deltas**: Add DLT-013 teammate exit signal propagation
+  ([`08810c7`](https://github.com/asermax/seemux/commit/08810c7d8ba4cd1f5bfdf3dfc3348ebf40fbe02d))
+
+- **deltas**: Advance DLT-011 to complete implementation
+  ([`d4e0beb`](https://github.com/asermax/seemux/commit/d4e0beb5564718eb639473a61a714d1150d5c7d0))
+
+- **deltas**: Advance DLT-011 to design phase
+  ([`dc30003`](https://github.com/asermax/seemux/commit/dc30003921fe543bcfb0ddda683711aac1f45218))
+
+- **deltas**: Advance DLT-011 to implementation phase
+  ([`bb62e29`](https://github.com/asermax/seemux/commit/bb62e29c251f147ac405bd895e767ad58c1e0e48))
+
+- **deltas**: Advance DLT-011 to plan phase
+  ([`c3a5eb6`](https://github.com/asermax/seemux/commit/c3a5eb6a42becc90e53ab21ce2a0fce819af73c5))
+
+- **deltas**: Advance DLT-011 to plan phase
+  ([`1d908a7`](https://github.com/asermax/seemux/commit/1d908a79b7d17e8cd01f0c157aa42ae15a40b52e))
+
+- **deltas**: Clean up DLT-011 delta artifacts after completion
+  ([`497c839`](https://github.com/asermax/seemux/commit/497c839ebd73574bb901788129bfeff7e2a5fa80))
+
+- **deltas**: Complete DLT-011 design for centralized badge clearing
+  ([`5c90d8c`](https://github.com/asermax/seemux/commit/5c90d8cac9cc78e7fea51e70aea83b91b8871822))
+
+- **deltas**: Complete DLT-011 design for centralized badge clearing
+  ([`7558147`](https://github.com/asermax/seemux/commit/75581479211fb284e74dce6ce244084684dfaf5e))
+
+- **deltas**: Complete DLT-011 spec phase
+  ([`fbe75f6`](https://github.com/asermax/seemux/commit/fbe75f699c30171bd40f28d2c4c181790d8e9c38))
+
+- **deltas**: Expand DLT-011 scope to include session cleanup notification clearing
+  ([`10fe48e`](https://github.com/asermax/seemux/commit/10fe48e36aea21f4b7f12e5984749589c15a2eda))
+
+- **deltas**: Scaffold DLT-011 design with shape
+  ([`e5bb51c`](https://github.com/asermax/seemux/commit/e5bb51cab2c85ce835272da475a5f0659e98142e))
+
+- **deltas**: Start DLT-011 spec phase
+  ([`3d025b0`](https://github.com/asermax/seemux/commit/3d025b06574fc8d43911df6e06d000f3ebd00b78))
+
+- **session**: Reconcile DLT-011 notification clearing into feature documentation
+  ([`c4ecd2d`](https://github.com/asermax/seemux/commit/c4ecd2d7d3c6bd3ef1568482bbf75f25f95d047a))
+
+### Features
+
+- **session**: Clear notification badge on tab activation and session cleanup
+  ([`a75116a`](https://github.com/asermax/seemux/commit/a75116a433e158e32b32ab4f6220e6f5c8ad13c5))
+
+### Refactoring
+
+- **session**: Remove redundant mark_read callers after centralization
+  ([`23d7517`](https://github.com/asermax/seemux/commit/23d75179e953a30628f0b0b67a131226f663def7))
+
+
 ## v1.4.0 (2026-05-14)
 
 ### Features
