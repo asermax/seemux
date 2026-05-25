@@ -313,6 +313,10 @@ impl SplitView {
         self.panes.borrow().contains_key(id)
     }
 
+    pub fn focused_pane_id(&self) -> String {
+        self.focused_pane_id.borrow().clone()
+    }
+
     /// Return any one pane ID, or None if the view is empty.
     pub fn any_pane_id(&self) -> Option<String> {
         self.panes.borrow().keys().next().cloned()

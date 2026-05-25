@@ -41,45 +41,52 @@ pub(crate) fn setup_hook_polling(
         while let Ok(message) = rx.try_recv() {
             match message {
                 SocketMessage::Hook(event) => {
-                    if event.event == "toggle-dropdown" {
+                    if event.event == "app.dropdown.toggle" {
                         if let Some(dd) = dropdown.as_ref() {
                             dd.toggle();
                         }
                         continue;
                     }
 
-                    if event.event == "activate-window" {
+                    if event.event == "app.window.activate" {
                         window.present();
                         continue;
                     }
 
-                    if event.event == "quit" {
+                    if event.event == "app.quit" {
                         if let Some(app) = window.application() {
                             app.quit();
                         }
                         continue;
                     }
 
+                    if event.event == "agent.cwd.changed" {
+                        if let Some(cwd) = event.payload.get("cwd").and_then(|v| v.as_str()) {
+                            mgr_for_hooks.borrow_mut().update_session_cwd(&event.session_id, cwd);
+                        }
+                        continue;
+                    }
+
                     // Skip notification events that arrive after a stop for the same turn.
-                    // Claude Code fires both Stop and Notification hooks for completions;
+                    // Agent hooks may fire both response.completed and attention.requested for completions;
                     // with async delivery the notification can arrive arbitrarily late.
-                    if event.event == "notification"
+                    if event.event == "agent.attention.requested"
                         && stopped_sessions.contains(&event.session_id)
                     {
                         continue;
                     }
 
-                    if event.event == "stop" || event.event == "stop-failure" {
+                    if event.event == "agent.response.completed" || event.event == "agent.response.failed" {
                         stopped_sessions.insert(event.session_id.clone());
                     } else if matches!(
                         event.event.as_str(),
-                        "session-end" | "prompt-submit" | "pre-tool-use" | "session-start"
+                        "agent.session.ended" | "agent.prompt.submitted" | "agent.tool.pre_use" | "agent.session.started"
                     ) {
                         stopped_sessions.remove(&event.session_id);
                     }
 
                     // Detect branch/PR changes: re-check after any git/gh Bash tool call
-                    let should_redetect = event.event == "post-tool-use"
+                    let should_redetect = (event.event == "agent.tool.post_use" || event.event == "agent.tool.failed")
                         && event.payload.get("tool_name").and_then(|v| v.as_str()) == Some("Bash")
                         && event.payload.get("tool_input")
                             .and_then(|ti| ti.get("command"))
@@ -98,18 +105,22 @@ pub(crate) fn setup_hook_polling(
                         );
                     }
 
-                    if let Some(pid) = result.claude_pid {
+                    if let Some(pid) = result.agent_pid {
                         let pid_val = if pid == 0 { None } else { Some(pid) };
-                        mgr_for_hooks.borrow_mut().set_claude_pid(&result.session_id, pid_val);
+                        mgr_for_hooks.borrow_mut().set_agent_pid(&result.session_id, pid_val, result.agent_provider.clone());
 
-                        // session-end clears the Claude binary name
+                        // session-end clears the agent binary name
                         if pid == 0 {
-                            mgr_for_hooks.borrow_mut().set_claude_binary(&result.session_id, None);
+                            mgr_for_hooks.borrow_mut().set_agent_binary(&result.session_id, None);
                         }
                     }
 
-                    if let Some(claude_sid) = result.claude_session_id {
-                        mgr_for_hooks.borrow_mut().set_claude_session_id(&result.session_id, claude_sid);
+                    if let Some(binary) = result.agent_binary {
+                        mgr_for_hooks.borrow_mut().set_agent_binary(&result.session_id, Some(binary));
+                    }
+
+                    if let Some(agent_sid) = result.agent_session_id {
+                        mgr_for_hooks.borrow_mut().set_agent_session_id(&result.session_id, agent_sid);
                     }
 
                     if result.clear_notifications {
@@ -159,16 +170,16 @@ pub(crate) fn setup_stale_pid_detection(manager: &Rc<RefCell<SessionManager>>) {
     let mgr_for_pid = manager.clone();
 
     glib::timeout_add_seconds_local(5, move || {
-        let sessions = mgr_for_pid.borrow().sessions_with_claude_pid();
+        let sessions = mgr_for_pid.borrow().sessions_with_agent_pid();
 
-        for (session_id, pid) in sessions {
+        for (session_id, pid, _provider) in sessions {
             let alive = unsafe { libc::kill(pid as i32, 0) } == 0;
 
             if !alive {
                 let mut mgr = mgr_for_pid.borrow_mut();
-                mgr.set_claude_pid(&session_id, None);
-                mgr.set_claude_session_id(&session_id, None);
-                mgr.set_claude_binary(&session_id, None);
+                mgr.set_agent_pid(&session_id, None, None);
+                mgr.set_agent_session_id(&session_id, None);
+                mgr.set_agent_binary(&session_id, None);
                 mgr.update_session_status(&session_id, SessionStatus::Idle);
             }
         }

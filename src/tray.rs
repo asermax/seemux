@@ -26,7 +26,7 @@ struct SeemuxTray {
 impl SeemuxTray {
     fn send_event(&self, event: &str) {
         let Ok(mut stream) = UnixStream::connect(&self.socket_path) else { return };
-        let msg = format!("{{\"event\":\"{event}\",\"session_id\":\"\",\"payload\":{{}}}}\n");
+        let msg = format!("{{\"jsonrpc\":\"2.0\",\"method\":\"{event}\",\"params\":{{}}}}\n");
         let _ = stream.write_all(msg.as_bytes());
     }
 }
@@ -81,9 +81,9 @@ impl Tray for SeemuxTray {
 
     fn activate(&mut self, _x: i32, _y: i32) {
         if self.quake {
-            self.send_event("toggle-dropdown");
+            self.send_event("app.dropdown.toggle");
         } else {
-            self.send_event("activate-window");
+            self.send_event("app.window.activate");
         }
     }
 
@@ -92,7 +92,7 @@ impl Tray for SeemuxTray {
             MenuItem::Standard(StandardItem {
                 label: "Quit".into(),
                 activate: Box::new(|tray: &mut Self| {
-                    tray.send_event("quit");
+                    tray.send_event("app.quit");
                 }),
                 ..Default::default()
             }),

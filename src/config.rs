@@ -156,9 +156,11 @@ pub struct SavedSession {
     #[serde(default)]
     pub session_type: Option<SessionType>,
     #[serde(default)]
-    pub claude_session_id: Option<String>,
-    #[serde(default)]
-    pub claude_binary: Option<String>,
+    pub agent_provider: Option<String>,
+    #[serde(default, alias = "claude_session_id")]
+    pub agent_session_id: Option<String>,
+    #[serde(default, alias = "claude_binary")]
+    pub agent_binary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,8 +186,20 @@ impl SessionState {
 
         if path.exists() {
             match fs::read_to_string(&path) {
-                Ok(contents) => match serde_json::from_str(&contents) {
-                    Ok(state) => return state,
+                Ok(contents) => match serde_json::from_str::<SessionState>(&contents) {
+                    Ok(mut state) => {
+                        let mut migrated = false;
+                        for s in &mut state.sessions {
+                            if s.agent_session_id.is_some() && s.agent_provider.is_none() {
+                                s.agent_provider = Some("claude".to_string());
+                                migrated = true;
+                            }
+                        }
+                        if migrated {
+                            state.save();
+                        }
+                        return state;
+                    },
                     Err(e) => eprintln!("Failed to parse session state: {e}"),
                 },
                 Err(e) => eprintln!("Failed to read session state: {e}"),
@@ -282,8 +296,9 @@ mod tests {
                     split_tree: SavedSplitNode::Leaf { cwd: Some("/home/user".to_string()), url: None, page_title: None },
                     group_id: "default".to_string(),
                     session_type: None,
-                    claude_session_id: Some("abc-123".to_string()),
-                    claude_binary: None,
+                    agent_provider: Some("claude".to_string()),
+                    agent_session_id: Some("abc-123".to_string()),
+                    agent_binary: None,
                 },
                 SavedSession {
                     title: "Tab 2".to_string(),
@@ -294,8 +309,9 @@ mod tests {
                     },
                     group_id: "group1".to_string(),
                     session_type: Some(SessionType::Browser),
-                    claude_session_id: None,
-                    claude_binary: Some("claude-dev".to_string()),
+                    agent_provider: Some("pi".to_string()),
+                    agent_session_id: None,
+                    agent_binary: Some("pi".to_string()),
                 },
             ],
             groups: vec![
@@ -311,10 +327,12 @@ mod tests {
         assert_eq!(parsed.sessions[0].title, "Tab 1");
         assert!(matches!(parsed.sessions[0].split_tree, SavedSplitNode::Leaf { .. }));
         assert!(matches!(parsed.sessions[1].split_tree, SavedSplitNode::Split { .. }));
-        assert_eq!(parsed.sessions[0].claude_session_id, Some("abc-123".to_string()));
-        assert_eq!(parsed.sessions[1].claude_session_id, None);
-        assert_eq!(parsed.sessions[0].claude_binary, None);
-        assert_eq!(parsed.sessions[1].claude_binary, Some("claude-dev".to_string()));
+        assert_eq!(parsed.sessions[0].agent_provider, Some("claude".to_string()));
+        assert_eq!(parsed.sessions[0].agent_session_id, Some("abc-123".to_string()));
+        assert_eq!(parsed.sessions[1].agent_provider, Some("pi".to_string()));
+        assert_eq!(parsed.sessions[1].agent_session_id, None);
+        assert_eq!(parsed.sessions[0].agent_binary, None);
+        assert_eq!(parsed.sessions[1].agent_binary, Some("pi".to_string()));
         assert_eq!(parsed.active_session_index, Some(1));
     }
 
@@ -323,7 +341,7 @@ mod tests {
         let json = r#"{"sessions":[{"title":"Tab","split_tree":{"Leaf":{"cwd":null}},"group_id":"default"}],"groups":[]}"#;
         let parsed: SessionState = serde_json::from_str(json).unwrap();
 
-        assert_eq!(parsed.sessions[0].claude_session_id, None);
+        assert_eq!(parsed.sessions[0].agent_session_id, None);
     }
 
     #[test]
@@ -350,8 +368,8 @@ mod tests {
         let json = r#"{"sessions":[{"title":"Tab","split_tree":{"Leaf":{"cwd":null}},"group_id":"default","claude_session_id":"abc"}],"groups":[]}"#;
         let parsed: SessionState = serde_json::from_str(json).unwrap();
 
-        assert_eq!(parsed.sessions[0].claude_session_id, Some("abc".to_string()));
-        assert_eq!(parsed.sessions[0].claude_binary, None);
+        assert_eq!(parsed.sessions[0].agent_session_id, Some("abc".to_string()));
+        assert_eq!(parsed.sessions[0].agent_binary, None);
     }
 
     #[test]
@@ -375,5 +393,44 @@ mod tests {
         let parsed: SessionState = serde_json::from_str(json).unwrap();
 
         assert_eq!(parsed.sessions[0].session_type, None);
+    }
+
+    #[test]
+    fn session_state_migration_and_auto_upgrade() {
+        let json = r#"{
+            "sessions": [
+                {
+                    "title": "Legacy Tab",
+                    "split_tree": {"Leaf": {"cwd": "/home"}},
+                    "group_id": "default",
+                    "claude_session_id": "session-xyz",
+                    "claude_binary": "claude-custom"
+                }
+            ],
+            "groups": []
+        }"#;
+
+        let parsed: SessionState = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.sessions[0].agent_session_id, Some("session-xyz".to_string()));
+        assert_eq!(parsed.sessions[0].agent_binary, Some("claude-custom".to_string()));
+        assert_eq!(parsed.sessions[0].agent_provider, None);
+
+        let mut state = parsed;
+        let mut migrated = false;
+        for s in &mut state.sessions {
+            if s.agent_session_id.is_some() && s.agent_provider.is_none() {
+                s.agent_provider = Some("claude".to_string());
+                migrated = true;
+            }
+        }
+        assert!(migrated);
+        assert_eq!(state.sessions[0].agent_provider, Some("claude".to_string()));
+
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert!(serialized.contains("\"agent_session_id\":\"session-xyz\""));
+        assert!(serialized.contains("\"agent_binary\":\"claude-custom\""));
+        assert!(serialized.contains("\"agent_provider\":\"claude\""));
+        assert!(!serialized.contains("claude_session_id"));
+        assert!(!serialized.contains("claude_binary"));
     }
 }

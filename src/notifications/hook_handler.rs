@@ -15,9 +15,11 @@ pub struct HookResult {
     pub new_status: Option<SessionStatus>,
     pub notification: Option<String>,
     pub clear_notifications: bool,
-    pub claude_pid: Option<u32>,
+    pub agent_pid: Option<u32>,
+    pub agent_provider: Option<String>,
+    pub agent_binary: Option<String>,
     /// Some(Some(id)) = set, Some(None) = clear, None = no change
-    pub claude_session_id: Option<Option<String>>,
+    pub agent_session_id: Option<Option<String>>,
 }
 
 pub fn handle_hook_event(event: HookEvent) -> HookResult {
@@ -26,35 +28,46 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
         new_status: None,
         notification: None,
         clear_notifications: false,
-        claude_pid: None,
-        claude_session_id: None,
+        agent_pid: None,
+        agent_provider: None,
+        agent_binary: None,
+        agent_session_id: None,
     };
 
     match event.event.as_str() {
-        "session-start" => {
+        "agent.session.started" => {
             result.new_status = Some(SessionStatus::Idle);
             result.clear_notifications = true;
 
             if let Some(pid) = event.payload.get("pid").and_then(|v| v.as_u64()) {
-                result.claude_pid = Some(pid as u32);
+                result.agent_pid = Some(pid as u32);
             }
 
-            result.claude_session_id = event.payload.get("session_id")
+            result.agent_provider = event.payload.get("provider")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            result.agent_binary = event.payload.get("binary")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            result.agent_session_id = event.payload.get("agent_session_id")
+                .or_else(|| event.payload.get("session_id"))
                 .and_then(|v| v.as_str())
                 .map(|s| Some(s.to_string()));
         }
 
-        "prompt-submit" => {
+        "agent.prompt.submitted" => {
             result.new_status = Some(SessionStatus::Running);
             result.clear_notifications = true;
         }
 
-        "pre-tool-use" => {
+        "agent.tool.pre_use" => {
             result.new_status = Some(SessionStatus::Running);
             result.clear_notifications = true;
         }
 
-        "notification" => {
+        "agent.attention.requested" => {
             let signal = event.payload.get("event_name")
                 .or_else(|| event.payload.get("notification_type"))
                 .or_else(|| event.payload.get("event"))
@@ -74,8 +87,9 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
             result.new_status = Some(SessionStatus::NeedsInput);
         }
 
-        "stop" => {
-            let message = event.payload.get("last_assistant_message")
+        "agent.response.completed" => {
+            let message = event.payload.get("last_message")
+                .or_else(|| event.payload.get("last_assistant_message"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("Task completed");
 
@@ -86,7 +100,7 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
             result.new_status = Some(SessionStatus::Idle);
         }
 
-        "stop-failure" => {
+        "agent.response.failed" => {
             let message = event.payload.get("message")
                 .or_else(|| event.payload.get("error"))
                 .or_else(|| event.payload.get("reason"))
@@ -99,10 +113,10 @@ pub fn handle_hook_event(event: HookEvent) -> HookResult {
             result.new_status = Some(SessionStatus::Error);
         }
 
-        "session-end" => {
+        "agent.session.ended" => {
             result.new_status = Some(SessionStatus::Idle);
-            result.claude_pid = Some(0); // signal to clear
-            result.claude_session_id = Some(None); // signal to clear
+            result.agent_pid = Some(0); // signal to clear
+            result.agent_session_id = Some(None); // signal to clear
         }
 
         _ => {}
@@ -141,7 +155,7 @@ mod tests {
     fn classify_error_default_body() {
         let (subtitle, body) = classify_notification("error", "");
         assert_eq!(subtitle, "Error");
-        assert_eq!(body, "Claude reported an error");
+        assert_eq!(body, "Agent reported an error");
     }
 
     #[test]
@@ -167,7 +181,7 @@ mod tests {
     fn classify_attention_empty() {
         let (subtitle, body) = classify_notification("", "");
         assert_eq!(subtitle, "Attention");
-        assert_eq!(body, "Claude needs your attention");
+        assert_eq!(body, "Agent needs your attention");
     }
 
     #[test]
@@ -202,29 +216,29 @@ mod tests {
     #[test]
     fn handle_session_start() {
         let result = handle_hook_event(make_event(
-            "session-start",
-            serde_json::json!({"pid": 12345, "session_id": "claude-abc-123"}),
+            "agent.session.started",
+            serde_json::json!({"pid": 12345, "agent_session_id": "claude-abc-123"}),
         ));
 
         assert_eq!(result.new_status, Some(SessionStatus::Idle));
         assert!(result.clear_notifications);
-        assert_eq!(result.claude_pid, Some(12345));
-        assert_eq!(result.claude_session_id, Some(Some("claude-abc-123".to_string())));
+        assert_eq!(result.agent_pid, Some(12345));
+        assert_eq!(result.agent_session_id, Some(Some("claude-abc-123".to_string())));
     }
 
     #[test]
     fn handle_session_start_without_session_id() {
         let result = handle_hook_event(make_event(
-            "session-start",
+            "agent.session.started",
             serde_json::json!({"pid": 12345}),
         ));
 
-        assert_eq!(result.claude_session_id, None);
+        assert_eq!(result.agent_session_id, None);
     }
 
     #[test]
     fn handle_prompt_submit() {
-        let result = handle_hook_event(make_event("prompt-submit", serde_json::json!({})));
+        let result = handle_hook_event(make_event("agent.prompt.submitted", serde_json::json!({})));
 
         assert_eq!(result.new_status, Some(SessionStatus::Running));
         assert!(result.clear_notifications);
@@ -233,7 +247,7 @@ mod tests {
     #[test]
     fn handle_notification() {
         let result = handle_hook_event(make_event(
-            "notification",
+            "agent.attention.requested",
             serde_json::json!({"notification_type": "permission_prompt", "message": "Allow file write?"}),
         ));
 
@@ -244,8 +258,8 @@ mod tests {
     #[test]
     fn handle_stop() {
         let result = handle_hook_event(make_event(
-            "stop",
-            serde_json::json!({"last_assistant_message": "Done refactoring"}),
+            "agent.response.completed",
+            serde_json::json!({"last_message": "Done refactoring"}),
         ));
 
         assert_eq!(result.new_status, Some(SessionStatus::Idle));
@@ -255,7 +269,7 @@ mod tests {
     #[test]
     fn handle_stop_failure() {
         let result = handle_hook_event(make_event(
-            "stop-failure",
+            "agent.response.failed",
             serde_json::json!({"message": "Rate limit reached"}),
         ));
 
@@ -265,7 +279,7 @@ mod tests {
 
     #[test]
     fn handle_stop_failure_default_message() {
-        let result = handle_hook_event(make_event("stop-failure", serde_json::json!({})));
+        let result = handle_hook_event(make_event("agent.response.failed", serde_json::json!({})));
 
         assert_eq!(result.new_status, Some(SessionStatus::Error));
         assert_eq!(result.notification.unwrap(), "Turn ended due to an API error");
@@ -273,22 +287,44 @@ mod tests {
 
     #[test]
     fn handle_session_end() {
-        let result = handle_hook_event(make_event("session-end", serde_json::json!({})));
+        let result = handle_hook_event(make_event("agent.session.ended", serde_json::json!({})));
 
         assert_eq!(result.new_status, Some(SessionStatus::Idle));
-        assert_eq!(result.claude_pid, Some(0));
-        assert_eq!(result.claude_session_id, Some(None));
+        assert_eq!(result.agent_pid, Some(0));
+        assert_eq!(result.agent_session_id, Some(None));
     }
 
     #[test]
     fn handle_pre_tool_use() {
         let result = handle_hook_event(make_event(
-            "pre-tool-use",
+            "agent.tool.pre_use",
             serde_json::json!({"tool_name": "Bash", "tool_input": {"command": "npm test"}}),
         ));
 
         assert_eq!(result.new_status, Some(SessionStatus::Running));
         assert!(result.clear_notifications);
+    }
+
+    #[test]
+    fn handle_tool_failed() {
+        let result = handle_hook_event(make_event(
+            "agent.tool.failed",
+            serde_json::json!({}),
+        ));
+
+        assert!(result.new_status.is_none());
+        assert!(result.notification.is_none());
+    }
+
+    #[test]
+    fn handle_cwd_changed() {
+        let result = handle_hook_event(make_event(
+            "agent.cwd.changed",
+            serde_json::json!({"cwd": "/tmp"}),
+        ));
+
+        assert!(result.new_status.is_none());
+        assert!(result.notification.is_none());
     }
 
     #[test]
@@ -313,7 +349,7 @@ pub fn classify_notification(signal: &str, message: &str) -> (String, String) {
     if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
         return (
             "Error".to_string(),
-            if message.is_empty() { "Claude reported an error".to_string() } else { message.to_string() },
+            if message.is_empty() { "Agent reported an error".to_string() } else { message.to_string() },
         );
     }
 
@@ -333,6 +369,6 @@ pub fn classify_notification(signal: &str, message: &str) -> (String, String) {
 
     (
         "Attention".to_string(),
-        if message.is_empty() { "Claude needs your attention".to_string() } else { message.to_string() },
+        if message.is_empty() { "Agent needs your attention".to_string() } else { message.to_string() },
     )
 }

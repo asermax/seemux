@@ -31,6 +31,32 @@ thread_local! {
     static APP_STATE: RefCell<Option<Rc<AppState>>> = const { RefCell::new(None) };
 }
 
+fn deploy_pi_extension() {
+    let Some(home) = dirs::home_dir() else { return };
+    let ext_dir = home.join(".pi").join("agent").join("extensions");
+    let dest_path = ext_dir.join("seemux-pi.ts");
+
+    let bundled_content = include_str!("../plugins/seemux-pi/index.ts");
+
+    if let Err(e) = std::fs::create_dir_all(&ext_dir) {
+        eprintln!("Failed to create pi extensions directory: {e}");
+        return;
+    }
+
+    let needs_write = match std::fs::read_to_string(&dest_path) {
+        Ok(existing) => existing != bundled_content,
+        Err(_) => true,
+    };
+
+    if needs_write {
+        if let Err(e) = std::fs::write(&dest_path, bundled_content) {
+            eprintln!("Failed to deploy pi extension to {}: {e}", dest_path.display());
+        } else {
+            println!("Successfully deployed pi extension to {}", dest_path.display());
+        }
+    }
+}
+
 fn main() -> glib::ExitCode {
     // Workaround for GTK 4.20+ regression: dead keys / compose sequences stopped
     // working on Wayland without an IM framework (IBus/Fcitx). Force GTK's built-in
@@ -41,6 +67,8 @@ fn main() -> glib::ExitCode {
     }
 
     let mode = cli::handle_args();
+
+    deploy_pi_extension();
 
     let quake = matches!(mode, cli::LaunchMode::Quake);
 

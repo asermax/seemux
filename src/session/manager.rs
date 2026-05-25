@@ -247,6 +247,15 @@ impl SessionManager {
         self.on_state_changed = Some(Rc::new(f));
     }
 
+    pub fn update_session_cwd(&mut self, session_id: &str, cwd: &str) {
+        if let Some(split_view) = self.split_views.get(session_id) {
+            let pane_id = split_view.focused_pane_id();
+            self.session_cwds.borrow_mut().insert(pane_id, cwd.to_string());
+            self.sidebar.update_cwd(session_id, folder_name(cwd), &display_path(cwd));
+            detect_branch_and_pr(cwd, &self.sidebar, session_id);
+        }
+    }
+
     pub fn set_on_browser_error<F: Fn(String) + 'static>(&mut self, f: F) {
         self.on_browser_error = Some(Rc::new(f));
     }
@@ -721,22 +730,25 @@ impl SessionManager {
         }
     }
 
-    pub fn set_claude_pid(&mut self, session_id: &str, pid: Option<u32>) {
+    pub fn set_agent_pid(&mut self, session_id: &str, pid: Option<u32>, provider: Option<String>) {
         if let Some(session) = self.find_session_mut(session_id) {
-            session.claude_pid = pid;
+            session.agent_pid = pid;
+            if pid.is_some() {
+                session.agent_provider = provider;
+            }
         }
     }
 
-    pub fn set_claude_session_id(&mut self, session_id: &str, claude_session_id: Option<String>) {
+    pub fn set_agent_session_id(&mut self, session_id: &str, agent_session_id: Option<String>) {
         if let Some(session) = self.find_session_mut(session_id) {
-            session.claude_session_id = claude_session_id;
+            session.agent_session_id = agent_session_id;
             self.notify_state_changed();
         }
     }
 
-    pub fn set_claude_binary(&mut self, session_id: &str, binary: Option<String>) {
+    pub fn set_agent_binary(&mut self, session_id: &str, binary: Option<String>) {
         if let Some(session) = self.find_session_mut(session_id) {
-            session.claude_binary = binary;
+            session.agent_binary = binary;
             self.notify_state_changed();
         }
     }
@@ -745,25 +757,25 @@ impl SessionManager {
         self.split_views.get(session_id).and_then(|sv| sv.focused_terminal())
     }
 
-    pub fn take_pending_resumes(&mut self) -> Vec<(String, String, Option<String>)> {
+    pub fn take_pending_resumes(&mut self) -> Vec<(String, String, Option<String>, Option<String>)> {
         let sidebar = &self.sidebar;
 
         self.sessions.iter_mut()
             .filter(|s| !sidebar.is_group_collapsed(&s.group_id))
             .filter_map(|s| {
                 s.pending_resume_id.take().map(|cid| {
-                    (s.id.clone(), cid, s.pending_resume_binary.take())
+                    (s.id.clone(), cid, s.pending_resume_binary.take(), s.pending_resume_provider.take())
                 })
             })
             .collect()
     }
 
-    pub fn take_pending_resumes_for_group(&mut self, group_id: &str) -> Vec<(String, String, Option<String>)> {
+    pub fn take_pending_resumes_for_group(&mut self, group_id: &str) -> Vec<(String, String, Option<String>, Option<String>)> {
         self.sessions.iter_mut()
             .filter(|s| s.group_id == group_id)
             .filter_map(|s| {
                 s.pending_resume_id.take().map(|cid| {
-                    (s.id.clone(), cid, s.pending_resume_binary.take())
+                    (s.id.clone(), cid, s.pending_resume_binary.take(), s.pending_resume_provider.take())
                 })
             })
             .collect()
@@ -1035,9 +1047,15 @@ impl SessionManager {
         self.move_session_to_group(session_id, new_group_id);
     }
 
-    pub fn sessions_with_claude_pid(&self) -> Vec<(String, u32)> {
+    pub fn sessions_with_agent_pid(&self) -> Vec<(String, u32, String)> {
         self.sessions.iter()
-            .filter_map(|s| s.claude_pid.map(|pid| (s.id.clone(), pid)))
+            .filter_map(|s| {
+                if let (Some(pid), Some(provider)) = (s.agent_pid, &s.agent_provider) {
+                    Some((s.id.clone(), pid, provider.clone()))
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 
@@ -1249,30 +1267,37 @@ impl SessionManager {
             let Some(mgr) = mgr.upgrade() else { return };
             let Ok(m) = mgr.try_borrow() else { return };
 
-            // Skip if Claude hooks are controlling the status for this session
-            let has_claude = m.find_session(&sid)
-                .is_some_and(|s| s.claude_pid.is_some());
+            // Skip if agent hooks are controlling the status for this session
+            let has_agent = m.find_session(&sid)
+                .is_some_and(|s| s.agent_pid.is_some());
 
-            if has_claude {
+            if has_agent {
                 return;
             }
 
             let Some(title) = title.filter(|t| !t.is_empty()) else { return };
 
-            // Check if the title's first word matches a configured Claude alias.
-            // Mark as running so subsequent title changes from Claude's TUI
+            // Check if the title's first word matches a configured Claude alias or "pi".
+            // Mark as running so subsequent title changes from agent's TUI
             // don't trigger a new command start.
             let title_lower = title.to_ascii_lowercase();
             let first_word = title_lower.split_whitespace().next().unwrap_or(&title_lower);
 
-            if claude_aliases.iter().any(|a| a.to_ascii_lowercase() == first_word) {
+            let is_claude = claude_aliases.iter().any(|a| a.to_ascii_lowercase() == first_word);
+            let is_pi = first_word == "pi";
+
+            if is_claude || is_pi {
                 running.set(true);
 
                 // Save the matched alias for resume command injection
                 let matched = first_word.to_string();
+                let provider = if is_claude { "claude" } else { "pi" };
                 drop(m);
                 if let Ok(mut mgr_mut) = mgr.try_borrow_mut() {
-                    mgr_mut.set_claude_binary(&sid, Some(matched));
+                    mgr_mut.set_agent_binary(&sid, Some(matched));
+                    if let Some(session) = mgr_mut.find_session_mut(&sid) {
+                        session.agent_provider = Some(provider.to_string());
+                    }
                 }
 
                 return;
@@ -1325,11 +1350,11 @@ impl SessionManager {
                             let Some(mgr) = mgr_weak.upgrade() else { return };
                             let Ok(m) = mgr.try_borrow() else { return };
 
-                            // Claude hooks may have taken over during the delay
-                            let has_claude = m.find_session(&sid_timeout)
-                                .is_some_and(|s| s.claude_pid.is_some());
+                            // Agent hooks may have taken over during the delay
+                            let has_agent = m.find_session(&sid_timeout)
+                                .is_some_and(|s| s.agent_pid.is_some());
 
-                            if has_claude {
+                            if has_agent {
                                 return;
                             }
 
@@ -1378,8 +1403,9 @@ impl SessionManager {
                     split_tree,
                     group_id: s.group_id.clone(),
                     session_type: Some(s.session_type),
-                    claude_session_id: s.claude_session_id.clone(),
-                    claude_binary: s.claude_binary.clone(),
+                    agent_provider: s.agent_provider.clone(),
+                    agent_session_id: s.agent_session_id.clone(),
+                    agent_binary: s.agent_binary.clone(),
                 })
             }).collect(),
             groups,
@@ -1390,23 +1416,28 @@ impl SessionManager {
     }
 
     /// Restore a session from a saved split tree.
+    #[allow(clippy::too_many_arguments)]
     pub fn restore_session_with_splits(
         &mut self,
         title: &str,
         group_id: &str,
         split_tree: &crate::config::SavedSplitNode,
         session_type: Option<crate::session::SessionType>,
-        claude_session_id: Option<&str>,
-        claude_binary: Option<&str>,
+        agent_session_id: Option<&str>,
+        agent_binary: Option<&str>,
+        agent_provider: Option<&str>,
     ) -> String {
         let mut session = crate::session::Session::new(title.to_string());
         session.group_id = group_id.to_string();
         if let Some(st) = session_type {
             session.session_type = st;
         }
-        session.pending_resume_id = claude_session_id.map(|s| s.to_string());
-        session.claude_binary = claude_binary.map(|s| s.to_string());
-        session.pending_resume_binary = session.claude_binary.clone();
+        session.pending_resume_id = agent_session_id.map(|s| s.to_string());
+        session.agent_binary = agent_binary.map(|s| s.to_string());
+        session.pending_resume_binary = session.agent_binary.clone();
+        session.pending_resume_provider = agent_provider.map(|s| s.to_string());
+        session.agent_provider = agent_provider.map(|s| s.to_string());
+        session.agent_session_id = agent_session_id.map(|s| s.to_string());
         let id = session.id.clone();
 
         let config = self.config.borrow();

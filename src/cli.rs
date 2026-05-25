@@ -17,7 +17,7 @@ pub fn handle_args() -> LaunchMode {
 
     match args[1].as_str() {
         "toggle" => {
-            send_socket_command("toggle-dropdown");
+            send_socket_command("app.dropdown.toggle");
             LaunchMode::CommandHandled
         }
         "--quake" => LaunchMode::Quake,
@@ -30,7 +30,7 @@ fn send_socket_command(command: &str) {
 
     match UnixStream::connect(&socket_path) {
         Ok(mut stream) => {
-            let msg = format!("{{\"event\":\"{command}\",\"session_id\":\"\",\"payload\":{{}}}}\n");
+            let msg = format!("{{\"jsonrpc\":\"2.0\",\"method\":\"{command}\",\"params\":{{}}}}\n");
 
             if let Err(e) = stream.write_all(msg.as_bytes()) {
                 eprintln!("Failed to send command: {e}");

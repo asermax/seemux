@@ -22,6 +22,15 @@ pub struct CommandResponse {
     pub data: serde_json::Value,
 }
 
+#[derive(serde::Deserialize)]
+pub struct JsonRpcMessage {
+    pub jsonrpc: String,
+    pub id: Option<serde_json::Value>,
+    pub method: String,
+    #[serde(default)]
+    pub params: serde_json::Value,
+}
+
 /// Messages coming in over the socket — either hook events or commands.
 pub enum SocketMessage {
     Hook(HookEvent),
@@ -80,28 +89,32 @@ impl HookServer {
                             continue;
                         }
 
-                        // Parse once as a generic Value, then route by shape
-                        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&line) else {
-                            eprintln!("Failed to parse socket message as JSON");
-                            continue;
+                        let msg = match serde_json::from_str::<JsonRpcMessage>(&line) {
+                            Ok(m) => m,
+                            Err(e) => {
+                                eprintln!("Failed to parse socket message as JSON-RPC 2.0: {e}");
+                                continue;
+                            }
                         };
 
-                        let is_command = value.get("request_id").is_some_and(|v| v.is_string())
-                            && value.get("command").is_some_and(|v| v.is_string());
+                        if msg.jsonrpc != "2.0" {
+                            eprintln!("Invalid jsonrpc version: {}", msg.jsonrpc);
+                            continue;
+                        }
 
-                        if is_command {
-                            let Some(request_id) = value["request_id"].as_str().map(|s| s.to_string()) else { continue };
-                            let Some(command) = value["command"].as_str().map(|s| s.to_string()) else { continue };
-                            let params = value.get_mut("params")
-                                .map(|v| v.take())
-                                .unwrap_or(serde_json::Value::Null);
+                        if let Some(id_val) = &msg.id {
+                            let request_id = match id_val {
+                                serde_json::Value::String(s) => s.clone(),
+                                serde_json::Value::Number(n) => n.to_string(),
+                                other => other.to_string(),
+                            };
 
                             let (resp_tx, resp_rx) = mpsc::sync_channel(1);
 
                             let request = CommandRequest {
                                 request_id,
-                                command,
-                                params,
+                                command: msg.method,
+                                params: msg.params,
                                 response_tx: resp_tx,
                             };
 
@@ -110,22 +123,44 @@ impl HookServer {
                             }
 
                             // Block waiting for the main thread to process and respond
-                            if let Ok(response) = resp_rx.recv()
-                                && let Ok(json) = serde_json::to_string(&response)
-                                && let Ok(mut writer) = stream.try_clone()
-                            {
-                                let _ = writeln!(writer, "{json}");
-                                let _ = writer.flush();
+                            if let Ok(response) = resp_rx.recv() {
+                                let rpc_resp = if response.status == "error" {
+                                    serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": response.request_id,
+                                        "error": {
+                                            "code": -32603,
+                                            "message": response.data.get("error").and_then(|e| e.as_str()).unwrap_or("Internal error")
+                                        }
+                                    })
+                                } else {
+                                    serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": response.request_id,
+                                        "result": response.data
+                                    })
+                                };
+
+                                if let Ok(json) = serde_json::to_string(&rpc_resp)
+                                    && let Ok(mut writer) = stream.try_clone()
+                                {
+                                    let _ = writeln!(writer, "{json}");
+                                    let _ = writer.flush();
+                                }
                             }
                         } else {
-                            match serde_json::from_value::<HookEvent>(value) {
-                                Ok(event) => {
-                                    let _ = tx.send(SocketMessage::Hook(event));
-                                }
-                                Err(e) => {
-                                    eprintln!("Failed to parse hook event: {e}");
-                                }
-                            }
+                            let session_id = msg.params.get("session_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+
+                            let event = HookEvent {
+                                event: msg.method,
+                                session_id,
+                                payload: msg.params,
+                            };
+
+                            let _ = tx.send(SocketMessage::Hook(event));
                         }
                     }
                 });
