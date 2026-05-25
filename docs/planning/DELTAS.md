@@ -91,10 +91,9 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/deltas.py priority list --level 1        # 
 **Complexity**: Medium
 **Description**: When a Claude session inside seemux spawns child processes (agents, background tasks), those children inherit the `SEEMUX_SOCKET` and `SEEMUX_SESSION_ID` environment variables. If a child starts its own Claude instance, that instance sends hook events back to seemux, incorrectly updating the parent tab's status and notifications. This delta adds a mechanism to ensure only the direct Claude session in each tab sends hook events, preventing background or nested Claude instances from polluting the tab's state.
 
-### DLT-012: Bring pi.dev sessions to status/notification parity with Claude
+### DLT-011: Clear notification badge on any tab activation
 **Status**: ✗ Defined
 **Depends on**: None
 **Priority**: 3 (Medium)
-**Complexity**: Medium
-**Description**: Seemux currently surfaces real-time status pills, notification badges, and resume-on-restart only for Claude Code sessions, leaving pi.dev sessions running inside seemux tabs as plain terminals with no integration. This delta ships a pi.dev extension (analogous to the existing Claude Code plugin) that hooks into pi's native lifecycle and forwards the same eight events (session start, prompt submit, pre/post tool use, notification, stop, stop failure, session end) to seemux's Unix socket, plus any hook-handler adjustments needed to accept pi's payload shape. The result is that a pi session in a seemux tab behaves the same way a Claude session does — same status transitions, same notification suppression rules, same stale-PID cleanup, same resume on restart.
-
+**Complexity**: Easy
+**Description**: Notification badges are only cleared when a tab is explicitly clicked, but not when activation happens through other paths like tab closure, session creation, hook focus commands, or session restoration. This delta moves badge clearing into the tab activation logic itself, so that any time a tab becomes active — whether by click, keyboard shortcut, tab close, hook command, or restoration — its notification badge is automatically dismissed.
