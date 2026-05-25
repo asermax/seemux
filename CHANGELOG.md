@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.0 (2026-05-25)
+
+### Features
+
+- **plugins**: Add pi package manifest for seemux-pi extension
+  ([`5265279`](https://github.com/asermax/seemux/commit/5265279c30f32e09bf0d8ced315a8474cb2d8aaa))
+
+
 ## v1.6.0 (2026-05-25)
 
 ### Documentation
