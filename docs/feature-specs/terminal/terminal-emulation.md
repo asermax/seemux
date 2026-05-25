@@ -26,7 +26,7 @@ Seemux embeds a fully configured VTE4 terminal emulator in each pane, supporting
 | R0 | Provide an embedded VTE4 terminal widget that spawns shells and commands with user-configurable font, scrollback, and color scheme |
 | R1 | Detect and highlight URLs via both OSC 8 hyperlinks and regex matching, with smart resolution of relative paths against the terminal's CWD |
 | R2 | Pass Shift+Enter to the child process using the kitty keyboard protocol escape sequence (`\x1b[13;2u`) |
-| R3 | Auto-copy on-screen selection to the PRIMARY selection buffer and paste from PRIMARY on middle-click, independent of the CLIPBOARD pathway |
+| R3 | Auto-copy on-screen selection to the CLIPBOARD and paste from CLIPBOARD on middle-click |
 | R4 | Manage an arbitrary binary tree of split panes per session, supporting horizontal and vertical splits at any leaf |
 | R5 | Directional navigation (left, right, up, down) across the split tree, moving focus to the nearest neighbor pane |
 | R6 | Closing a pane promotes its sibling; closing the last pane destroys the session |
@@ -67,14 +67,14 @@ Seemux embeds a fully configured VTE4 terminal emulator in each pane, supporting
 - Given a URL on row N followed by a hard newline and unrelated text on row N+1, when `check_url_at` is called over the row-N URL, then only the row-N URL is returned (reconstruction never crosses a hard newline)
 - Given two URLs separated by whitespace on the same logical line, when `check_url_at` is called over one of them, then only the URL whose `[start, end)` byte interval contains the click offset is returned
 
-### PRIMARY Selection and Middle-Click Paste
+### Clipboard Selection and Middle-Click Paste
 
 **Acceptance Criteria**:
-- Given a focused VTE terminal, when the user selects text (via mouse drag or keyboard selection), then the selected text is written to the PRIMARY selection buffer
-- Given the PRIMARY selection buffer contains text, when the user middle-clicks (button 2) anywhere over a terminal's text area, then the PRIMARY contents are fed to the child process via the PTY at the shell's current input position (regardless of the click's x/y in the pane)
-- Given the user copies text "X" to CLIPBOARD via Ctrl+Shift+C and then selects different text "Y" in any terminal, when the user middle-clicks, then "Y" (PRIMARY) is pasted; when the user invokes Ctrl+Shift+V or right-click Paste, then "X" (CLIPBOARD) is pasted — the two buffers remain independent
-- Given any terminal — initial tab, split pane, dropdown-mode terminal, or restored session — when text is selected and middle-click happens between any pair, then PRIMARY copy and middle-click paste behave uniformly without per-call-site wiring
-- Given PRIMARY is empty (nothing selected this session, or the compositor lacks PRIMARY support), when the user middle-clicks in a terminal, then no input is fed to the child process and seemux logs no error
+- Given a focused VTE terminal, when the user selects text (via mouse drag or keyboard selection), then the selected text is written to the CLIPBOARD
+- Given the CLIPBOARD contains text, when the user middle-clicks (button 2) anywhere over a terminal's text area, then the clipboard contents are pasted at the shell's current input position
+- Given the user copies text via Ctrl+Shift+C and then selects different text in any terminal, when the user middle-clicks, then the newly selected text is pasted; when the user invokes Ctrl+Shift+V or right-click Paste, then the same text is pasted — both pathways share the same CLIPBOARD buffer
+- Given any terminal — initial tab, split pane, dropdown-mode terminal, or restored session — when text is selected and middle-click happens between any pair, then clipboard copy and middle-click paste behave uniformly without per-call-site wiring
+- Given the clipboard is empty, when the user middle-clicks in a terminal, then no input is fed to the child process
 
 ### Pane Splitting
 

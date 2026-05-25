@@ -91,7 +91,7 @@ impl VteTerminal {
         Self::apply_colors(&terminal, scheme);
         Self::setup_shift_enter(&terminal);
         Self::setup_url_matching(&terminal);
-        Self::setup_primary_selection_copy(&terminal);
+        Self::setup_clipboard_copy(&terminal);
         Self::setup_middle_click_paste(&terminal);
 
         let scrollbar = gtk4::Scrollbar::new(
@@ -148,10 +148,10 @@ impl VteTerminal {
         terminal.match_set_cursor_name(tag, "pointer");
     }
 
-    fn setup_primary_selection_copy(terminal: &Terminal) {
+    fn setup_clipboard_copy(terminal: &Terminal) {
         terminal.connect_selection_changed(|term| {
             if term.has_selection() {
-                term.copy_primary();
+                term.copy_clipboard_format(Format::Text);
             }
         });
     }
@@ -162,7 +162,7 @@ impl VteTerminal {
 
         let terminal_clone = terminal.clone();
         gesture.connect_pressed(move |_, _, _, _| {
-            terminal_clone.paste_primary();
+            terminal_clone.paste_clipboard();
         });
 
         terminal.add_controller(gesture);
