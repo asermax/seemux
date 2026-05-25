@@ -1,0 +1,10 @@
+{
+  "name": "seemux-pi",
+  "version": "0.1.0",
+  "description": "Pi extension for seemux terminal multiplexer integration",
+  "keywords": ["pi-package"],
+  "main": "index.ts",
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
