@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.6.0 (2026-05-25)
+
+### Documentation
+
+- **deltas**: Clean up DLT-013 delta after completion
+  ([`5f75927`](https://github.com/asermax/seemux/commit/5f7592716b186142fe55f39e0c0a48c7e0f7e046))
+
+- **hooks**: Reconcile feature specs and add DLT-012 planning documents
+  ([`ea98baf`](https://github.com/asermax/seemux/commit/ea98bafeca3465663f2782391e3423099838e032))
+
+### Features
+
+- **hooks**: Integrate extensible pi.dev sessions and generic socket protocol
+  ([`2dd5c1f`](https://github.com/asermax/seemux/commit/2dd5c1f22ea7704dc91312f6d206929dec716efa))
+
+- **terminal**: Use clipboard instead of PRIMARY for selection and middle-click paste
+  ([`246fdb9`](https://github.com/asermax/seemux/commit/246fdb9c516e70a3db895f811033837fc02ba69b))
+
+
 ## v1.5.0 (2026-05-23)
 
 ### Documentation
