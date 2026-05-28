@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.7.1 (2026-05-28)
+
+### Bug Fixes
+
+- **tmux-shim**: Speak JSON-RPC 2.0 on the seemux socket
+  ([`cd62663`](https://github.com/asermax/seemux/commit/cd6266310b621d6e163b9ef7b47cc37d09614b08))
+
+### Refactoring
+
+- **main**: Remove bundled pi extension deployment
+  ([`2f236e6`](https://github.com/asermax/seemux/commit/2f236e629ee38002c6dc3ef09b89951034b52988))
+
+
 ## v1.7.0 (2026-05-25)
 
 ### Features
