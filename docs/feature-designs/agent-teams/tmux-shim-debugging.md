@@ -13,6 +13,18 @@ Reach for this procedure when:
 - The team config at `~/.claude/teams/<name>/config.json` records `"backendType": "in-process"` even with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` set — usually means `process.env.TMUX` wasn't set when `claude` started.
 - `seemux-tmux-shim: unhandled command: tmux <subcmd>` shows up in seemux stderr.
 - You suspect Claude Code's tmux protocol shifted (recent Claude Code update).
+- The shim **hangs** on a teammate spawn (the `send-keys` tmux call never returns). This is not a Claude protocol change — it means the shim's socket request was rejected by seemux without a reply (see "Two protocols" below), so the shim blocks forever reading the response.
+
+## Two Protocols — Don't Conflate Them
+
+There are *two independent* protocols in play, and a spawn failure can come from either:
+
+1. **Claude Code → tmux (argv).** What `claude` passes to the `tmux` shim binary. Changes here = new subcommand / flag / format string → fix `handle_tmux_command`. Diagnose with the debug shim + capture (below).
+2. **Shim → seemux (socket).** The JSON the shim writes to `seemux.sock`. This is seemux's *own* internal protocol (`src/notifications/hook_server.rs` + `src/app/hooks/commands.rs`), shared with the hooks plugin. It is **JSON-RPC 2.0**: requests are `{"jsonrpc":"2.0","id":<req>,"method":<cmd>,"params":{…}}`; responses are `{"jsonrpc":"2.0","id":<req>,"result":{…}}` or `{…,"error":{"code":…,"message":…}}`.
+
+The server **drops any line that fails to deserialize as JSON-RPC 2.0 without replying** (`hook_server.rs`: "Failed to parse socket message as JSON-RPC 2.0" → `continue`). So if seemux migrates its socket protocol and the shim's `send_socket_command` is not updated in lockstep, the shim writes a malformed request, gets no reply, and **hangs on `reader.lines().next()`**. Symptom: `send-keys` hangs, `%N` stays `__pending__` in `pane-map.json`, titles pile up in `pending-titles.json`. Fix: re-sync the envelope in `seemux_tmux_shim.rs::send_socket_command` with `hook_server.rs`. (This was the 2026-05-28 breakage — the generic-protocol migration in `2dd5c1f` moved the socket to JSON-RPC 2.0 but left the shim speaking the old `{request_id,command,params}`/`{status,data}` envelope.)
+
+To tell the two apart quickly: run a captured `send-keys` claude-launch command through the **production** shim against the live socket with a `timeout`. If it hangs (exit 124) → it's protocol #2 (socket). If it returns but no session appears → it's protocol #1 or a handler gap.
 
 ## What the Debug Shim Does
 
@@ -92,6 +104,8 @@ To find what's new since the last protocol baseline, compare `argv` shapes again
 ## Captured Protocol (Reference)
 
 This is the teammate-spawn sequence Claude Code drives, in order. Captured 2026-05-11 against Claude Code build dated 2026-05-09 with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
+
+> **Re-capture 2026-05-28 (Claude Code 2.1.154):** the argv sequence is unchanged except for one added probe — `display-message -p '#{window_id}'` right after step 1 (already handled by `cmd_display_message` → `@0`). The `--model` flag now carries `claude-opus-4-8`. The breakage that prompted this re-capture was *not* in this protocol; see "Two protocols" above.
 
 Every call carries `-S /run/user/<uid>/seemux/seemux.sock` (omitted below for readability).
 

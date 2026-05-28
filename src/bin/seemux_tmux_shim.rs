@@ -389,9 +389,13 @@ fn send_socket_command(
 ) -> Result<serde_json::Value, String> {
     let request_id = format!("shim-{}", std::process::id());
 
+    // seemux's socket speaks JSON-RPC 2.0 (since the generic-protocol migration).
+    // The server rejects any line missing `jsonrpc`/`method` without replying,
+    // which would hang us on the response read below.
     let request = serde_json::json!({
-        "request_id": request_id,
-        "command": command,
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": command,
         "params": params,
     });
 
@@ -412,16 +416,15 @@ fn send_socket_command(
     let response: serde_json::Value = serde_json::from_str(&line)
         .map_err(|e| format!("failed to parse response: {e}"))?;
 
-    if response.get("status").and_then(|v| v.as_str()) == Some("error") {
-        let error = response.get("data")
-            .and_then(|d| d.get("error"))
+    if let Some(error) = response.get("error") {
+        let message = error.get("message")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown error");
 
-        return Err(format!("command {command} failed: {error}"));
+        return Err(format!("command {command} failed: {message}"));
     }
 
-    Ok(response.get("data").cloned().unwrap_or(serde_json::Value::Null))
+    Ok(response.get("result").cloned().unwrap_or(serde_json::Value::Null))
 }
 
 // --- Argument parsing helpers ---
