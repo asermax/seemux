@@ -80,7 +80,7 @@ CollapsedBar
 ### Key State Structures
 
 - **`rows: HashMap<String, (TabRow, String)>`** -- Maps session ID to its `TabRow` widget and current group ID. This is the master index; all tab lookups go through it.
-- **`groups: Vec<GroupEntry>`** -- Ordered list of named groups (id + display name). Determines visual ordering. The default group is implicit and not in this list.
+- **`groups: Vec<GroupEntry>`** -- Ordered list of named groups (id + display name). Determines visual ordering. The default group is implicit and not in this list. `add_group` accepts a `GroupPlacement` (`End` / `First` / `After(id)`) so callers can position a programmatically created group, using the same `content.reorder_child_after` + `groups` Vec idiom as DES-009's drag-and-drop reorder; the manual "+ New Group" button and session restore both use `End` (append / preserve saved order).
 - **`group_widgets: HashMap<String, TabGroupWidget>`** -- Maps group ID to the GTK widget. Separated from `groups` because the ordering vector and the widget lookup serve different access patterns.
 - **`dragging_id: Rc<RefCell<String>>`** / **`dragging_group_id: Rc<RefCell<String>>`** -- Shared mutable strings that communicate the currently-dragged item's identity across drag source and drop target closures, since GTK4 drag-and-drop does not provide the dragged content during the `motion` signal.
 

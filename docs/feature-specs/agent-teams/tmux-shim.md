@@ -26,7 +26,8 @@ Claude Code Agent Teams uses tmux as its multiplexer backend. The tmux shim is a
 | R1 | Fall through to `/usr/bin/tmux` when `$SEEMUX_SOCKET` is not set |
 | R2 | Maintain a file-locked pane map (`pane-map.json`) correlating tmux pane IDs to seemux session IDs |
 | R3 | On split-window/new-window, allocate a pane ID with `__pending__` placeholder; defer session creation to send-keys |
-| R4 | On send-keys with a Claude launch command targeting a pending pane, create a named group ("Team: {team_name}") and session, updating the pane map |
+| R4 | On send-keys with a Claude launch command targeting a pending pane, resolve the team group ("Team: {team_name}") per R4.1, ensure the lead session is in it to isolate the team, create the teammate session, and update the pane map |
+| R4.1 | Team group resolution is decided server-side in priority order: reuse an existing group with the same name; else if the lead is alone in its (non-default) group, reuse that group; else if the lead is in a populated named group, create the team group immediately after it; else (lead in the default group) create the team group as the first named group. Reused groups are never repositioned |
 | R5 | On send-keys targeting a resolved pane, forward text as raw input to the seemux session |
 | R6 | On kill-pane, remove from map and destroy the seemux session |
 | R7 | Report synthetic tmux version (`tmux 3.4`) on `-V` flag |
@@ -63,11 +64,22 @@ Claude Code Agent Teams uses tmux as its multiplexer backend. The tmux shim is a
 ### Teammate Session Creation
 
 **Acceptance Criteria**:
-- Given pane `%1` is `__pending__`, when `send-keys` has a Claude launch command with `--team-name my-team --agent-name writer`, then a group "Team: my-team" is created, a session titled "writer" is created with the command, and the pane map is updated
+- Given pane `%1` is `__pending__`, when `send-keys` has a Claude launch command with `--team-name my-team --agent-name writer`, then the "Team: my-team" group is resolved (created or reused), the lead session is moved into it, a session titled "writer" is created with the command, and the pane map is updated
 - Given a `--agent-name` flag is present, then session title is taken from `--agent-name` (preferred over any stashed `select-pane -T` title)
 - Given no `--agent-name` flag but a stashed title from an earlier `select-pane -T` on the same pane, then the stashed title is used
 - Given neither `--agent-name` nor a stashed title, then session title defaults to "teammate"
 - Given a stashed title exists for the pane, then it is popped from `pending-titles.json` whether or not it was used, so it cannot bleed into a later pane reuse
+
+### Team Group Placement
+
+The four cases below are evaluated in priority order — each Given assumes the
+earlier cases did not match — mirroring R4.1.
+
+**Acceptance Criteria**:
+- Given a group named "Team: {team_name}" already exists, when a teammate spawns, then that group is reused (not duplicated, not repositioned) and the lead is moved into it if not already there — including when the existing group sits at some position N, where it stays at N rather than moving to first
+- Given no same-name group exists and the lead is the only session in its (non-default) named group, when a team starts, then no new group is created — that group is reused as-is and the lead stays put
+- Given no same-name group exists and the lead is in a named group that has other sessions, when a team starts, then a new team group is created immediately after the lead's group and the lead is moved into it
+- Given no same-name group exists and the lead is in the default group, when a team starts, then a new team group is created as the first named group and the lead is moved into it
 
 ### Raw Input Forwarding
 

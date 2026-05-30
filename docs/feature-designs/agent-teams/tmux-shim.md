@@ -48,7 +48,18 @@ Three sentinel values: `__lead__` (orchestrator pane), `__pending__` (allocated 
 ### Teammate Creation (two-phase)
 
 1. `split-window -P` → allocate pane ID as `__pending__` in map → print ID
-2. `send-keys -t %N "cd /path && claude --team-name foo --agent-name writer" Enter` → detect Claude launch command → `create-group "Team: foo"` → `create-session` with title/argv/cwd → update map with real session UUID
+2. `send-keys -t %N "cd /path && claude --team-name foo --agent-name writer" Enter` → detect Claude launch command → `create-group "Team: foo"` (server resolves placement/reuse and moves the lead in — see below) → `create-session` with title/argv/cwd into the returned group → update map with real session UUID
+
+The shim passes `source_session_id` (the lead's `$SEEMUX_SESSION_ID`) on
+`create-group`. The server-side handler (`cmd_create_group`) runs a pure
+`resolve_team_group` decision in priority order — reuse same-name group → reuse
+the lead's group if the lead is alone there → create after the lead's populated
+named group → create as the first named group when the lead is in the default
+group — then unconditionally moves the lead into the resolved group (a no-op when
+it is already there). Because `create-group` is processed serially on the
+single-threaded GTK main thread, the per-teammate calls of one team converge on a
+single group without races. Reused groups are never repositioned; positioning
+applies only when a group is created (`GroupPlacement::First` / `After(id)`).
 
 ### Raw Input Forwarding
 
@@ -95,6 +106,25 @@ Three sentinel values: `__lead__` (orchestrator pane), `__pending__` (allocated 
 **Choice**: Check if `send-keys` text contains `"claude"` and `"--team-name"`.
 **Why**: No structured API from Agent Teams — raw command strings only.
 **Consequences**: Fragile to CLI flag renames. `extract_flag_from_command` strips backslashes for escaped values.
+
+### Team Group Placement and Sole-Session Reuse
+
+**Choice**: Position a newly created team group next to the lead session's group
+(first if the lead is in the default group, immediately after otherwise) via a
+`GroupPlacement` enum threaded into `Sidebar::add_group`. Decide create-vs-reuse
+with a pure `resolve_team_group` function in priority order: same-name group →
+lead-alone-in-group → after populated named group → first.
+**Why**: Keep the team visually adjacent to where the user was working, and avoid
+stacking redundant nested groups when the lead is already isolated. Extracting
+the decision as a pure function keeps it unit-testable without GTK.
+**Alternatives**: Always append (loses adjacency); always create a new group
+(duplicates groups on repeated teammate spawns and when the lead is already alone).
+**Consequences**: Placement is a creation-time-only concern — it is not persisted;
+restore replays groups in saved `Vec` order via `GroupPlacement::End`, which
+reproduces the final positions. Reuse never repositions an existing group.
+**Related**: The positioning reuses the `content.reorder_child_after` + `groups`
+Vec idiom established by [DES-009](../../design/DES-009-dnd-shared-state.md) for
+drag-and-drop group reordering.
 
 ## System Behavior
 

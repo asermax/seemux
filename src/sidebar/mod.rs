@@ -67,6 +67,17 @@ struct GroupEntry {
     name: String,
 }
 
+/// Where a newly registered group lands in the sidebar's group list.
+#[derive(Debug, PartialEq)]
+pub enum GroupPlacement {
+    /// Append after all existing groups (manual creation, session restore).
+    End,
+    /// Insert as the first named group (index 0).
+    First,
+    /// Insert immediately after the group with the given ID.
+    After(String),
+}
+
 impl Sidebar {
     pub fn new(scheme: &'static ColorScheme) -> Self {
         let container = GtkBox::new(Orientation::Vertical, 0);
@@ -881,7 +892,7 @@ impl Sidebar {
         self.new_group_btn.connect_clicked(move |_| f());
     }
 
-    pub fn add_group(&self, id: &str, name: &str) {
+    pub fn add_group(&self, id: &str, name: &str, placement: GroupPlacement) {
         let group_widget = TabGroupWidget::new(id, name);
         group_widget.setup_context_menu(id);
         group_widget.setup_drag_source(self.dragging_group_id.clone());
@@ -931,12 +942,41 @@ impl Sidebar {
         self.setup_list_fallback_drop_target(&group_widget.list_box, id);
         self.setup_header_drop_target(group_widget.header_widget(), id);
 
-        // Insert before the new_group_btn
+        // Append at the end first (keeping new_group_btn last), then reposition
+        // per `placement`. Mirrors the reorder idiom in setup_group_drop_target.
         self.content.remove(&self.new_group_btn);
         self.content.append(group_widget.widget());
         self.content.append(&self.new_group_btn);
 
-        self.groups.borrow_mut().push(GroupEntry {
+        // Resolve the Vec insertion index and the widget to reorder after, using
+        // short-lived borrows that are dropped before we mutate the maps below
+        // (RefCell would panic at runtime on an overlapping borrow_mut).
+        let (pos, reorder_after) = {
+            let groups = self.groups.borrow();
+
+            match placement {
+                GroupPlacement::End => (groups.len(), None),
+                GroupPlacement::First => (
+                    0,
+                    Some(self.groups_header.clone().upcast::<gtk4::Widget>()),
+                ),
+                GroupPlacement::After(ref gid) => match groups.iter().position(|g| g.id == *gid) {
+                    Some(i) => (
+                        i + 1,
+                        self.group_widgets.borrow().get(gid).map(|gw| gw.widget().clone()),
+                    ),
+                    // Defensive only — the team path builds `After` from a live
+                    // group id, so the target always exists. Fall back to append.
+                    None => (groups.len(), None),
+                },
+            }
+        };
+
+        if let Some(reference) = reorder_after {
+            self.content.reorder_child_after(group_widget.widget(), Some(&reference));
+        }
+
+        self.groups.borrow_mut().insert(pos, GroupEntry {
             id: id.to_string(),
             name: name.to_string(),
         });

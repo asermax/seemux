@@ -4,7 +4,7 @@ use std::rc::Rc;
 use crate::notifications::hook_server::CommandResponse;
 use crate::notifications::NotificationStore;
 use crate::session::manager::SessionManager;
-use crate::sidebar::Sidebar;
+use crate::sidebar::{GroupPlacement, Sidebar};
 
 pub(super) fn handle_command(
     command: &str,
@@ -25,6 +25,39 @@ pub(super) fn handle_command(
     }
 }
 
+/// Outcome of the team-group placement decision: reuse an existing group, or
+/// create a new one at the resolved sidebar position.
+#[derive(Debug, PartialEq)]
+enum GroupResolution {
+    Reuse(String),
+    Create(GroupPlacement),
+}
+
+/// Decide where a team group lands relative to the lead session's current group.
+/// Priority: existing same-name group (R4) → lead alone in a named group (R3) →
+/// lead in a populated named group (R2) → lead in default / no lead (R1).
+fn resolve_team_group(
+    existing_named: Option<String>,
+    lead_group: Option<String>,
+    lead_group_is_default: bool,
+    lead_group_tab_count: usize,
+) -> GroupResolution {
+    if let Some(gid) = existing_named {
+        return GroupResolution::Reuse(gid);
+    }
+
+    match lead_group {
+        Some(gid) if !lead_group_is_default => {
+            if lead_group_tab_count <= 1 {
+                GroupResolution::Reuse(gid)
+            } else {
+                GroupResolution::Create(GroupPlacement::After(gid))
+            }
+        }
+        _ => GroupResolution::Create(GroupPlacement::First),
+    }
+}
+
 fn cmd_create_group(
     request_id: &str,
     params: &serde_json::Value,
@@ -38,21 +71,29 @@ fn cmd_create_group(
 
     let source_session_id = params.get("source_session_id").and_then(|v| v.as_str());
 
-    // If the source session is already in a non-default group, use that group directly
-    if let Some(sid) = source_session_id {
-        let mgr = manager.borrow();
+    let lead_group = source_session_id
+        .and_then(|sid| manager.borrow().session_group_id(sid).map(|g| g.to_string()));
 
-        if let Some(gid) = mgr.session_group_id(sid)
-            && gid != crate::session::DEFAULT_GROUP {
-                let gid = gid.to_string();
-                return ok_response(request_id, serde_json::json!({ "group_id": gid }));
-            }
-    }
+    let lead_group_is_default = lead_group.as_deref()
+        .is_none_or(|g| g == crate::session::DEFAULT_GROUP);
 
-    // Find existing group by name or create a new one
-    let group_id = sidebar.find_group_by_name(name)
-        .unwrap_or_else(|| crate::app::create_group_programmatic(name, sidebar, manager, notification_store));
+    let lead_group_tab_count = lead_group.as_deref()
+        .map(|g| sidebar.tab_count_in_group(g))
+        .unwrap_or(0);
 
+    let group_id = match resolve_team_group(
+        sidebar.find_group_by_name(name),
+        lead_group,
+        lead_group_is_default,
+        lead_group_tab_count,
+    ) {
+        GroupResolution::Reuse(gid) => gid,
+        GroupResolution::Create(placement) => {
+            crate::app::create_group_programmatic(name, placement, sidebar, manager, notification_store)
+        }
+    };
+
+    // No-op when the lead already sits in the target group (R3, or R4 re-entry).
     if let Some(sid) = source_session_id {
         manager.borrow_mut().move_session_to_group(sid, &group_id);
     }
@@ -177,5 +218,49 @@ fn error_response(request_id: &str, message: &str) -> CommandResponse {
         request_id: request_id.to_string(),
         status: "error".to_string(),
         data: serde_json::json!({ "error": message }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn r4_reuses_existing_named_group_over_everything() {
+        // Existing same-name group wins even when the lead is in a populated group.
+        let resolution = resolve_team_group(
+            Some("team-foo".to_string()),
+            Some("backend".to_string()),
+            false,
+            5,
+        );
+        assert_eq!(resolution, GroupResolution::Reuse("team-foo".to_string()));
+    }
+
+    #[test]
+    fn r3_reuses_group_when_lead_is_alone() {
+        let resolution = resolve_team_group(None, Some("backend".to_string()), false, 1);
+        assert_eq!(resolution, GroupResolution::Reuse("backend".to_string()));
+    }
+
+    #[test]
+    fn r2_creates_after_populated_named_group() {
+        let resolution = resolve_team_group(None, Some("backend".to_string()), false, 3);
+        assert_eq!(
+            resolution,
+            GroupResolution::Create(GroupPlacement::After("backend".to_string())),
+        );
+    }
+
+    #[test]
+    fn r1_creates_first_when_lead_in_default_group() {
+        let resolution = resolve_team_group(None, Some("default".to_string()), true, 4);
+        assert_eq!(resolution, GroupResolution::Create(GroupPlacement::First));
+    }
+
+    #[test]
+    fn r1_creates_first_when_no_lead() {
+        let resolution = resolve_team_group(None, None, true, 0);
+        assert_eq!(resolution, GroupResolution::Create(GroupPlacement::First));
     }
 }

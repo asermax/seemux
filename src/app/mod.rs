@@ -21,7 +21,7 @@ use crate::config::SessionState;
 use crate::notifications::NotificationStore;
 use crate::persistence::StatePersistence;
 use crate::session::manager::{self, SessionManager};
-use crate::sidebar::Sidebar;
+use crate::sidebar::{GroupPlacement, Sidebar};
 use crate::sidebar::collapsed_bar::COLLAPSED_WIDTH;
 use crate::tray::TrayHandle;
 
@@ -609,7 +609,7 @@ fn restore_sessions(
     let saved_state = SessionState::load();
 
     for group in &saved_state.groups {
-        register_group(&group.id, &group.name, sidebar, manager, notification_store);
+        register_group(&group.id, &group.name, GroupPlacement::End, sidebar, manager, notification_store);
 
         if group.collapsed {
             sidebar.collapse_group(&group.id);
@@ -705,7 +705,7 @@ fn make_create_group_action(
 
         let mgr_for_overlay = mgr.clone();
         dialogs::show_new_group_overlay(&overlay, &mgr_for_overlay, move |name| {
-            let group_id = create_group_programmatic(&name, &sid, &mgr, &notif);
+            let group_id = create_group_programmatic(&name, GroupPlacement::End, &sid, &mgr, &notif);
 
             let first_id = mgr.borrow_mut().create_session_in_group(None, None, &group_id);
             wire_tab_lifecycle(&sid, &mgr, &notif, &first_id);
@@ -723,12 +723,13 @@ pub(crate) fn refocus_terminal(manager: &Rc<RefCell<SessionManager>>) {
 /// Wires the group's "new tab" button and returns the group ID.
 pub(crate) fn create_group_programmatic(
     name: &str,
+    placement: GroupPlacement,
     sidebar: &Rc<Sidebar>,
     manager: &Rc<RefCell<SessionManager>>,
     notification_store: &Rc<RefCell<NotificationStore>>,
 ) -> String {
     let group_id = uuid::Uuid::new_v4().to_string();
-    register_group(&group_id, name, sidebar, manager, notification_store);
+    register_group(&group_id, name, placement, sidebar, manager, notification_store);
     group_id
 }
 
@@ -737,11 +738,12 @@ pub(crate) fn create_group_programmatic(
 fn register_group(
     group_id: &str,
     name: &str,
+    placement: GroupPlacement,
     sidebar: &Rc<Sidebar>,
     manager: &Rc<RefCell<SessionManager>>,
     notification_store: &Rc<RefCell<NotificationStore>>,
 ) {
-    sidebar.add_group(group_id, name);
+    sidebar.add_group(group_id, name, placement);
 
     let mgr = manager.clone();
     let sid = sidebar.clone();
