@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.8.0 (2026-05-30)
+
+### Features
+
+- **agent-teams**: Position team group next to lead session's group
+  ([`2e8a168`](https://github.com/asermax/seemux/commit/2e8a1687ea114218efd8ece26498ed2f42ba87b4))
+
+
 ## v1.7.1 (2026-05-28)
 
 ### Bug Fixes
