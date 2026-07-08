@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.8.1 (2026-07-08)
+
+### Bug Fixes
+
+- **hooks**: Apply agent_provider independent of pid presence
+  ([`193e8a3`](https://github.com/asermax/seemux/commit/193e8a3c54b84a52c148f68bd86857accacfe298))
+
+
 ## v1.8.0 (2026-05-30)
 
 ### Features
