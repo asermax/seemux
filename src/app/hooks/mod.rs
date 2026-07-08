@@ -105,9 +105,13 @@ pub(crate) fn setup_hook_polling(
                         );
                     }
 
+                    if let Some(provider) = result.agent_provider {
+                        mgr_for_hooks.borrow_mut().set_agent_provider(&result.session_id, Some(provider));
+                    }
+
                     if let Some(pid) = result.agent_pid {
                         let pid_val = if pid == 0 { None } else { Some(pid) };
-                        mgr_for_hooks.borrow_mut().set_agent_pid(&result.session_id, pid_val, result.agent_provider.clone());
+                        mgr_for_hooks.borrow_mut().set_agent_pid(&result.session_id, pid_val);
 
                         // session-end clears the agent binary name
                         if pid == 0 {
@@ -177,7 +181,7 @@ pub(crate) fn setup_stale_pid_detection(manager: &Rc<RefCell<SessionManager>>) {
 
             if !alive {
                 let mut mgr = mgr_for_pid.borrow_mut();
-                mgr.set_agent_pid(&session_id, None, None);
+                mgr.set_agent_pid(&session_id, None);
                 mgr.set_agent_session_id(&session_id, None);
                 mgr.set_agent_binary(&session_id, None);
                 mgr.update_session_status(&session_id, SessionStatus::Idle);

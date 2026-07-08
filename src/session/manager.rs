@@ -730,12 +730,16 @@ impl SessionManager {
         }
     }
 
-    pub fn set_agent_pid(&mut self, session_id: &str, pid: Option<u32>, provider: Option<String>) {
+    pub fn set_agent_pid(&mut self, session_id: &str, pid: Option<u32>) {
         if let Some(session) = self.find_session_mut(session_id) {
             session.agent_pid = pid;
-            if pid.is_some() {
-                session.agent_provider = provider;
-            }
+        }
+    }
+
+    pub fn set_agent_provider(&mut self, session_id: &str, provider: Option<String>) {
+        if let Some(session) = self.find_session_mut(session_id) {
+            session.agent_provider = provider;
+            self.notify_state_changed();
         }
     }
 

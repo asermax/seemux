@@ -237,6 +237,23 @@ mod tests {
     }
 
     #[test]
+    fn handle_session_start_reports_provider_without_pid() {
+        // Claude Code's real SessionStart hook payload carries no `pid` field — only the
+        // `pi` provider's extension supplies one via `process.pid`. Regression test for a bug
+        // where the consumer only applied `agent_provider` inside the `pid.is_some()` branch,
+        // silently discarding it for every real claude session and leaving a stale provider
+        // (e.g. "pi") in place indefinitely.
+        let result = handle_hook_event(make_event(
+            "agent.session.started",
+            serde_json::json!({"provider": "claude", "binary": "claude", "session_id": "claude-xyz"}),
+        ));
+
+        assert_eq!(result.agent_pid, None);
+        assert_eq!(result.agent_provider, Some("claude".to_string()));
+        assert_eq!(result.agent_session_id, Some(Some("claude-xyz".to_string())));
+    }
+
+    #[test]
     fn handle_prompt_submit() {
         let result = handle_hook_event(make_event("agent.prompt.submitted", serde_json::json!({})));
 
